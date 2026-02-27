@@ -154,20 +154,23 @@ class SongCardWidget(QFrame):
             card_config = {
                 "background": "#FFFFFF",
                 "background_hover": "#d0ebf0",
+                "border": "#76e8fd",
                 "font_color": "#000000"
             }
         
         bg = card_config.get("background", "#FFFFFF")
         bg_hover = card_config.get("background_hover", "#d0ebf0")
+        border = card_config.get("border", "#76e8fd")
         
         return f"""
             QFrame {{
                 background-color: {bg};
-                border: none;
+                border: 0px solid {border};
                 border-radius: 16px;
             }}
             QFrame:hover {{
                 background-color: {bg_hover};
+                border: 4px solid {border};
             }}
         """
     
@@ -200,7 +203,7 @@ class SongCardWidget(QFrame):
         # 基础尺寸（1.0时的值）
         base_width = 200
         base_height = 280
-        base_cover_size = 170
+        base_cover_size = 175
         
         # 应用 card_size 缩放
         width = int(base_width * self.card_size)
@@ -239,7 +242,7 @@ class SongCardWidget(QFrame):
         # 添加右下角阴影
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(int(15 * self.card_size))
-        shadow.setOffset(int(10 * self.card_size), int(10 * self.card_size))
+        shadow.setOffset(int(5 * self.card_size), int(5 * self.card_size))
         shadow.setColor(QColor(0, 0, 0, 80))  # 半透明黑色
         self.cover_label.setGraphicsEffect(shadow)
         
@@ -529,7 +532,10 @@ class DiscoverOverlay(QMainWindow):
         self._display_songs()
         
     def _get_loading_style(self):
-        """获取加载中卡片的样式"""
+        """获取加载中小长方形的样式"""
+        # 获取卡片尺寸设置
+        card_size = self.gui_setting.card_size if self.gui_setting else 1.0
+        
         if self.gui_setting:
             if self.gui_setting.night_mode:
                 card_config = self.gui_setting.card_night_mode
@@ -538,20 +544,19 @@ class DiscoverOverlay(QMainWindow):
         else:
             card_config = {
                 "background": "#FFFFFF",
-                "border": "#76e8fd",
                 "font_color": "#000000"
             }
         
         bg = card_config.get("background", "#FFFFFF")
-        border = card_config.get("border", "#76e8fd")
+        font_color = card_config.get("font_color", "#000000")
         
-        return f"""
-            QFrame {{
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 16px;
-            }}
-        """
+        # 基础尺寸，随 card_size 缩放
+        width = int(100 * card_size)
+        height = int(40 * card_size)
+        radius = int(8 * card_size)
+        font_size = int(12 * card_size)
+        
+        return bg, font_color, width, height, radius, font_size
     
     def _display_loading(self):
         """显示加载中状态"""
@@ -560,49 +565,35 @@ class DiscoverOverlay(QMainWindow):
             item = self.song_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-                
-        # 创建加载中卡片容器 - 匹配新卡片高度 280
+        
+        # 获取加载中样式配置
+        bg, font_color, width, height, radius, font_size = self._get_loading_style()
+        
+        # 创建小长方形加载中容器
         loading_card = QFrame()
-        loading_card.setFixedSize(200, 280)
+        loading_card.setFixedSize(width, height)
         loading_card.setFrameStyle(QFrame.Shape.NoFrame)
-        loading_card.setStyleSheet(self._get_loading_style())
-        
-        # 加载中内容布局 - 增加间距
-        layout = QVBoxLayout(loading_card)
-        layout.setSpacing(12)
-        layout.setContentsMargins(15, 15, 15, 15)
-        
-        # 获取字体颜色
-        font_color = self._get_font_color_for_label()
-        
-        # 加载中封面占位
-        cover_label = QLabel()
-        cover_label.setFixedSize(170, 170)
-        cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        cover_label.setStyleSheet("""
-            background-color: rgba(250, 250, 250, 0.3);
-            border-radius: 12px;
+        loading_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bg};
+                border: none;
+                border-radius: {radius}px;
+            }}
         """)
-        layout.addWidget(cover_label)
         
         # 加载中文字
         loading_label = QLabel("加载中...")
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         font = QFont()
         font.setBold(True)
-        font.setPointSize(11)
+        font.setPointSize(font_size)
         loading_label.setFont(font)
         loading_label.setStyleSheet(f"color: {font_color}; background-color: transparent;")
-        layout.addWidget(loading_label)
         
-        # 占位艺术家文字
-        artist_label = QLabel("...")
-        artist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font_small = QFont()
-        font_small.setPointSize(9)
-        artist_label.setFont(font_small)
-        artist_label.setStyleSheet(f"color: {font_color}; background-color: transparent; opacity: 0.7;")
-        layout.addWidget(artist_label)
+        # 使用水平布局居中
+        layout = QHBoxLayout(loading_card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(loading_label)
         
         self.song_layout.addWidget(loading_card, 0, 0)
         
