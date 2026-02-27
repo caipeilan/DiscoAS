@@ -17,8 +17,10 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QFrame, QGridLayout,
     QMenu, QSystemTrayIcon
 )
-from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject
+from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
+from PyQt6.QtCore import QUrl
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
@@ -29,38 +31,41 @@ _tray_icon = None
 _shortcut_enabled = True
 _hotkey_id = None
 _shortcut_action = None  # 托盘菜单中的快捷键开关项
+_network_manager = None  # 全局网络管理器
 
 
-class ImageLoaderThread(QThread):
-    """图片异步加载线程"""
-    image_loaded = pyqtSignal(str, QImage)
+class ImageLoader(QObject):
+    """使用QNetworkAccessManager异步加载图片"""
+    image_loaded = pyqtSignal(str, QPixmap)
     load_failed = pyqtSignal(str)
     
     def __init__(self, url: str, parent=None):
         super().__init__(parent)
         self.url = url
+        self.reply = None
         
-    def run(self):
-        try:
-            # 延迟防止线程冲突
-            time.sleep(0.05)
-            
-            from urllib.request import urlopen
-            from PIL import Image
-            import io
-            
-            with urlopen(self.url, timeout=10) as response:
-                data = response.read()
-                
-            img = Image.open(io.BytesIO(data))
-            img = img.convert("RGBA")
-            img_data = img.tobytes("raw", "RGBA")
-            qimage = QImage(img_data, img.width, img.height, QImage.Format.Format_RGBA8888)
-            
-            self.image_loaded.emit(self.url, qimage)
-            
-        except Exception as e:
-            self.load_failed.emit(self.url)
+    def load(self):
+        global _network_manager
+        if _network_manager is None:
+            _network_manager = QNetworkAccessManager()
+        
+        request = QNetworkRequest(QUrl(self.url))
+        self.reply = _network_manager.get(request)
+        self.reply.finished.connect(self._on_finished)
+        
+    def _on_finished(self):
+        if self.reply:
+            if self.reply.error() == 0:
+                data = self.reply.readAll()
+                pixmap = QPixmap()
+                if pixmap.loadFromData(data):
+                    self.image_loaded.emit(self.url, pixmap)
+                else:
+                    self.load_failed.emit(self.url)
+            else:
+                self.load_failed.emit(self.url)
+            self.reply.deleteLater()
+            self.reply = None
 
 
 class SongCardWidget(QFrame):
@@ -73,8 +78,9 @@ class SongCardWidget(QFrame):
         self.song_card = song_card
         self.index = index
         self.image_loaded = False
-        self.current_image: Optional[QImage] = None
+        self.current_pixmap: Optional[QPixmap] = None
         self.gui_setting = gui_setting
+        self.image_loader = None
         
         self._setup_ui()
         self._load_cover_image()
@@ -99,7 +105,6 @@ class SongCardWidget(QFrame):
         bg = card_config.get("background", "#FFFFFF")
         bg_hover = card_config.get("background_hover", "#d0ebf0")
         border = card_config.get("border", "#76e8fd")
-        font_color = card_config.get("font_color", "#000000")
         
         return f"""
             QFrame {{
@@ -153,13 +158,18 @@ class SongCardWidget(QFrame):
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(170, 170)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_label.setStyleSheet(f"""
+        # 强制设置透明背景
+        self.cover_label.setAutoFillBackground(False)
+        palette = self.cover_label.palette()
+        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
+        self.cover_label.setPalette(palette)
+        self.cover_label.setStyleSheet("""
             background-color: rgba(200, 200, 200, 0.3);
             border-radius: 12px;
         """)
         layout.addWidget(self.cover_label)
         
-        # 歌曲名 - 无边框
+        # 歌曲名 - 无边框，强制透明背景
         self.name_label = QLabel(self.song_card.get_name())
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label.setWordWrap(True)
@@ -167,10 +177,15 @@ class SongCardWidget(QFrame):
         font.setBold(True)
         font.setPointSize(11)
         self.name_label.setFont(font)
-        self.name_label.setStyleSheet(f"color: {font_color}; background: transparent;")
+        # 强制设置透明背景
+        self.name_label.setAutoFillBackground(False)
+        palette = self.name_label.palette()
+        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
+        self.name_label.setPalette(palette)
+        self.name_label.setStyleSheet(f"color: {font_color}; background-color: transparent;")
         layout.addWidget(self.name_label)
         
-        # 艺术家 - 无边框
+        # 艺术家 - 无边框，强制透明背景
         artist_names = self.song_card.get_artist_names()
         secondary_color = self._get_secondary_font_color()
         self.artist_label = QLabel("/".join(artist_names))
@@ -179,7 +194,12 @@ class SongCardWidget(QFrame):
         font_small = QFont()
         font_small.setPointSize(9)
         self.artist_label.setFont(font_small)
-        self.artist_label.setStyleSheet(f"color: {secondary_color}; background: transparent;")
+        # 强制设置透明背景
+        self.artist_label.setAutoFillBackground(False)
+        palette = self.artist_label.palette()
+        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
+        self.artist_label.setPalette(palette)
+        self.artist_label.setStyleSheet(f"color: {secondary_color}; background-color: transparent;")
         layout.addWidget(self.artist_label)
         
         # 样式 - 应用配置
@@ -191,21 +211,28 @@ class SongCardWidget(QFrame):
         """异步加载封面图"""
         url = self.song_card.get_album_pic_url()
         
-        self.loader = ImageLoaderThread(url, self)
-        self.loader.image_loaded.connect(self._on_image_loaded)
-        self.loader.start()
+        self.image_loader = ImageLoader(url, self)
+        self.image_loader.image_loaded.connect(self._on_image_loaded)
+        self.image_loader.load_failed.connect(self._on_load_failed)
         
-    def _on_image_loaded(self, url: str, image: QImage):
+        # 延迟加载
+        QTimer.singleShot(50, self.image_loader.load)
+        
+    def _on_image_loaded(self, url: str, pixmap: QPixmap):
         """图片加载完成"""
         if url == self.song_card.get_album_pic_url():
-            self.current_image = image
-            pixmap = QPixmap.fromImage(image).scaled(
+            self.current_pixmap = pixmap
+            scaled = pixmap.scaled(
                 170, 170, 
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
-            self.cover_label.setPixmap(pixmap)
+            self.cover_label.setPixmap(scaled)
             self.image_loaded = True
+            
+    def _on_load_failed(self, url: str):
+        """图片加载失败"""
+        print(f"图片加载失败: {url}")
             
     def mousePressEvent(self, event):
         """鼠标点击事件"""
@@ -225,6 +252,7 @@ class DiscoverOverlay(QMainWindow):
         self.discover_app = discover_app
         self.songs: List = []
         self.next_songs: List = []  # 缓存下一批歌曲
+        self.load_thread = None
         
         # 获取GUI设置
         self.gui_setting = discover_app.gui_setting
@@ -352,30 +380,28 @@ class DiscoverOverlay(QMainWindow):
         # 显示加载状态
         self._display_loading()
         
+        # 使用保守的线程管理：确保上一个线程完成后再启动新线程
+        if self.load_thread and self.load_thread.is_alive():
+            return
+            
         # 后台线程加载
-        thread = threading.Thread(target=self._load_songs_async)
-        thread.start()
+        self.load_thread = threading.Thread(target=self._load_songs_async, daemon=True)
+        self.load_thread.start()
         
     def _load_songs_async(self):
         """异步加载歌曲"""
         try:
-            # 延迟防止线程冲突
-            time.sleep(0.05)
-            
             # 加载显示用歌曲
             self.songs = self.discover_app.discover_songs()
-            
-            # 延迟
-            time.sleep(0.05)
             
             # 加载下一批缓存
             self.next_songs = self.discover_app.discover_songs()
             
-            # 发送信号更新UI
-            self.songs_loaded.emit(self.songs)
+            # 使用信号槽更新UI
+            QTimer.singleShot(0, lambda: self.songs_loaded.emit(self.songs))
         except Exception as e:
             print(f"加载歌曲失败: {e}")
-            self.songs_loaded.emit([])
+            QTimer.singleShot(0, lambda: self.songs_loaded.emit([]))
             
     def _on_songs_loaded(self, songs):
         """歌曲加载完成回调"""
@@ -393,7 +419,12 @@ class DiscoverOverlay(QMainWindow):
         # 显示简单加载提示
         font_color = self._get_font_color_for_label()
         loading_label = QLabel("加载中...")
-        loading_label.setStyleSheet(f"color: {font_color}; font-size: 18px; background: transparent;")
+        # 强制透明背景
+        loading_label.setAutoFillBackground(False)
+        palette = loading_label.palette()
+        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
+        loading_label.setPalette(palette)
+        loading_label.setStyleSheet(f"color: {font_color}; font-size: 18px; background-color: transparent;")
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.song_layout.addWidget(loading_label, 0, 0)
         
@@ -432,31 +463,11 @@ class DiscoverOverlay(QMainWindow):
         # 播放
         self.discover_app.play_song(song_card)
         
-        # 立即预加载下一批（后台）
-        self._preload_next_batch()
-        
         # 延迟隐藏窗口
         QTimer.singleShot(500, self._on_close)
         
-    def _preload_next_batch(self):
-        """预加载下一批歌曲"""
-        thread = threading.Thread(target=self._preload_next_async)
-        thread.start()
-        
-    def _preload_next_async(self):
-        """异步预加载下一批"""
-        try:
-            # 延迟防止线程冲突
-            time.sleep(0.05)
-            
-            self.next_songs = self.discover_app.discover_songs()
-        except Exception as e:
-            print(f"预加载失败: {e}")
-            
     def _on_close(self):
         """关闭/退出时触发"""
-        # 预加载下一批（这样下次打开会更快）
-        self._preload_next_async()
         self.hide()
 
 
@@ -465,9 +476,6 @@ def create_tray_icon(app, discover_app):
     global _tray_icon, _main_window, _shortcut_enabled, _shortcut_action
     
     _main_window = discover_app
-    
-    # 延迟防止线程冲突
-    time.sleep(0.05)
     
     # 创建托盘图标
     tray = QSystemTrayIcon()
@@ -540,8 +548,6 @@ def toggle_shortcut(app, discover_app):
         # 重新注册快捷键
         try:
             import keyboard
-            # 延迟防止线程冲突
-            time.sleep(0.05)
             shortcut = discover_app.music_setting.shortcut_key
             keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
             print(f"快捷键已启用: {shortcut}")
@@ -573,9 +579,6 @@ def toggle_shortcut(app, discover_app):
 def show_overlay(app, discover_app):
     """显示全屏浮窗"""
     global _main_window
-    
-    # 延迟防止线程冲突
-    time.sleep(0.05)
     
     # 每次都创建新窗口，确保全新的歌曲列表
     _main_window = DiscoverOverlay(discover_app)
@@ -622,8 +625,6 @@ def register_global_shortcut(app, discover_app, shortcut="Alt+D"):
     """注册全局快捷键"""
     try:
         import keyboard
-        # 延迟防止线程冲突
-        time.sleep(0.05)
         keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
         print(f"全局快捷键已注册: {shortcut}")
     except ImportError:
@@ -645,14 +646,8 @@ def run_gui():
     # 创建应用实例
     discover_app = DiscoverApp()
     
-    # 延迟防止线程冲突
-    time.sleep(0.05)
-    
     # 创建托盘
     create_tray_icon(app, discover_app)
-    
-    # 延迟
-    time.sleep(0.05)
     
     # 注册全局快捷键
     try:
