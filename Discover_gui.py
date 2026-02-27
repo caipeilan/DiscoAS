@@ -26,6 +26,8 @@ sys.path.append(os.path.dirname(__file__))
 # 全局引用，用于托盘控制
 _main_window = None
 _tray_icon = None
+_shortcut_enabled = True
+_hotkey_id = None
 
 
 class ImageLoaderThread(QThread):
@@ -168,6 +170,9 @@ class DiscoverOverlay(QMainWindow):
         
         self._setup_ui()
         self._apply_style()
+        
+        # 自动加载歌曲
+        self._on_refresh_clicked()
         
     def _setup_ui(self):
         """设置UI"""
@@ -375,7 +380,7 @@ class DiscoverOverlay(QMainWindow):
 
 def create_tray_icon(app, discover_app):
     """创建系统托盘"""
-    global _tray_icon, _main_window
+    global _tray_icon, _main_window, _shortcut_enabled
     
     _main_window = discover_app
     
@@ -416,6 +421,13 @@ def create_tray_icon(app, discover_app):
     
     menu.addSeparator()
     
+    # 暂停/启用快捷键
+    self.shortcut_action = QAction("⏸️ 暂停快捷键", menu)
+    self.shortcut_action.triggered.connect(lambda: toggle_shortcut(app, discover_app))
+    menu.addAction(self.shortcut_action)
+    
+    menu.addSeparator()
+    
     # 退出
     quit_action = QAction("❌ 退出", menu)
     quit_action.triggered.connect(app.quit)
@@ -432,6 +444,44 @@ def create_tray_icon(app, discover_app):
     _tray_icon = tray
     
     return tray
+
+
+def toggle_shortcut(app, discover_app):
+    """切换快捷键启用状态"""
+    global _shortcut_enabled, _hotkey_id
+    
+    _shortcut_enabled = not _shortcut_enabled
+    
+    if _shortcut_enabled:
+        # 重新注册快捷键
+        try:
+            import keyboard
+            shortcut = discover_app.music_setting.shortcut_key
+            keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
+            print(f"快捷键已启用: {shortcut}")
+        except Exception as e:
+            print(f"启用快捷键失败: {e}")
+    else:
+        # 移除快捷键
+        try:
+            import keyboard
+            keyboard.unhook_all()
+            print("快捷键已暂停")
+        except Exception as e:
+            print(f"暂停快捷键失败: {e}")
+    
+    # 更新托盘菜单文字
+    if _tray_icon:
+        menu = _tray_icon.contextMenu()
+        if menu:
+            # 找到快捷键动作并更新
+            for action in menu.actions():
+                if "暂停" in action.text() or "启用" in action.text():
+                    if _shortcut_enabled:
+                        action.setText("⏸️ 暂停快捷键")
+                    else:
+                        action.setText("▶️ 启用快捷键")
+                    break
 
 
 def show_overlay(app, discover_app):
