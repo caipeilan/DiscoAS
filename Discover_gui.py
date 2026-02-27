@@ -263,7 +263,7 @@ class SongCardWidget(QFrame):
         self.name_label.setWordWrap(True)
         font = QFont()
         font.setBold(True)
-        font.setPointSize(int(10 * self.card_size))  # 从 11 改为随 card_size 缩放
+        font.setPointSize(int(9 * self.card_size))  # 从 11 改为随 card_size 缩放
         self.name_label.setFont(font)
         # 强制设置透明背景
         self.name_label.setAutoFillBackground(False)
@@ -280,7 +280,7 @@ class SongCardWidget(QFrame):
         self.artist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.artist_label.setWordWrap(True)
         font_small = QFont()
-        font_small.setPointSize(int(8 * self.card_size))  # 从 9 改为随 card_size 缩放
+        font_small.setPointSize(int(7 * self.card_size))  # 从 9 改为随 card_size 缩放
         self.artist_label.setFont(font_small)
         # 强制设置透明背景
         self.artist_label.setAutoFillBackground(False)
@@ -968,20 +968,34 @@ class ShortcutSignalEmitter(QObject):
 # 全局信号发射器
 _shortcut_emitter = None
 
+# 保存快捷键回调和keyboard句柄，用于重新注册
+_shortcut_callback = None
+_keyboard_handle = None
+_current_shortcut = "alt+d"
+
 
 def register_global_shortcut(app, discover_app, shortcut="alt+d"):
     """注册全局快捷键 - 使用keyboard库"""
     global _shortcut_enabled, _global_app_ref, _global_discover_app_ref, _shortcut_emitter, _shortcut_parent, _shortcut_widget
+    global _shortcut_callback, _keyboard_handle, _current_shortcut
     
     # 保存全局引用
     _global_app_ref = app
     _global_discover_app_ref = discover_app
+    _current_shortcut = shortcut
     
     # 创建信号发射器（在主线程中创建）
     _shortcut_emitter = ShortcutSignalEmitter()
     
     try:
         import keyboard
+        
+        # 先移除旧的快捷键（如果存在）
+        if _keyboard_handle is not None:
+            try:
+                keyboard.remove_hotkey(_keyboard_handle)
+            except:
+                pass
         
         def on_shortcut():
             if _shortcut_enabled:
@@ -990,8 +1004,9 @@ def register_global_shortcut(app, discover_app, shortcut="alt+d"):
                 # PyQt 信号发射是线程安全的
                 _shortcut_emitter.shortcut_triggered.emit()
         
+        _shortcut_callback = on_shortcut
         # 注册全局快捷键
-        keyboard.add_hotkey(shortcut, on_shortcut)
+        _keyboard_handle = keyboard.add_hotkey(shortcut, on_shortcut)
         print(f"全局快捷键已注册: {shortcut}")
     except Exception as e:
         print(f"注册全局快捷键失败: {e}")
@@ -1011,10 +1026,31 @@ def register_global_shortcut(app, discover_app, shortcut="alt+d"):
         _shortcut_parent.show()
         _shortcut_parent.hide()  # 立即隐藏但窗口仍然存在
         
+        # 删除旧的快捷键widget
+        if _shortcut_widget:
+            _shortcut_widget.deleteLater()
+        
         from PyQt6.QtGui import QKeySequence
-        _shortcut_widget = QShortcut(QKeySequence("Alt+D"), _shortcut_parent)
+        _shortcut_widget = QShortcut(QKeySequence(shortcut), _shortcut_parent)
         _shortcut_widget.activated.connect(lambda: show_overlay(app, discover_app))
-        print(f"PyQt全局快捷键已注册: Alt+D")
+        print(f"PyQt全局快捷键已注册: {shortcut}")
+
+
+def reregister_shortcut(app, discover_app):
+    """重新注册快捷键（当设置更改时调用）"""
+    global _current_shortcut
+    
+    # 重新加载设置获取最新快捷键
+    discover_app.music_setting.load()
+    new_shortcut = discover_app.music_setting.shortcut_key
+    
+    print(f"重新注册快捷键: {_current_shortcut} -> {new_shortcut}")
+    
+    # 只有当快捷键真正改变时才重新注册
+    if new_shortcut.lower() != _current_shortcut.lower():
+        register_global_shortcut(app, discover_app, new_shortcut)
+    else:
+        print("快捷键未改变，无需重新注册")
 
 
 def run_gui():

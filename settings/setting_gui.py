@@ -610,6 +610,11 @@ class SettingsWindow(QMainWindow):
                 if Discover_gui._global_discover_app:
                     Discover_gui._global_discover_app.gui_setting.load()
                 print("Discover 浮窗已刷新")
+            
+            # 重新注册快捷键
+            if Discover_gui._global_app and Discover_gui._global_discover_app:
+                Discover_gui.reregister_shortcut(Discover_gui._global_app, Discover_gui._global_discover_app)
+                print("快捷键已重新注册")
         except Exception as e:
             print(f"刷新浮窗失败: {e}")
 
