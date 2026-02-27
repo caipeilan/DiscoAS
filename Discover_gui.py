@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QMenu, QSystemTrayIcon
 )
 from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject, QPropertyAnimation, QEasingCurve
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PyQt6.QtCore import QUrl
 
@@ -33,39 +33,84 @@ _hotkey_id = None
 _shortcut_action = None  # 托盘菜单中的快捷键开关项
 _network_manager = None  # 全局网络管理器
 
+# 全局图片缓存 {url: bytes}
+_image_cache = {}
+
+# 全局 discover_app 实例，用于预加载
+_global_discover_app_instance = None
+
+# 预加载线程
+_preload_thread = None
+
+
+def preload_images_background(discover_app):
+    """在后台线程预加载图片"""
+    global _preload_thread
+    
+    if _preload_thread and _preload_thread.is_alive():
+        print("预加载线程已在运行中，跳过")
+        return
+    
+    def _preload():
+        import requests
+        try:
+            print("开始预加载图片...")
+            # 获取歌曲列表
+            songs = discover_app.discover_songs()
+            # 加载详情
+            for song in songs:
+                if not song.have_loaded:
+                    song.load_song_detail()
+            # 下载图片
+            count = 0
+            for song in songs:
+                url = song.get_album_pic_url()
+                if url and url not in _image_cache:
+                    try:
+                        response = requests.get(url, timeout=10)
+                        if response.status_code == 200:
+                            _image_cache[url] = response.content
+                            count += 1
+                    except:
+                        pass
+            print(f"预加载完成，新增 {count} 张图片，缓存共 {len(_image_cache)} 张")
+        except Exception as e:
+            print(f"预加载失败: {e}")
+    
+    _preload_thread = threading.Thread(target=_preload, daemon=True)
+    _preload_thread.start()
+
 
 class ImageLoader(QObject):
-    """使用QNetworkAccessManager异步加载图片"""
+    """使用requests异步加载图片"""
     image_loaded = pyqtSignal(str, QPixmap)
     load_failed = pyqtSignal(str)
     
     def __init__(self, url: str, parent=None):
         super().__init__(parent)
         self.url = url
-        self.reply = None
+        self._thread = None
         
     def load(self):
-        global _network_manager
-        if _network_manager is None:
-            _network_manager = QNetworkAccessManager()
+        # 使用线程加载图片
+        self._thread = threading.Thread(target=self._load_image, daemon=True)
+        self._thread.start()
         
-        request = QNetworkRequest(QUrl(self.url))
-        self.reply = _network_manager.get(request)
-        self.reply.finished.connect(self._on_finished)
-        
-    def _on_finished(self):
-        if self.reply:
-            if self.reply.error() == 0:
-                data = self.reply.readAll()
+    def _load_image(self):
+        import requests
+        try:
+            response = requests.get(self.url, timeout=10)
+            if response.status_code == 200:
                 pixmap = QPixmap()
-                if pixmap.loadFromData(data):
+                if pixmap.loadFromData(response.content):
                     self.image_loaded.emit(self.url, pixmap)
                 else:
                     self.load_failed.emit(self.url)
             else:
                 self.load_failed.emit(self.url)
-            self.reply.deleteLater()
-            self.reply = None
+        except Exception as e:
+            print(f"图片加载异常: {self.url} - {e}")
+            self.load_failed.emit(self.url)
 
 
 class SongCardWidget(QFrame):
@@ -73,7 +118,7 @@ class SongCardWidget(QFrame):
     
     play_requested = pyqtSignal(object)  # 发送歌曲对象
     
-    def __init__(self, song_card, index: int, gui_setting=None, parent=None):
+    def __init__(self, song_card, index: int, gui_setting=None, preloaded_pixmap=None, parent=None, card_size=1.0):
         super().__init__(parent)
         self.song_card = song_card
         self.index = index
@@ -81,9 +126,23 @@ class SongCardWidget(QFrame):
         self.current_pixmap: Optional[QPixmap] = None
         self.gui_setting = gui_setting
         self.image_loader = None
+        self.card_size = card_size
         
         self._setup_ui()
-        self._load_cover_image()
+        
+        # 如果有预加载的图片，直接使用
+        if preloaded_pixmap:
+            self.current_pixmap = preloaded_pixmap
+            cover_size = int(170 * card_size)
+            scaled = preloaded_pixmap.scaled(
+                cover_size, cover_size, 
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.cover_label.setPixmap(scaled)
+            self.image_loaded = True
+        else:
+            self._load_cover_image()
         
     def _get_card_style(self):
         """获取卡片样式"""
@@ -144,28 +203,42 @@ class SongCardWidget(QFrame):
         
     def _setup_ui(self):
         """设置UI"""
-        self.setFixedSize(200, 260)
+        # 基础尺寸（1.0时的值）
+        base_width = 200
+        base_height = 280
+        base_cover_size = 170
+        
+        # 应用 card_size 缩放
+        width = int(base_width * self.card_size)
+        height = int(base_height * self.card_size)
+        cover_size = int(base_cover_size * self.card_size)
+        
+        self.setFixedSize(width, height)
         self.setFrameStyle(QFrame.Shape.NoFrame)
         
-        # 布局
+        # 布局 - 内部间距也按比例缩放
+        spacing = int(12 * self.card_size)
+        margin = int(15 * self.card_size)
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(spacing)
+        layout.setContentsMargins(margin, margin, margin, margin)
         
         font_color = self._get_font_color()
         
         # 封面
         self.cover_label = QLabel()
-        self.cover_label.setFixedSize(170, 170)
+        self.cover_label.setFixedSize(cover_size, cover_size)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         # 强制设置透明背景
         self.cover_label.setAutoFillBackground(False)
         palette = self.cover_label.palette()
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.cover_label.setPalette(palette)
-        self.cover_label.setStyleSheet("""
+        # 圆角也按比例缩放
+        radius = int(12 * self.card_size)
+        self.cover_label.setStyleSheet(f"""
             background-color: rgba(200, 200, 200, 0.3);
-            border-radius: 12px;
+            border-radius: {radius}px;
         """)
         layout.addWidget(self.cover_label)
         
@@ -222,8 +295,9 @@ class SongCardWidget(QFrame):
         """图片加载完成"""
         if url == self.song_card.get_album_pic_url():
             self.current_pixmap = pixmap
+            cover_size = int(170 * self.card_size)
             scaled = pixmap.scaled(
-                170, 170, 
+                cover_size, cover_size, 
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
@@ -247,6 +321,9 @@ class DiscoverOverlay(QMainWindow):
     # 自定义信号：歌曲加载完成
     songs_loaded = pyqtSignal(list)
     
+    # 窗口透明度属性
+    window_opacity = 1.0
+    
     def __init__(self, discover_app, parent=None):
         super().__init__(parent)
         self.discover_app = discover_app
@@ -256,6 +333,9 @@ class DiscoverOverlay(QMainWindow):
         
         # 获取GUI设置
         self.gui_setting = discover_app.gui_setting
+        
+        # 动画相关
+        self.fade_animation = None
         
         self._setup_ui()
         
@@ -273,6 +353,7 @@ class DiscoverOverlay(QMainWindow):
                 btn_config = self.gui_setting.cancel_button_night_mode
             else:
                 btn_config = self.gui_setting.cancel_button
+            cancel_btn_size = self.gui_setting.cancel_button_size
         else:
             # 默认配置
             btn_config = {
@@ -281,18 +362,23 @@ class DiscoverOverlay(QMainWindow):
                 "border": "#d6533e",
                 "font_color": "#000000"
             }
+            cancel_btn_size = 1.0
         
         bg = btn_config.get("background", "#FFFFFF")
         bg_hover = btn_config.get("background_hover", "#f5d5d0")
         font_color = btn_config.get("font_color", "#000000")
+        
+        # 圆角和字体大小也按比例缩放
+        radius = int(25 * cancel_btn_size)
+        font_size = int(20 * cancel_btn_size)
         
         return f"""
             QPushButton {{
                 background-color: {bg};
                 color: {font_color};
                 border: none;
-                border-radius: 25px;
-                font-size: 20px;
+                border-radius: {radius}px;
+                font-size: {font_size}px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
@@ -302,17 +388,15 @@ class DiscoverOverlay(QMainWindow):
         
     def _setup_ui(self):
         """设置极简UI"""
-        # 全屏无边框透明窗口
+        # 全屏无边框透明窗口 - 使用 FramelessWindowHint + WindowStaysOnTopHint
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         
-        # 全屏
-        self.showFullScreen()
+        # 不在这里调用 showFullScreen()，由 show_overlay 控制
         
         # 中央widget - 完全透明
         central = QWidget()
@@ -324,9 +408,10 @@ class DiscoverOverlay(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(50, 50, 50, 50)
         
-        # 右上角关闭按钮 - 应用配置
+        # 右上角关闭按钮 - 应用 cancel_button_size 配置
+        close_btn_size = int(50 * (self.gui_setting.cancel_button_size if self.gui_setting else 1.0))
         close_btn = QPushButton("✕")
-        close_btn.setFixedSize(50, 50)
+        close_btn.setFixedSize(close_btn_size, close_btn_size)
         close_btn.setStyleSheet(self._get_close_button_style())
         close_btn.clicked.connect(self._on_close)
         
@@ -364,7 +449,8 @@ class DiscoverOverlay(QMainWindow):
         self.song_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.song_container.setStyleSheet("background: transparent;")
         self.song_layout = QGridLayout(self.song_container)
-        self.song_layout.setSpacing(25)
+        # 增加间距到 45 (原 25 + 额外 20)
+        self.song_layout.setSpacing(45)
         
         scroll.setWidget(self.song_container)
         
@@ -394,6 +480,24 @@ class DiscoverOverlay(QMainWindow):
         self.load_thread = threading.Thread(target=self._load_songs_async, daemon=True)
         self.load_thread.start()
         
+    def _preload_images(self):
+        """预加载所有歌曲封面图片到缓存"""
+        import requests
+        
+        for song in self.songs:
+            url = song.get_album_pic_url()
+            print(f"图片URL: {url}")
+            if url and url not in _image_cache:
+                try:
+                    response = requests.get(url, timeout=10)
+                    if response.status_code == 200:
+                        _image_cache[url] = response.content
+                        print(f"预加载成功: {url[:50]}...")
+                except Exception as e:
+                    print(f"预加载失败: {url[:50]}... - {e}")
+        
+        print(f"预加载完成，共 {len(_image_cache)} 张图片")
+    
     def _load_songs_async(self):
         """异步加载歌曲"""
         try:
@@ -402,7 +506,12 @@ class DiscoverOverlay(QMainWindow):
             self.songs = self.discover_app.discover_songs()
             print(f"加载到 {len(self.songs)} 首歌曲")
             
-            # 加载下一批缓存
+            # 先加载歌曲详情（这样才能获取到图片URL）
+            for song in self.songs:
+                if not song.have_loaded:
+                    song.load_song_detail()
+            
+            # 加载下一批缓存（只加载歌曲，不下载图片）
             self.next_songs = self.discover_app.discover_songs()
             print("缓存加载完成")
             
@@ -453,15 +562,15 @@ class DiscoverOverlay(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
                 
-        # 创建加载中卡片容器
+        # 创建加载中卡片容器 - 匹配新卡片高度 280
         loading_card = QFrame()
-        loading_card.setFixedSize(200, 260)
+        loading_card.setFixedSize(200, 280)
         loading_card.setFrameStyle(QFrame.Shape.NoFrame)
         loading_card.setStyleSheet(self._get_loading_style())
         
-        # 加载中内容布局
+        # 加载中内容布局 - 增加间距
         layout = QVBoxLayout(loading_card)
-        layout.setSpacing(8)
+        layout.setSpacing(12)
         layout.setContentsMargins(15, 15, 15, 15)
         
         # 获取字体颜色
@@ -472,7 +581,7 @@ class DiscoverOverlay(QMainWindow):
         cover_label.setFixedSize(170, 170)
         cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cover_label.setStyleSheet("""
-            background-color: rgba(200, 200, 200, 0.3);
+            background-color: rgba(250, 250, 250, 0.3);
             border-radius: 12px;
         """)
         layout.addWidget(cover_label)
@@ -514,14 +623,33 @@ class DiscoverOverlay(QMainWindow):
             item = self.song_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        
+        # 等待预加载完成（最多等2秒）
+        if _preload_thread and _preload_thread.is_alive():
+            print("等待预加载完成...")
+            _preload_thread.join(timeout=2)
                 
         columns = 5
+        # 获取卡片尺寸设置
+        card_size = self.gui_setting.card_size if self.gui_setting else 1.0
+        
         for i, song in enumerate(self.songs):
             if not song.have_loaded:
                 song.load_song_detail()
-                
-            # 传入gui_setting
-            card = SongCardWidget(song, i, self.gui_setting)
+            
+            # 检查是否有缓存的图片数据
+            url = song.get_album_pic_url()
+            cached_data = _image_cache.get(url, None)
+            
+            # 如果有缓存，直接使用
+            if cached_data:
+                pixmap = QPixmap()
+                pixmap.loadFromData(cached_data)
+                card = SongCardWidget(song, i, self.gui_setting, pixmap, card_size=card_size)
+            else:
+                # 没有缓存，让卡片自己加载
+                card = SongCardWidget(song, i, self.gui_setting, card_size=card_size)
+            
             card.play_requested.connect(self._on_song_play)
             
             row = i // columns
@@ -533,12 +661,54 @@ class DiscoverOverlay(QMainWindow):
         # 播放
         self.discover_app.play_song(song_card)
         
+        # 播放后立即触发下一批预加载
+        preload_images_background(self.discover_app)
+        
         # 延迟隐藏窗口
         QTimer.singleShot(500, self._on_close)
         
+    def _fade_out_and_hide(self):
+        """淡出动画后隐藏窗口"""
+        # 创建淡出动画
+        self.fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_animation.setDuration(300)  # 300ms
+        self.fade_animation.setStartValue(1.0)
+        self.fade_animation.setEndValue(0.0)
+        self.fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.fade_animation.finished.connect(self._do_hide)
+        self.fade_animation.start()
+    
+    def _do_hide(self):
+        """实际隐藏窗口"""
+        self.hide()
+        self.setWindowOpacity(1.0)  # 重置透明度，为下次显示做准备
+        
     def _on_close(self):
         """关闭/退出时触发"""
+        print("关闭窗口被触发")
+        self._fade_out_and_hide()
+        
+    def closeEvent(self, event):
+        """窗口关闭事件"""
+        print("closeEvent 被触发")
+        event.ignore()  # 忽略关闭事件，只隐藏
         self.hide()
+        
+    def keyPressEvent(self, event):
+        """键盘按键事件"""
+        print(f"按键被按下: {event.key()}")
+        # ESC 键不关闭窗口，使用淡出动画隐藏
+        if event.key() == Qt.Key.Key_Escape:
+            print("ESC 被按下，隐藏窗口")
+            self._fade_out_and_hide()
+            return
+        super().keyPressEvent(event)
+        
+    def focusOutEvent(self, event):
+        """窗口失去焦点事件"""
+        print("窗口失去焦点")
+        # 不自动隐藏，只打印日志
+        super().focusOutEvent(event)
 
 
 # 全局app实例，用于快捷键回调
@@ -550,7 +720,8 @@ def create_tray_icon(app, discover_app):
     """创建系统托盘"""
     global _tray_icon, _main_window, _shortcut_enabled, _shortcut_action, _global_app, _global_discover_app
     
-    _main_window = discover_app
+    # _main_window 应该是 DiscoverOverlay 窗口对象，不是 discover_app
+    # _main_window 在 show_overlay 中设置
     _global_app = app
     _global_discover_app = discover_app
     
@@ -605,10 +776,13 @@ def create_tray_icon(app, discover_app):
     tray.setContextMenu(menu)
     
     # 左键点击显示浮窗 - 使用队列连接确保线程安全
-    tray.activated.connect(lambda reason: 
-        QTimer.singleShot(0, lambda: show_overlay(app, discover_app)) 
-        if reason == QSystemTrayIcon.ActivationReason.Trigger else None
-    )
+    def on_tray_clicked(reason):
+        print(f"托盘被点击, reason={reason}")
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            print("准备调用 show_overlay")
+            show_overlay(app, discover_app)
+    
+    tray.activated.connect(on_tray_clicked)
     
     tray.show()
     _tray_icon = tray
@@ -618,6 +792,7 @@ def create_tray_icon(app, discover_app):
 
 # 全局快捷键widget
 _shortcut_widget = None
+_shortcut_parent = None  # 隐藏的父窗口
 
 
 def toggle_shortcut(app, discover_app):
@@ -656,17 +831,34 @@ def show_overlay(app, discover_app):
     """显示全屏浮窗"""
     global _main_window
     
-    # 延迟显示窗口，避免在keyboard回调线程中阻塞
-    # 使用QApplication.processEvents确保事件循环处理
-    def create_and_show():
-        # 每次都创建新窗口，确保全新的歌曲列表
-        _main_window = DiscoverOverlay(discover_app)
-        _main_window.showFullScreen()
+    print("show_overlay 被调用")
+    
+    # 检查是否已有窗口显示
+    if _main_window is not None and _main_window.isVisible():
+        print("窗口已存在，直接显示")
+        _main_window.show()
         _main_window.raise_()
         _main_window.activateWindow()
+        return
     
-    # 使用 QTimer.singleShot 但确保在主线程中执行
-    QTimer.singleShot(100, create_and_show)
+    # 每次都创建新窗口，确保全新的歌曲列表
+    _main_window = DiscoverOverlay(discover_app)
+    print("DiscoverOverlay 创建完成")
+    
+    # 先显示窗口（透明度从0开始，实现淡入）
+    _main_window.setWindowOpacity(0.0)
+    _main_window.show()
+    _main_window.showFullScreen()
+    
+    # 淡入动画
+    fade_in = QPropertyAnimation(_main_window, b"windowOpacity")
+    fade_in.setDuration(300)  # 300ms
+    fade_in.setStartValue(0.0)
+    fade_in.setEndValue(1.0)
+    fade_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
+    fade_in.start()
+    
+    print("窗口已激活，淡入动画开始")
 
 
 def open_settings():
@@ -702,15 +894,75 @@ def open_settings():
         traceback.print_exc()
 
 
-def register_global_shortcut(app, discover_app, shortcut="Alt+D"):
-    """注册全局快捷键 - 使用PyQt的全局快捷键"""
-    global _shortcut_widget
+# 全局变量用于跨线程调用
+_global_app_ref = None
+_global_discover_app_ref = None
+
+
+class ShortcutSignalEmitter(QObject):
+    """用于在主线程中触发快捷键回调的信号发射器"""
+    shortcut_triggered = pyqtSignal()
     
-    # 使用PyQt的全局快捷键
-    from PyQt6.QtGui import QKeySequence
-    _shortcut_widget = QShortcut(QKeySequence(shortcut), None)
-    _shortcut_widget.activated.connect(lambda: show_overlay(app, discover_app))
-    print(f"全局快捷键已注册: {shortcut}")
+    def __init__(self):
+        super().__init__()
+        self.shortcut_triggered.connect(self._on_shortcut_triggered)
+    
+    def _on_shortcut_triggered(self):
+        """在主线程中执行的回调"""
+        if _global_app_ref and _global_discover_app_ref:
+            show_overlay(_global_app_ref, _global_discover_app_ref)
+
+
+# 全局信号发射器
+_shortcut_emitter = None
+
+
+def register_global_shortcut(app, discover_app, shortcut="alt+d"):
+    """注册全局快捷键 - 使用keyboard库"""
+    global _shortcut_enabled, _global_app_ref, _global_discover_app_ref, _shortcut_emitter, _shortcut_parent, _shortcut_widget
+    
+    # 保存全局引用
+    _global_app_ref = app
+    _global_discover_app_ref = discover_app
+    
+    # 创建信号发射器（在主线程中创建）
+    _shortcut_emitter = ShortcutSignalEmitter()
+    
+    try:
+        import keyboard
+        
+        def on_shortcut():
+            if _shortcut_enabled:
+                print(f"快捷键 {shortcut} 被触发")
+                # 通过信号机制在主线程中调用
+                # PyQt 信号发射是线程安全的
+                _shortcut_emitter.shortcut_triggered.emit()
+        
+        # 注册全局快捷键
+        keyboard.add_hotkey(shortcut, on_shortcut)
+        print(f"全局快捷键已注册: {shortcut}")
+    except Exception as e:
+        print(f"注册全局快捷键失败: {e}")
+        print("将使用PyQt快捷键作为后备方案")
+        # 后备：使用 PyQt 的全局快捷键
+        # 创建一个不可见但可接收事件的窗口
+        _shortcut_parent = QWidget()
+        _shortcut_parent.setWindowTitle("ShortcutHost")
+        # 使用 FramelessWindowHint 和 始终在最前，但不显示
+        _shortcut_parent.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
+        )
+        # 将窗口移到屏幕外但保持活动状态
+        _shortcut_parent.move(-10000, -10000)
+        _shortcut_parent.show()
+        _shortcut_parent.hide()  # 立即隐藏但窗口仍然存在
+        
+        from PyQt6.QtGui import QKeySequence
+        _shortcut_widget = QShortcut(QKeySequence("Alt+D"), _shortcut_parent)
+        _shortcut_widget.activated.connect(lambda: show_overlay(app, discover_app))
+        print(f"PyQt全局快捷键已注册: Alt+D")
 
 
 def run_gui():
@@ -722,6 +974,9 @@ def run_gui():
     
     # 创建应用实例
     discover_app = DiscoverApp()
+    
+    # 程序启动时立即开始预加载
+    preload_images_background(discover_app)
     
     # 创建托盘
     create_tray_icon(app, discover_app)
