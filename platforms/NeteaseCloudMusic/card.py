@@ -10,7 +10,10 @@ import requests
 from typing import List, Optional
 
 # 导入共享的Session
-from .get_json import get_session
+import os
+import sys
+sys.path.append(os.path.dirname(__file__))
+from get_json import get_session
 
 
 class SongCard:
