@@ -24,6 +24,7 @@ from PyQt6.QtCore import QUrl
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'settings'))
 
 # 全局引用，用于托盘控制
 _main_window = None
@@ -829,6 +830,10 @@ def show_overlay(app, discover_app):
     
     print("show_overlay 被调用")
     
+    # 每次显示浮窗时，重新加载 GUI 设置，确保使用最新设置
+    discover_app.gui_setting.load()
+    print(f"已重新加载 GUI 设置: card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}")
+    
     # 检查是否已有窗口显示
     if _main_window is not None and _main_window.isVisible():
         print("窗口已存在，直接显示")
@@ -886,6 +891,9 @@ def open_settings():
 # 全局变量用于跨线程调用
 _global_app_ref = None
 _global_discover_app_ref = None
+
+# 全局信号：设置已保存，需要重新加载
+_settings_changed_signal = None
 
 
 class ShortcutSignalEmitter(QObject):

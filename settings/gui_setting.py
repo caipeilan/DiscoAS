@@ -1,6 +1,24 @@
 import json, os, sys
 from functools import lru_cache
 
+# 全局设置实例，用于跨模块访问
+_global_gui_setting = None
+
+def get_global_gui_setting():
+    """获取全局 GuiSetting 实例"""
+    global _global_gui_setting
+    if _global_gui_setting is None:
+        _global_gui_setting = GuiSetting()
+        _global_gui_setting.load()
+    return _global_gui_setting
+
+def reload_global_gui_setting():
+    """重新加载全局设置"""
+    global _global_gui_setting
+    if _global_gui_setting is not None:
+        _global_gui_setting.load()
+    return _global_gui_setting
+
 class GuiSetting:
     def __init__(self):
         self.file_path = os.path.join(os.path.dirname(__file__), "gui_setting.json")

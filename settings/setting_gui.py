@@ -581,7 +581,37 @@ class SettingsWindow(QMainWindow):
         self.load_playlist_table()
         self.apply_gui_theme()
         
+        # 通知 Discover_gui 重新加载设置
+        self.notify_settings_changed()
+        
         QMessageBox.information(self, "保存成功", "所有设置已保存并应用！")
+
+    def notify_settings_changed(self):
+        """通知其他模块设置已更改"""
+        # 通知全局 DiscoverApp 重新加载 gui_setting
+        try:
+            from gui_setting import reload_global_gui_setting
+            reload_global_gui_setting()
+            print("已通知 GUI 设置已更新")
+        except Exception as e:
+            print(f"通知设置更新失败: {e}")
+        
+        # 如果 Discover 浮窗正在显示，刷新它
+        try:
+            import sys
+            import os
+            # 尝试导入 Discover_gui 中的全局变量
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+            import Discover_gui
+            
+            # 如果浮窗存在且可见，刷新它
+            if Discover_gui._main_window is not None and Discover_gui._main_window.isVisible():
+                # 刷新 gui_setting 引用
+                if Discover_gui._global_discover_app:
+                    Discover_gui._global_discover_app.gui_setting.load()
+                print("Discover 浮窗已刷新")
+        except Exception as e:
+            print(f"刷新浮窗失败: {e}")
 
     def apply_gui_theme(self):
         is_night = self.gui_setting.night_mode or self.btn_night_mode.isChecked()
