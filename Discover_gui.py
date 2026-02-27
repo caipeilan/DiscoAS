@@ -38,11 +38,20 @@ _network_manager = None  # 全局网络管理器
 # 全局图片缓存 {url: bytes}
 _image_cache = {}
 
+# 全局歌曲缓存（歌曲对象列表）
+_cached_songs = []
+
+# 全局标记：用户是否播放了歌曲
+_user_played_song = False
+
 # 全局 discover_app 实例，用于预加载
 _global_discover_app_instance = None
 
 # 预加载线程
 _preload_thread = None
+
+# 预加载歌曲数据线程
+_preload_songs_thread = None
 
 
 def preload_images_background(discover_app):
@@ -317,6 +326,10 @@ class SongCardWidget(QFrame):
         super().mousePressEvent(event)
 
 
+# 全局标记：是否需要刷新歌曲
+_need_refresh_songs = False
+
+
 class DiscoverOverlay(QMainWindow):
     """极简全屏透明浮窗主界面"""
     
@@ -333,6 +346,9 @@ class DiscoverOverlay(QMainWindow):
         self.next_songs: List = []  # 缓存下一批歌曲
         self.load_thread = None
         
+        # 每次创建窗口时重新加载音乐设置，确保使用最新设置
+        self.discover_app.music_setting.load()
+        
         # 获取GUI设置
         self.gui_setting = discover_app.gui_setting
         
@@ -344,8 +360,37 @@ class DiscoverOverlay(QMainWindow):
         # 连接信号
         self.songs_loaded.connect(self._on_songs_loaded)
         
-        # 初始加载歌曲（显示用 + 缓存用）
-        self._load_songs()
+        # 检查是否需要刷新歌曲
+        global _need_refresh_songs, _user_played_song
+        
+        # 如果用户播放了歌曲，下次进入需要刷新（清除缓存）
+        if _user_played_song:
+            _user_played_song = False  # 重置标记
+            _need_refresh_songs = True
+            print("用户播放过歌曲，下次进入将刷新")
+        
+        should_refresh = _need_refresh_songs
+        if not should_refresh:
+            # 检查设置：refreshing_after_cancel
+            should_refresh = self.discover_app.music_setting.refreshing_after_cancel
+        
+        if should_refresh:
+            # 需要刷新，清除缓存并重置
+            _need_refresh_songs = False
+            # 清除 Playlist 的缓存
+            from load_playlist_json import Playlist
+            Playlist.clear_cache()
+            print("已清除歌曲缓存，需要刷新")
+            # 重新加载
+            self._load_songs()
+        elif _cached_songs:
+            # 使用缓存的歌曲
+            print(f"使用缓存的歌曲，共 {len(_cached_songs)} 首")
+            self.songs = _cached_songs
+            self._display_songs()
+        else:
+            # 没有缓存，加载新歌曲
+            self._load_songs()
         
     def _get_close_button_style(self):
         """获取关闭按钮样式"""
@@ -614,11 +659,7 @@ class DiscoverOverlay(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         
-        # 等待预加载完成（最多等2秒）
-        if _preload_thread and _preload_thread.is_alive():
-            print("等待预加载完成...")
-            _preload_thread.join(timeout=2)
-                
+        # 不再等待预加载完成，直接使用缓存图片，没有则异步加载
         columns = 5
         # 获取卡片尺寸设置
         card_size = self.gui_setting.card_size if self.gui_setting else 1.0
@@ -648,6 +689,11 @@ class DiscoverOverlay(QMainWindow):
             
     def _on_song_play(self, song_card):
         """播放歌曲"""
+        # 标记用户播放了歌曲，下次进入需要刷新
+        global _user_played_song
+        _user_played_song = True
+        print("用户播放了歌曲，标记为已播放")
+        
         # 播放
         self.discover_app.play_song(song_card)
         
@@ -660,6 +706,21 @@ class DiscoverOverlay(QMainWindow):
     def _on_close(self):
         """关闭/退出时触发"""
         print("关闭窗口被触发")
+        
+        # 声明全局变量
+        global _cached_songs, _need_refresh_songs
+        
+        # 关闭时的行为与 ESC 保持一致
+        if self.discover_app.music_setting.refreshing_after_cancel:
+            # 刷新=True，清除缓存，下次进入刷新歌曲
+            _cached_songs = []
+            _need_refresh_songs = True
+            print("取消选择后刷新=True，清除缓存")
+        else:
+            # 刷新=False，保存缓存，下次进入不刷新
+            _cached_songs = self.songs.copy()
+            print("取消选择后刷新=False，保存缓存")
+        
         self.hide()
         
     def closeEvent(self, event):
@@ -674,7 +735,23 @@ class DiscoverOverlay(QMainWindow):
         # ESC 键不关闭窗口，直接隐藏
         if event.key() == Qt.Key.Key_Escape:
             print("ESC 被按下，隐藏窗口")
-            self.hide()
+            
+            # 声明全局变量
+            global _cached_songs, _need_refresh_songs
+            
+            # 检查是否需要刷新
+            if self.discover_app.music_setting.refreshing_after_cancel:
+                # 刷新=True，清除缓存，下次进入刷新歌曲
+                _cached_songs = []
+                _need_refresh_songs = True
+                print("取消选择后刷新=True，清除缓存，下次进入将刷新歌曲")
+                self.hide()
+                preload_images_background(self.discover_app)
+            else:
+                # 刷新=False，保存缓存，下次进入不刷新
+                _cached_songs = self.songs.copy()
+                print("取消选择后刷新=False，保存缓存，下次进入不刷新")
+                self.hide()
             return
         super().keyPressEvent(event)
         
@@ -807,9 +884,10 @@ def show_overlay(app, discover_app):
     
     print("show_overlay 被调用")
     
-    # 每次显示浮窗时，重新加载 GUI 设置，确保使用最新设置
+    # 每次显示浮窗时，重新加载所有设置，确保使用最新设置
     discover_app.gui_setting.load()
-    print(f"已重新加载 GUI 设置: card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}")
+    discover_app.music_setting.load()
+    print(f"已重新加载设置: GUI card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}, overlap={discover_app.music_setting.overlap}, refreshing_after_cancel={discover_app.music_setting.refreshing_after_cancel}")
     
     # 检查是否已有窗口显示
     if _main_window is not None and _main_window.isVisible():

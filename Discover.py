@@ -21,23 +21,45 @@ class DiscoverASong(object):
         card_module = importlib.import_module('card')
         self.song_card_class = getattr(card_module, 'SongCard')
         
-    def get_songs(self,number_of_songs,mystery_song,number_of_mystery_song = 1):
-        # 从Playlist中获取number_of_songs首歌曲的详细信息
-        # 并返回一个列表,0为歌曲信息列表，1为歌曲总数量，2为"神秘歌曲"数量
-        # mystery_song用于确定是否添加一个随机的"神秘歌曲"
-        # 
+    def get_songs(self, number_of_songs, mystery_song, number_of_mystery_song=1, overlap=True):
+        """
+        从Playlist中获取歌曲
+        
+        Args:
+            number_of_songs: 发现的歌曲数量
+            mystery_song: 是否包含神秘歌曲
+            number_of_mystery_song: 神秘歌曲数量
+            overlap: 是否允许重复填充（当歌曲数量不足时）
+            
+        Returns:
+            [歌曲列表, 歌曲总数, 神秘歌曲数量]
+        """
         if mystery_song == False:
             number_of_mystery_song = 0
-        song_ids , sum_of_song = self.playlist.get_random_song(number_of_songs+number_of_mystery_song)
+        
+        # 获取实际歌曲数量
+        actual_song_count = number_of_songs + number_of_mystery_song
+        
+        # 获取随机歌曲
+        song_ids, sum_of_song = self.playlist.get_random_song(actual_song_count)
+        
+        # 如果歌曲不足且允许重复，则填充
+        if overlap and len(song_ids) < actual_song_count:
+            # 计算需要填充的数量
+            needed = actual_song_count - len(song_ids)
+            # 随机选择现有歌曲进行填充
+            for _ in range(needed):
+                song_ids.append(random.choice(song_ids))
+        
         songs = []
         i = 0
         for song_id in song_ids:
             i = i+1
             if i > number_of_songs and self.song_card_class:
-                songs.append(self.song_card_class(song_id,True))
+                songs.append(self.song_card_class(song_id, True))
             elif self.song_card_class:
                 songs.append(self.song_card_class(song_id))
-        return [songs,sum_of_song,number_of_mystery_song]
+        return [songs, sum_of_song, number_of_mystery_song]
     
 
 if __name__ == "__main__":

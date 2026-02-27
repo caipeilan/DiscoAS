@@ -79,7 +79,8 @@ class DiscoverApp:
         songs, total, mystery_count = discover.get_songs(
             number, 
             self.music_setting.have_mystery_song,
-            self.music_setting.num_of_mystery_song
+            self.music_setting.num_of_mystery_song,
+            self.music_setting.overlap  # 传递允许重复设置
         )
         
         return songs
