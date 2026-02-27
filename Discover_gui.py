@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QMenu, QSystemTrayIcon
 )
 from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject, QPropertyAnimation, QEasingCurve
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PyQt6.QtCore import QUrl
@@ -153,23 +154,20 @@ class SongCardWidget(QFrame):
             card_config = {
                 "background": "#FFFFFF",
                 "background_hover": "#d0ebf0",
-                "border": "#76e8fd",
                 "font_color": "#000000"
             }
         
         bg = card_config.get("background", "#FFFFFF")
         bg_hover = card_config.get("background_hover", "#d0ebf0")
-        border = card_config.get("border", "#76e8fd")
         
         return f"""
             QFrame {{
                 background-color: {bg};
-                border: 1px solid {border};
+                border: none;
                 border-radius: 16px;
             }}
             QFrame:hover {{
                 background-color: {bg_hover};
-                border: 2px solid {border};
             }}
         """
     
@@ -221,7 +219,7 @@ class SongCardWidget(QFrame):
         
         font_color = self._get_font_color()
         
-        # 封面
+        # 封面 - 添加右下角阴影
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(cover_size, cover_size)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -237,6 +235,14 @@ class SongCardWidget(QFrame):
             background-color: rgba(200, 200, 200, 0.3);
             border-radius: {radius}px;
         """)
+        
+        # 添加右下角阴影
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(int(15 * self.card_size))
+        shadow.setOffset(int(10 * self.card_size), int(10 * self.card_size))
+        shadow.setColor(QColor(0, 0, 0, 80))  # 半透明黑色
+        self.cover_label.setGraphicsEffect(shadow)
+        
         layout.addWidget(self.cover_label)
         
         # 歌曲名 - 字体调小，随 card_size 缩放
