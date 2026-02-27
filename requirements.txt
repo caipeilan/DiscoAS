@@ -3,15 +3,14 @@
 # GUI
 PyQt6==6.7.0
 
-# Input
-pynput==1.8.1
+# Input (全局快捷键)
 keyboard==0.13.5
 
 # HTTP
-furl==2.1.4
 requests==2.32.5
+furl==2.1.4
 
-# Window
+# Window (窗口控制)
 pygetwindow==0.0.9
 
 # Image
