@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QFrame, QGridLayout,
     QMenu, QSystemTrayIcon
 )
-from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut
+from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QRadialGradient
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSize, QTimerEvent
 
 # 添加项目根目录到路径
@@ -302,7 +302,6 @@ class DiscoverOverlay(QMainWindow):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # 半透明深色背景
-        from PyQt6.QtGui import QBrush, QColor, QPainterPath, QRadialGradient
         gradient = QRadialGradient(
             self.width() / 2, self.height() / 2, 
             max(self.width(), self.height()) * 0.8
