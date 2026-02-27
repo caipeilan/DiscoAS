@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QFrame, QGridLayout,
     QMessageBox, QSystemTrayIcon, QMenu
 )
-from PyQt6.QtGui import QPixmap, QImage, QNetworkAccessManager, QNetworkRequest, QNetworkReply, QIcon, QFont, QPainter, QLinearGradient, QColor
+from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont
+from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSize, QPoint
 
 # 添加项目根目录到路径
