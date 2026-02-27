@@ -167,15 +167,9 @@ class DiscoverApp:
             return
             
         # 导入GUI模块
-        from Discover_gui import DiscoverWindow
+        from Discover_gui import run_gui
         
-        app = QApplication(sys.argv)
-        app.setQuitOnLastWindowClosed(False)
-        
-        window = DiscoverWindow(self)
-        window.show()
-        
-        sys.exit(app.exec())
+        run_gui()
 
 
 def handle_scheme_url(url: str) -> bool:
