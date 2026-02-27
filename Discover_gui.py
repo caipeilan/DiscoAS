@@ -28,6 +28,7 @@ _main_window = None
 _tray_icon = None
 _shortcut_enabled = True
 _hotkey_id = None
+_shortcut_action = None  # 托盘菜单中的快捷键开关项
 
 
 class ImageLoaderThread(QThread):
@@ -380,7 +381,7 @@ class DiscoverOverlay(QMainWindow):
 
 def create_tray_icon(app, discover_app):
     """创建系统托盘"""
-    global _tray_icon, _main_window, _shortcut_enabled
+    global _tray_icon, _main_window, _shortcut_enabled, _shortcut_action
     
     _main_window = discover_app
     
@@ -422,9 +423,9 @@ def create_tray_icon(app, discover_app):
     menu.addSeparator()
     
     # 暂停/启用快捷键
-    self.shortcut_action = QAction("⏸️ 暂停快捷键", menu)
-    self.shortcut_action.triggered.connect(lambda: toggle_shortcut(app, discover_app))
-    menu.addAction(self.shortcut_action)
+    _shortcut_action = QAction("⏸️ 暂停快捷键", menu)
+    _shortcut_action.triggered.connect(lambda: toggle_shortcut(app, discover_app))
+    menu.addAction(_shortcut_action)
     
     menu.addSeparator()
     
