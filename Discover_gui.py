@@ -172,8 +172,8 @@ class DiscoverOverlay(QMainWindow):
         self._setup_ui()
         self._apply_style()
         
-        # 自动加载歌曲
-        self._on_refresh_clicked()
+        # 不自动加载歌曲，等待用户点击刷新按钮
+        # 这样避免在初始化时卡死
         
     def _setup_ui(self):
         """设置UI"""
