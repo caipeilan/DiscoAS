@@ -316,6 +316,8 @@ class DiscoverOverlay(QMainWindow):
         
         # 中央widget - 完全透明
         central = QWidget()
+        central.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        central.setStyleSheet("background: transparent;")
         self.setCentralWidget(central)
         
         # 主布局 - 全屏铺满
@@ -335,28 +337,32 @@ class DiscoverOverlay(QMainWindow):
         btn_layout.addStretch()
         btn_layout.addWidget(close_btn)
         
-        # 歌曲卡片区域 - 可滚动
+        # 歌曲卡片区域 - 可滚动 - 完全透明
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
                 background: transparent;
             }
-            QScrollBar:vertical {
+            QScrollArea QWidget QScrollBar:vertical {
                 background: rgba(255, 255, 255, 0.1);
                 width: 8px;
                 border-radius: 4px;
             }
-            QScrollBar::handle:vertical {
+            QScrollArea QWidget QScrollBar::handle:vertical {
                 background: rgba(255, 255, 255, 0.3);
                 border-radius: 4px;
             }
         """)
         
+        # 卡片容器 - 完全透明
         self.song_container = QWidget()
+        self.song_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.song_container.setStyleSheet("background: transparent;")
         self.song_layout = QGridLayout(self.song_container)
         self.song_layout.setSpacing(25)
         
@@ -580,12 +586,15 @@ def show_overlay(app, discover_app):
     """显示全屏浮窗"""
     global _main_window
     
-    # 每次都创建新窗口，确保全新的歌曲列表
-    _main_window = DiscoverOverlay(discover_app)
+    # 使用QTimer延迟显示窗口，避免在keyboard回调线程中阻塞
+    def create_and_show():
+        # 每次都创建新窗口，确保全新的歌曲列表
+        _main_window = DiscoverOverlay(discover_app)
+        _main_window.showFullScreen()
+        _main_window.raise_()
+        _main_window.activateWindow()
     
-    _main_window.showFullScreen()
-    _main_window.raise_()
-    _main_window.activateWindow()
+    QTimer.singleShot(100, create_and_show)
 
 
 def open_settings():
