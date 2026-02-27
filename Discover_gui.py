@@ -667,26 +667,10 @@ class DiscoverOverlay(QMainWindow):
         # 延迟隐藏窗口
         QTimer.singleShot(500, self._on_close)
         
-    def _fade_out_and_hide(self):
-        """淡出动画后隐藏窗口"""
-        # 创建淡出动画
-        self.fade_animation = QPropertyAnimation(self, b"windowOpacity")
-        self.fade_animation.setDuration(300)  # 300ms
-        self.fade_animation.setStartValue(1.0)
-        self.fade_animation.setEndValue(0.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self.fade_animation.finished.connect(self._do_hide)
-        self.fade_animation.start()
-    
-    def _do_hide(self):
-        """实际隐藏窗口"""
-        self.hide()
-        self.setWindowOpacity(1.0)  # 重置透明度，为下次显示做准备
-        
     def _on_close(self):
         """关闭/退出时触发"""
         print("关闭窗口被触发")
-        self._fade_out_and_hide()
+        self.hide()
         
     def closeEvent(self, event):
         """窗口关闭事件"""
@@ -697,10 +681,10 @@ class DiscoverOverlay(QMainWindow):
     def keyPressEvent(self, event):
         """键盘按键事件"""
         print(f"按键被按下: {event.key()}")
-        # ESC 键不关闭窗口，使用淡出动画隐藏
+        # ESC 键不关闭窗口，直接隐藏
         if event.key() == Qt.Key.Key_Escape:
             print("ESC 被按下，隐藏窗口")
-            self._fade_out_and_hide()
+            self.hide()
             return
         super().keyPressEvent(event)
         
@@ -845,20 +829,13 @@ def show_overlay(app, discover_app):
     _main_window = DiscoverOverlay(discover_app)
     print("DiscoverOverlay 创建完成")
     
-    # 先显示窗口（透明度从0开始，实现淡入）
-    _main_window.setWindowOpacity(0.0)
+    # 直接显示窗口（无动画）
     _main_window.show()
     _main_window.showFullScreen()
+    _main_window.raise_()
+    _main_window.activateWindow()
     
-    # 淡入动画
-    fade_in = QPropertyAnimation(_main_window, b"windowOpacity")
-    fade_in.setDuration(300)  # 300ms
-    fade_in.setStartValue(0.0)
-    fade_in.setEndValue(1.0)
-    fade_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
-    fade_in.start()
-    
-    print("窗口已激活，淡入动画开始")
+    print("窗口已显示")
 
 
 def open_settings():
