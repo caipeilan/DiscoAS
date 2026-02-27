@@ -40,8 +40,45 @@ class DiscoverApp:
         self.gui_setting = GuiSetting()
         self.gui_setting.load()
         
+        # 启动时自动更新启用的歌单
+        self._update_enabled_playlist()
+        
         # 应用设置
         self._apply_settings()
+    
+    def _update_enabled_playlist(self) -> None:
+        """启动时自动更新唯一被启用的歌单"""
+        # 查找启用的歌单
+        enabled_playlist = None
+        for pl in self.music_setting.playlist_albums:
+            if pl.enabled:
+                enabled_playlist = pl
+                break
+        
+        if not enabled_playlist:
+            print("没有启用的歌单，跳过更新")
+            return
+        
+        print(f"正在更新启用的歌单: {enabled_playlist.playlist_album_id} ({enabled_playlist.typename})")
+        
+        try:
+            # 根据平台动态导入对应的 get_json 模块
+            platform = enabled_playlist.name
+            module_path = f"platforms.{platform}.get_json"
+            get_json_module = __import__(module_path, fromlist=['PlaylistAlbumJson'])
+            PlaylistAlbumJson = get_json_module.PlaylistAlbumJson
+            
+            # 获取并保存歌单数据
+            playlist_json = PlaylistAlbumJson(
+                enabled_playlist.playlist_album_id, 
+                enabled_playlist.typename
+            )
+            playlist_json.save()
+            print(f"歌单更新完成: {playlist_json.get_name()}")
+        except Exception as e:
+            print(f"更新歌单失败: {e}")
+            import traceback
+            traceback.print_exc()
         
     def _apply_settings(self) -> None:
         """应用设置"""
