@@ -7,7 +7,7 @@ class ToPlaySong(object):
     def __init__(self, song_id):
         self.song_id = song_id
         self.song_card = SongCard(song_id)
-        self.sleep_time = 3
+        self.sleep_time 
 
     def to_play(self):
         # 预先加载歌曲详情，确保窗口名不是 None

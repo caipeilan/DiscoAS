@@ -134,12 +134,17 @@ class SongCardWidget(QFrame):
         if preloaded_pixmap:
             self.current_pixmap = preloaded_pixmap
             cover_size = int(170 * card_size)
+            # 先放大到足够大，然后从中心裁剪，确保居中显示
             scaled = preloaded_pixmap.scaled(
                 cover_size, cover_size, 
-                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation
             )
-            self.cover_label.setPixmap(scaled)
+            # 从中心裁剪到目标尺寸
+            x_offset = (scaled.width() - cover_size) // 2
+            y_offset = (scaled.height() - cover_size) // 2
+            cropped = scaled.copy(x_offset, y_offset, cover_size, cover_size)
+            self.cover_label.setPixmap(cropped)
             self.image_loaded = True
         else:
             self._load_cover_image()
@@ -216,9 +221,9 @@ class SongCardWidget(QFrame):
         self.setFixedSize(width, height)
         self.setFrameStyle(QFrame.Shape.NoFrame)
         
-        # 布局 - 内部间距也按比例缩放
-        spacing = int(12 * self.card_size)
-        margin = int(15 * self.card_size)
+        # 布局 - 内部间距也按比例缩放，缩小间距
+        spacing = int(8 * self.card_size)  # 从 12 缩小到 8
+        margin = int(10 * self.card_size)  # 从 15 缩小到 10
         layout = QVBoxLayout(self)
         layout.setSpacing(spacing)
         layout.setContentsMargins(margin, margin, margin, margin)
@@ -229,50 +234,52 @@ class SongCardWidget(QFrame):
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(cover_size, cover_size)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cover_label.setScaledContents(False)
         # 强制设置透明背景
         self.cover_label.setAutoFillBackground(False)
         palette = self.cover_label.palette()
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.cover_label.setPalette(palette)
-        # 圆角也按比例缩放
+        # 圆角也按比例缩放，确保图片居中
         radius = int(12 * self.card_size)
         self.cover_label.setStyleSheet(f"""
             background-color: rgba(200, 200, 200, 0.3);
             border-radius: {radius}px;
+            qproperty-alignment: AlignCenter;
         """)
         layout.addWidget(self.cover_label)
         
-        # 歌曲名 - 无边框，强制透明背景
+        # 歌曲名 - 字体调小，随 card_size 缩放
         self.name_label = QLabel(self.song_card.get_name())
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label.setWordWrap(True)
         font = QFont()
         font.setBold(True)
-        font.setPointSize(11)
+        font.setPointSize(int(10 * self.card_size))  # 从 11 改为随 card_size 缩放
         self.name_label.setFont(font)
         # 强制设置透明背景
         self.name_label.setAutoFillBackground(False)
         palette = self.name_label.palette()
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.name_label.setPalette(palette)
-        self.name_label.setStyleSheet(f"color: {font_color}; background-color: transparent;")
+        self.name_label.setStyleSheet(f"color: {font_color}; background-color: transparent; border: none;")
         layout.addWidget(self.name_label)
         
-        # 艺术家 - 无边框，强制透明背景
+        # 艺术家 - 字体调小，随 card_size 缩放
         artist_names = self.song_card.get_artist_names()
         secondary_color = self._get_secondary_font_color()
         self.artist_label = QLabel("/".join(artist_names))
         self.artist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.artist_label.setWordWrap(True)
         font_small = QFont()
-        font_small.setPointSize(9)
+        font_small.setPointSize(int(8 * self.card_size))  # 从 9 改为随 card_size 缩放
         self.artist_label.setFont(font_small)
         # 强制设置透明背景
         self.artist_label.setAutoFillBackground(False)
         palette = self.artist_label.palette()
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.artist_label.setPalette(palette)
-        self.artist_label.setStyleSheet(f"color: {secondary_color}; background-color: transparent;")
+        self.artist_label.setStyleSheet(f"color: {secondary_color}; background-color: transparent; border: none;")
         layout.addWidget(self.artist_label)
         
         # 样式 - 应用配置
@@ -296,12 +303,17 @@ class SongCardWidget(QFrame):
         if url == self.song_card.get_album_pic_url():
             self.current_pixmap = pixmap
             cover_size = int(170 * self.card_size)
+            # 先放大到足够大，然后从中心裁剪，确保居中显示
             scaled = pixmap.scaled(
                 cover_size, cover_size, 
-                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation
             )
-            self.cover_label.setPixmap(scaled)
+            # 从中心裁剪到目标尺寸
+            x_offset = (scaled.width() - cover_size) // 2
+            y_offset = (scaled.height() - cover_size) // 2
+            cropped = scaled.copy(x_offset, y_offset, cover_size, cover_size)
+            self.cover_label.setPixmap(cropped)
             self.image_loaded = True
             
     def _on_load_failed(self, url: str):
