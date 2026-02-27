@@ -397,23 +397,54 @@ class DiscoverOverlay(QMainWindow):
     def _load_songs_async(self):
         """异步加载歌曲"""
         try:
+            print("开始加载歌曲...")
             # 加载显示用歌曲
             self.songs = self.discover_app.discover_songs()
+            print(f"加载到 {len(self.songs)} 首歌曲")
             
             # 加载下一批缓存
             self.next_songs = self.discover_app.discover_songs()
+            print("缓存加载完成")
             
-            # 使用信号槽更新UI
-            QTimer.singleShot(0, lambda: self.songs_loaded.emit(self.songs))
+            # 使用信号槽更新UI - 确保使用 QueuedConnection
+            self.songs_loaded.emit(self.songs)
+            print("信号已发送")
         except Exception as e:
+            import traceback
             print(f"加载歌曲失败: {e}")
-            QTimer.singleShot(0, lambda: self.songs_loaded.emit([]))
+            traceback.print_exc()
+            self.songs_loaded.emit([])
             
     def _on_songs_loaded(self, songs):
         """歌曲加载完成回调"""
         self.songs = songs
         self._display_songs()
         
+    def _get_loading_style(self):
+        """获取加载中卡片的样式"""
+        if self.gui_setting:
+            if self.gui_setting.night_mode:
+                card_config = self.gui_setting.card_night_mode
+            else:
+                card_config = self.gui_setting.card
+        else:
+            card_config = {
+                "background": "#FFFFFF",
+                "border": "#76e8fd",
+                "font_color": "#000000"
+            }
+        
+        bg = card_config.get("background", "#FFFFFF")
+        border = card_config.get("border", "#76e8fd")
+        
+        return f"""
+            QFrame {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 16px;
+            }}
+        """
+    
     def _display_loading(self):
         """显示加载中状态"""
         # 清空现有卡片
@@ -422,17 +453,50 @@ class DiscoverOverlay(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
                 
-        # 显示简单加载提示
+        # 创建加载中卡片容器
+        loading_card = QFrame()
+        loading_card.setFixedSize(200, 260)
+        loading_card.setFrameStyle(QFrame.Shape.NoFrame)
+        loading_card.setStyleSheet(self._get_loading_style())
+        
+        # 加载中内容布局
+        layout = QVBoxLayout(loading_card)
+        layout.setSpacing(8)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        # 获取字体颜色
         font_color = self._get_font_color_for_label()
+        
+        # 加载中封面占位
+        cover_label = QLabel()
+        cover_label.setFixedSize(170, 170)
+        cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cover_label.setStyleSheet("""
+            background-color: rgba(200, 200, 200, 0.3);
+            border-radius: 12px;
+        """)
+        layout.addWidget(cover_label)
+        
+        # 加载中文字
         loading_label = QLabel("加载中...")
-        # 强制透明背景
-        loading_label.setAutoFillBackground(False)
-        palette = loading_label.palette()
-        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
-        loading_label.setPalette(palette)
-        loading_label.setStyleSheet(f"color: {font_color}; font-size: 18px; background-color: transparent;")
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.song_layout.addWidget(loading_label, 0, 0)
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(11)
+        loading_label.setFont(font)
+        loading_label.setStyleSheet(f"color: {font_color}; background-color: transparent;")
+        layout.addWidget(loading_label)
+        
+        # 占位艺术家文字
+        artist_label = QLabel("...")
+        artist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font_small = QFont()
+        font_small.setPointSize(9)
+        artist_label.setFont(font_small)
+        artist_label.setStyleSheet(f"color: {font_color}; background-color: transparent; opacity: 0.7;")
+        layout.addWidget(artist_label)
+        
+        self.song_layout.addWidget(loading_card, 0, 0)
         
     def _get_font_color_for_label(self):
         """获取标签字体颜色"""
@@ -586,7 +650,8 @@ def show_overlay(app, discover_app):
     """显示全屏浮窗"""
     global _main_window
     
-    # 使用QTimer延迟显示窗口，避免在keyboard回调线程中阻塞
+    # 延迟显示窗口，避免在keyboard回调线程中阻塞
+    # 使用QApplication.processEvents确保事件循环处理
     def create_and_show():
         # 每次都创建新窗口，确保全新的歌曲列表
         _main_window = DiscoverOverlay(discover_app)
@@ -594,6 +659,7 @@ def show_overlay(app, discover_app):
         _main_window.raise_()
         _main_window.activateWindow()
     
+    # 使用 QTimer.singleShot 但确保在主线程中执行
     QTimer.singleShot(100, create_and_show)
 
 
