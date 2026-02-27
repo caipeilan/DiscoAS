@@ -134,18 +134,8 @@ class SongCardWidget(QFrame):
         # 如果有预加载的图片，直接使用
         if preloaded_pixmap:
             self.current_pixmap = preloaded_pixmap
-            cover_size = int(170 * card_size)
-            # 先放大到足够大，然后从中心裁剪，确保居中显示
-            scaled = preloaded_pixmap.scaled(
-                cover_size, cover_size, 
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            # 从中心裁剪到目标尺寸
-            x_offset = (scaled.width() - cover_size) // 2
-            y_offset = (scaled.height() - cover_size) // 2
-            cropped = scaled.copy(x_offset, y_offset, cover_size, cover_size)
-            self.cover_label.setPixmap(cropped)
+            # setScaledContents(True) 会让图片自动缩放填满整个 QLabel
+            self.cover_label.setPixmap(preloaded_pixmap)
             self.image_loaded = True
         else:
             self._load_cover_image()
@@ -235,18 +225,17 @@ class SongCardWidget(QFrame):
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(cover_size, cover_size)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_label.setScaledContents(False)
+        self.cover_label.setScaledContents(True)  # 改为True让图片铺满整个区域
         # 强制设置透明背景
         self.cover_label.setAutoFillBackground(False)
         palette = self.cover_label.palette()
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.cover_label.setPalette(palette)
-        # 圆角也按比例缩放，确保图片居中
+        # 圆角也按比例缩放
         radius = int(12 * self.card_size)
         self.cover_label.setStyleSheet(f"""
             background-color: rgba(200, 200, 200, 0.3);
             border-radius: {radius}px;
-            qproperty-alignment: AlignCenter;
         """)
         layout.addWidget(self.cover_label)
         
@@ -303,18 +292,9 @@ class SongCardWidget(QFrame):
         """图片加载完成"""
         if url == self.song_card.get_album_pic_url():
             self.current_pixmap = pixmap
-            cover_size = int(170 * self.card_size)
-            # 先放大到足够大，然后从中心裁剪，确保居中显示
-            scaled = pixmap.scaled(
-                cover_size, cover_size, 
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            # 从中心裁剪到目标尺寸
-            x_offset = (scaled.width() - cover_size) // 2
-            y_offset = (scaled.height() - cover_size) // 2
-            cropped = scaled.copy(x_offset, y_offset, cover_size, cover_size)
-            self.cover_label.setPixmap(cropped)
+            # setScaledContents(True) 会让图片自动缩放填满整个 QLabel
+            # 不需要手动裁剪
+            self.cover_label.setPixmap(pixmap)
             self.image_loaded = True
             
     def _on_load_failed(self, url: str):
