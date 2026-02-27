@@ -9,6 +9,7 @@ DiscoverASong - 音乐选择器GUI (极简透明浮窗)
 import sys
 import os
 import threading
+import time
 from typing import Optional, List
 
 from PyQt6.QtWidgets import (
@@ -41,6 +42,9 @@ class ImageLoaderThread(QThread):
         
     def run(self):
         try:
+            # 延迟防止线程冲突
+            time.sleep(0.05)
+            
             from urllib.request import urlopen
             from PIL import Image
             import io
@@ -64,15 +68,74 @@ class SongCardWidget(QFrame):
     
     play_requested = pyqtSignal(object)  # 发送歌曲对象
     
-    def __init__(self, song_card, index: int, parent=None):
+    def __init__(self, song_card, index: int, gui_setting=None, parent=None):
         super().__init__(parent)
         self.song_card = song_card
         self.index = index
         self.image_loaded = False
         self.current_image: Optional[QImage] = None
+        self.gui_setting = gui_setting
         
         self._setup_ui()
         self._load_cover_image()
+        
+    def _get_card_style(self):
+        """获取卡片样式"""
+        if self.gui_setting:
+            # 根据night_mode获取配置
+            if self.gui_setting.night_mode:
+                card_config = self.gui_setting.card_night_mode
+            else:
+                card_config = self.gui_setting.card
+        else:
+            # 默认配置
+            card_config = {
+                "background": "#FFFFFF",
+                "background_hover": "#d0ebf0",
+                "border": "#76e8fd",
+                "font_color": "#000000"
+            }
+        
+        bg = card_config.get("background", "#FFFFFF")
+        bg_hover = card_config.get("background_hover", "#d0ebf0")
+        border = card_config.get("border", "#76e8fd")
+        font_color = card_config.get("font_color", "#000000")
+        
+        return f"""
+            QFrame {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 16px;
+            }}
+            QFrame:hover {{
+                background-color: {bg_hover};
+                border: 2px solid {border};
+            }}
+        """
+    
+    def _get_font_color(self):
+        """获取字体颜色"""
+        if self.gui_setting:
+            if self.gui_setting.night_mode:
+                return self.gui_setting.card_night_mode.get("font_color", "#ffffff")
+            else:
+                return self.gui_setting.card.get("font_color", "#000000")
+        return "#000000"
+        
+    def _get_secondary_font_color(self):
+        """获取次级字体颜色（作者名）"""
+        if self.gui_setting:
+            if self.gui_setting.night_mode:
+                color = self.gui_setting.card_night_mode.get("font_color", "#ffffff")
+            else:
+                color = self.gui_setting.card.get("font_color", "#000000")
+            # 使用半透明
+            if color.startswith("#") and len(color) == 7:
+                r = int(color[1:3], 16)
+                g = int(color[3:5], 16)
+                b = int(color[5:7], 16)
+                return f"rgba({r}, {g}, {b}, 0.7)"
+        return "rgba(0, 0, 0, 0.7)"
         
     def _setup_ui(self):
         """设置UI"""
@@ -84,17 +147,19 @@ class SongCardWidget(QFrame):
         layout.setSpacing(8)
         layout.setContentsMargins(15, 15, 15, 15)
         
+        font_color = self._get_font_color()
+        
         # 封面
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(170, 170)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_label.setStyleSheet("""
-            background-color: rgba(255, 255, 255, 0.1);
+        self.cover_label.setStyleSheet(f"""
+            background-color: rgba(200, 200, 200, 0.3);
             border-radius: 12px;
         """)
         layout.addWidget(self.cover_label)
         
-        # 歌曲名
+        # 歌曲名 - 无边框
         self.name_label = QLabel(self.song_card.get_name())
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label.setWordWrap(True)
@@ -102,32 +167,23 @@ class SongCardWidget(QFrame):
         font.setBold(True)
         font.setPointSize(11)
         self.name_label.setFont(font)
-        self.name_label.setStyleSheet("color: white;")
+        self.name_label.setStyleSheet(f"color: {font_color}; background: transparent;")
         layout.addWidget(self.name_label)
         
-        # 艺术家
+        # 艺术家 - 无边框
         artist_names = self.song_card.get_artist_names()
+        secondary_color = self._get_secondary_font_color()
         self.artist_label = QLabel("/".join(artist_names))
         self.artist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.artist_label.setWordWrap(True)
         font_small = QFont()
         font_small.setPointSize(9)
         self.artist_label.setFont(font_small)
-        self.artist_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
+        self.artist_label.setStyleSheet(f"color: {secondary_color}; background: transparent;")
         layout.addWidget(self.artist_label)
         
-        # 样式 - 毛玻璃卡片效果
-        self.setStyleSheet("""
-            QFrame {
-                background-color: rgba(255, 255, 255, 0.15);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 16px;
-            }
-            QFrame:hover {
-                background-color: rgba(255, 255, 255, 0.25);
-                border: 2px solid rgba(255, 255, 255, 0.4);
-            }
-        """)
+        # 样式 - 应用配置
+        self.setStyleSheet(self._get_card_style())
         
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -170,6 +226,9 @@ class DiscoverOverlay(QMainWindow):
         self.songs: List = []
         self.next_songs: List = []  # 缓存下一批歌曲
         
+        # 获取GUI设置
+        self.gui_setting = discover_app.gui_setting
+        
         self._setup_ui()
         
         # 连接信号
@@ -177,6 +236,41 @@ class DiscoverOverlay(QMainWindow):
         
         # 初始加载歌曲（显示用 + 缓存用）
         self._load_songs()
+        
+    def _get_close_button_style(self):
+        """获取关闭按钮样式"""
+        if self.gui_setting:
+            # 根据night_mode获取配置
+            if self.gui_setting.night_mode:
+                btn_config = self.gui_setting.cancel_button_night_mode
+            else:
+                btn_config = self.gui_setting.cancel_button
+        else:
+            # 默认配置
+            btn_config = {
+                "background": "#FFFFFF",
+                "background_hover": "#f5d5d0",
+                "border": "#d6533e",
+                "font_color": "#000000"
+            }
+        
+        bg = btn_config.get("background", "#FFFFFF")
+        bg_hover = btn_config.get("background_hover", "#f5d5d0")
+        font_color = btn_config.get("font_color", "#000000")
+        
+        return f"""
+            QPushButton {{
+                background-color: {bg};
+                color: {font_color};
+                border: none;
+                border-radius: 25px;
+                font-size: 20px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {bg_hover};
+            }}
+        """
         
     def _setup_ui(self):
         """设置极简UI"""
@@ -200,22 +294,10 @@ class DiscoverOverlay(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(50, 50, 50, 50)
         
-        # 右上角关闭按钮
+        # 右上角关闭按钮 - 应用配置
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(50, 50)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(220, 53, 69, 0.9);
-                color: white;
-                border: none;
-                border-radius: 25px;
-                font-size: 20px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(220, 53, 69, 1.0);
-            }
-        """)
+        close_btn.setStyleSheet(self._get_close_button_style())
         close_btn.clicked.connect(self._on_close)
         
         # 关闭按钮位置 - 使用QHBoxLayout
@@ -277,8 +359,14 @@ class DiscoverOverlay(QMainWindow):
     def _load_songs_async(self):
         """异步加载歌曲"""
         try:
+            # 延迟防止线程冲突
+            time.sleep(0.05)
+            
             # 加载显示用歌曲
             self.songs = self.discover_app.discover_songs()
+            
+            # 延迟
+            time.sleep(0.05)
             
             # 加载下一批缓存
             self.next_songs = self.discover_app.discover_songs()
@@ -303,10 +391,20 @@ class DiscoverOverlay(QMainWindow):
                 item.widget().deleteLater()
                 
         # 显示简单加载提示
+        font_color = self._get_font_color_for_label()
         loading_label = QLabel("加载中...")
-        loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 18px;")
+        loading_label.setStyleSheet(f"color: {font_color}; font-size: 18px; background: transparent;")
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.song_layout.addWidget(loading_label, 0, 0)
+        
+    def _get_font_color_for_label(self):
+        """获取标签字体颜色"""
+        if self.gui_setting:
+            if self.gui_setting.night_mode:
+                return self.gui_setting.card_night_mode.get("font_color", "#ffffff")
+            else:
+                return self.gui_setting.card.get("font_color", "#000000")
+        return "#ffffff"
         
     def _display_songs(self):
         """显示歌曲卡片"""
@@ -321,7 +419,8 @@ class DiscoverOverlay(QMainWindow):
             if not song.have_loaded:
                 song.load_song_detail()
                 
-            card = SongCardWidget(song, i)
+            # 传入gui_setting
+            card = SongCardWidget(song, i, self.gui_setting)
             card.play_requested.connect(self._on_song_play)
             
             row = i // columns
@@ -347,6 +446,9 @@ class DiscoverOverlay(QMainWindow):
     def _preload_next_async(self):
         """异步预加载下一批"""
         try:
+            # 延迟防止线程冲突
+            time.sleep(0.05)
+            
             self.next_songs = self.discover_app.discover_songs()
         except Exception as e:
             print(f"预加载失败: {e}")
@@ -363,6 +465,9 @@ def create_tray_icon(app, discover_app):
     global _tray_icon, _main_window, _shortcut_enabled, _shortcut_action
     
     _main_window = discover_app
+    
+    # 延迟防止线程冲突
+    time.sleep(0.05)
     
     # 创建托盘图标
     tray = QSystemTrayIcon()
@@ -435,6 +540,8 @@ def toggle_shortcut(app, discover_app):
         # 重新注册快捷键
         try:
             import keyboard
+            # 延迟防止线程冲突
+            time.sleep(0.05)
             shortcut = discover_app.music_setting.shortcut_key
             keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
             print(f"快捷键已启用: {shortcut}")
@@ -466,6 +573,9 @@ def toggle_shortcut(app, discover_app):
 def show_overlay(app, discover_app):
     """显示全屏浮窗"""
     global _main_window
+    
+    # 延迟防止线程冲突
+    time.sleep(0.05)
     
     # 每次都创建新窗口，确保全新的歌曲列表
     _main_window = DiscoverOverlay(discover_app)
@@ -512,6 +622,8 @@ def register_global_shortcut(app, discover_app, shortcut="Alt+D"):
     """注册全局快捷键"""
     try:
         import keyboard
+        # 延迟防止线程冲突
+        time.sleep(0.05)
         keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
         print(f"全局快捷键已注册: {shortcut}")
     except ImportError:
@@ -533,8 +645,14 @@ def run_gui():
     # 创建应用实例
     discover_app = DiscoverApp()
     
+    # 延迟防止线程冲突
+    time.sleep(0.05)
+    
     # 创建托盘
     create_tray_icon(app, discover_app)
+    
+    # 延迟
+    time.sleep(0.05)
     
     # 注册全局快捷键
     try:
