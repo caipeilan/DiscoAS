@@ -1,15 +1,14 @@
 """
-DiscoverASong - 音乐选择器GUI (Kardo风格全屏浮窗)
+DiscoverASong - 音乐选择器GUI (极简透明浮窗)
 
 - 全屏透明浮窗，无边框
-- 毛玻璃背景效果
-- 系统托盘 + 全局快捷键
+- 只显示歌曲卡片和关闭按钮
+- 缓存机制：预加载下一批歌曲
 """
 
 import sys
 import os
 import threading
-import webbrowser
 from typing import Optional, List
 
 from PyQt6.QtWidgets import (
@@ -17,8 +16,8 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QFrame, QGridLayout,
     QMenu, QSystemTrayIcon
 )
-from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QRadialGradient
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSize, QTimerEvent
+from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
@@ -63,7 +62,6 @@ class ImageLoaderThread(QThread):
 class SongCardWidget(QFrame):
     """歌曲卡片widget"""
     
-    clicked = pyqtSignal(int)
     play_requested = pyqtSignal(object)  # 发送歌曲对象
     
     def __init__(self, song_card, index: int, parent=None):
@@ -72,7 +70,6 @@ class SongCardWidget(QFrame):
         self.index = index
         self.image_loaded = False
         self.current_image: Optional[QImage] = None
-        self.is_playing = False
         
         self._setup_ui()
         self._load_cover_image()
@@ -162,21 +159,27 @@ class SongCardWidget(QFrame):
 
 
 class DiscoverOverlay(QMainWindow):
-    """全屏透明浮窗主界面"""
+    """极简全屏透明浮窗主界面"""
+    
+    # 自定义信号：歌曲加载完成
+    songs_loaded = pyqtSignal(list)
     
     def __init__(self, discover_app, parent=None):
         super().__init__(parent)
         self.discover_app = discover_app
         self.songs: List = []
+        self.next_songs: List = []  # 缓存下一批歌曲
         
         self._setup_ui()
-        self._apply_style()
         
-        # 不自动加载歌曲，等待用户点击刷新按钮
-        # 这样避免在初始化时卡死
+        # 连接信号
+        self.songs_loaded.connect(self._on_songs_loaded)
+        
+        # 初始加载歌曲（显示用 + 缓存用）
+        self._load_songs()
         
     def _setup_ui(self):
-        """设置UI"""
+        """设置极简UI"""
         # 全屏无边框透明窗口
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
@@ -189,70 +192,38 @@ class DiscoverOverlay(QMainWindow):
         # 全屏
         self.showFullScreen()
         
-        # 中央widget - 使用透明背景
+        # 中央widget - 完全透明
         central = QWidget()
         self.setCentralWidget(central)
         
-        # 主布局
+        # 主布局 - 全屏铺满
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(50, 80, 50, 80)
+        main_layout.setContentsMargins(50, 50, 50, 50)
         
-        # 标题栏区域
-        header = QWidget()
-        header.setFixedHeight(60)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 标题
-        title = QLabel("🎵 随机歌曲发现")
-        title.setStyleSheet("color: white; font-size: 28px; font-weight: bold;")
-        header_layout.addWidget(title)
-        
-        header_layout.addStretch()
-        
-        # 关闭按钮
+        # 右上角关闭按钮
         close_btn = QPushButton("✕")
-        close_btn.setFixedSize(40, 40)
+        close_btn.setFixedSize(50, 50)
         close_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.1);
+                background-color: rgba(220, 53, 69, 0.9);
                 color: white;
-                border: 1px solid rgba(255, 255, 255, 0.3);
-                border-radius: 20px;
-                font-size: 18px;
+                border: none;
+                border-radius: 25px;
+                font-size: 20px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: rgba(255, 100, 100, 0.5);
+                background-color: rgba(220, 53, 69, 1.0);
             }
         """)
-        close_btn.clicked.connect(self.hide)
-        header_layout.addWidget(close_btn)
+        close_btn.clicked.connect(self._on_close)
         
-        main_layout.addWidget(header)
-        
-        # 刷新按钮
-        btn_layout = QHBoxLayout()
+        # 关闭按钮位置 - 使用QHBoxLayout
+        btn_container = QWidget()
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.addStretch()
-        
-        self.refresh_btn = QPushButton("🔄 刷新发现")
-        self.refresh_btn.setFixedSize(160, 45)
-        self.refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(118, 232, 253, 0.3);
-                color: white;
-                border: 1px solid rgba(118, 232, 253, 0.5);
-                border-radius: 22px;
-                font-size: 16px;
-            }
-            QPushButton:hover {
-                background-color: rgba(118, 232, 253, 0.5);
-            }
-        """)
-        self.refresh_btn.clicked.connect(self._on_refresh_clicked)
-        btn_layout.addWidget(self.refresh_btn)
-        
-        btn_layout.addStretch()
-        main_layout.addLayout(btn_layout)
+        btn_layout.addWidget(close_btn)
         
         # 歌曲卡片区域 - 可滚动
         scroll = QScrollArea()
@@ -280,56 +251,66 @@ class DiscoverOverlay(QMainWindow):
         self.song_layout.setSpacing(25)
         
         scroll.setWidget(self.song_container)
+        
+        # 垂直布局：关闭按钮在上，歌曲卡片在下面
+        main_layout.addWidget(btn_container)
         main_layout.addWidget(scroll)
         
-        # 状态栏
-        self.status_label = QLabel("点击卡片播放歌曲 · 按 ESC 退出")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 14px;")
-        main_layout.addWidget(self.status_label)
-        
-    def _apply_style(self):
-        """应用毛玻璃样式"""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: transparent;
-            }
-        """)
-        
     def paintEvent(self, event):
-        """绘制毛玻璃背景"""
+        """完全透明背景"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 半透明深色背景
-        gradient = QRadialGradient(
-            self.width() / 2, self.height() / 2, 
-            max(self.width(), self.height()) * 0.8
-        )
-        gradient.setColorAt(0, QColor(30, 30, 50, 200))
-        gradient.setColorAt(1, QColor(10, 10, 20, 220))
-        painter.setBrush(QBrush(gradient))
+        # 完全透明
         painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self.rect())
         
-    def _on_refresh_clicked(self):
-        """刷新按钮点击"""
-        self.refresh_btn.setEnabled(False)
-        self.status_label.setText("正在发现歌曲...")
+    def _load_songs(self):
+        """加载歌曲（显示用 + 缓存用）"""
+        # 显示加载状态
+        self._display_loading()
         
+        # 后台线程加载
         thread = threading.Thread(target=self._load_songs_async)
         thread.start()
         
     def _load_songs_async(self):
         """异步加载歌曲"""
         try:
+            # 加载显示用歌曲
             self.songs = self.discover_app.discover_songs()
-            QTimer.singleShot(0, self._display_songs)
-        except Exception as e:
-            QTimer.singleShot(0, lambda: self._show_error(str(e)))
             
+            # 加载下一批缓存
+            self.next_songs = self.discover_app.discover_songs()
+            
+            # 发送信号更新UI
+            self.songs_loaded.emit(self.songs)
+        except Exception as e:
+            print(f"加载歌曲失败: {e}")
+            self.songs_loaded.emit([])
+            
+    def _on_songs_loaded(self, songs):
+        """歌曲加载完成回调"""
+        self.songs = songs
+        self._display_songs()
+        
+    def _display_loading(self):
+        """显示加载中状态"""
+        # 清空现有卡片
+        while self.song_layout.count():
+            item = self.song_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+                
+        # 显示简单加载提示
+        loading_label = QLabel("加载中...")
+        loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 18px;")
+        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.song_layout.addWidget(loading_label, 0, 0)
+        
     def _display_songs(self):
-        """显示歌曲"""
+        """显示歌曲卡片"""
+        # 清空现有卡片
         while self.song_layout.count():
             item = self.song_layout.takeAt(0)
             if item.widget():
@@ -347,35 +328,34 @@ class DiscoverOverlay(QMainWindow):
             col = i % columns
             self.song_layout.addWidget(card, row, col)
             
-        self.status_label.setText(f"发现 {len(self.songs)} 首歌曲，点击卡片播放 · 按 ESC 退出")
-        self.refresh_btn.setEnabled(True)
-        
     def _on_song_play(self, song_card):
         """播放歌曲"""
-        self.status_label.setText(f"正在播放: {song_card.get_name()} - {'/'.join(song_card.get_artist_names())}")
-        
         # 播放
         self.discover_app.play_song(song_card)
         
+        # 立即预加载下一批（后台）
+        self._preload_next_batch()
+        
         # 延迟隐藏窗口
-        QTimer.singleShot(500, self.hide)
+        QTimer.singleShot(500, self._on_close)
         
-    def _show_error(self, message: str):
-        """显示错误"""
-        self.status_label.setText(f"错误: {message}")
-        self.refresh_btn.setEnabled(True)
+    def _preload_next_batch(self):
+        """预加载下一批歌曲"""
+        thread = threading.Thread(target=self._preload_next_async)
+        thread.start()
         
-    def keyPressEvent(self, event):
-        """键盘事件"""
-        if event.key() == Qt.Key.Key_Escape:
-            self.hide()
-        super().keyPressEvent(event)
-        
-    def mousePressEvent(self, event):
-        """点击窗口外部隐藏"""
-        # 检查点击是否在内容区域外
-        # 如果是，隐藏窗口
-        super().mousePressEvent(event)
+    def _preload_next_async(self):
+        """异步预加载下一批"""
+        try:
+            self.next_songs = self.discover_app.discover_songs()
+        except Exception as e:
+            print(f"预加载失败: {e}")
+            
+    def _on_close(self):
+        """关闭/退出时触发"""
+        # 预加载下一批（这样下次打开会更快）
+        self._preload_next_async()
+        self.hide()
 
 
 def create_tray_icon(app, discover_app):
@@ -393,14 +373,13 @@ def create_tray_icon(app, discover_app):
         tray.setIcon(QIcon(icon_path))
     else:
         # 创建一个简单的图标
-        from PyQt6.QtGui import QPainter, QPixmap, QColor
         pixmap = QPixmap(64, 64)
         pixmap.fill(QColor(0, 0, 0, 0))
-        painter = QPainter(pixmap)
-        painter.setBrush(QColor(118, 232, 253))
-        painter.drawEllipse(8, 8, 48, 48)
-        painter.end()
-        tray.setIcon(QPixmap(pixmap))
+        p = QPainter(pixmap)
+        p.setBrush(QColor(118, 232, 253))
+        p.drawEllipse(8, 8, 48, 48)
+        p.end()
+        tray.setIcon(QIcon(pixmap))
     
     tray.setToolTip("DiscoverASong - 音乐选择器")
     
@@ -488,9 +467,8 @@ def show_overlay(app, discover_app):
     """显示全屏浮窗"""
     global _main_window
     
-    # 创建或显示浮窗
-    if _main_window is None or not hasattr(_main_window, 'showFullScreen'):
-        _main_window = DiscoverOverlay(discover_app)
+    # 每次都创建新窗口，确保全新的歌曲列表
+    _main_window = DiscoverOverlay(discover_app)
     
     _main_window.showFullScreen()
     _main_window.raise_()
