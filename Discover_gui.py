@@ -541,11 +541,18 @@ class DiscoverOverlay(QMainWindow):
         self.hide()
 
 
+# 全局app实例，用于快捷键回调
+_global_app = None
+_global_discover_app = None
+
+
 def create_tray_icon(app, discover_app):
     """创建系统托盘"""
-    global _tray_icon, _main_window, _shortcut_enabled, _shortcut_action
+    global _tray_icon, _main_window, _shortcut_enabled, _shortcut_action, _global_app, _global_discover_app
     
     _main_window = discover_app
+    _global_app = app
+    _global_discover_app = discover_app
     
     # 创建托盘图标
     tray = QSystemTrayIcon()
@@ -597,9 +604,10 @@ def create_tray_icon(app, discover_app):
     
     tray.setContextMenu(menu)
     
-    # 左键点击显示浮窗
+    # 左键点击显示浮窗 - 使用队列连接确保线程安全
     tray.activated.connect(lambda reason: 
-        show_overlay(app, discover_app) if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+        QTimer.singleShot(0, lambda: show_overlay(app, discover_app)) 
+        if reason == QSystemTrayIcon.ActivationReason.Trigger else None
     )
     
     tray.show()
@@ -608,29 +616,27 @@ def create_tray_icon(app, discover_app):
     return tray
 
 
+# 全局快捷键widget
+_shortcut_widget = None
+
+
 def toggle_shortcut(app, discover_app):
     """切换快捷键启用状态"""
-    global _shortcut_enabled, _hotkey_id
+    global _shortcut_enabled, _shortcut_widget
     
     _shortcut_enabled = not _shortcut_enabled
     
     if _shortcut_enabled:
-        # 重新注册快捷键
-        try:
-            import keyboard
-            shortcut = discover_app.music_setting.shortcut_key
-            keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
-            print(f"快捷键已启用: {shortcut}")
-        except Exception as e:
-            print(f"启用快捷键失败: {e}")
+        # 启用快捷键 - 使用PyQt全局快捷键
+        shortcut = discover_app.music_setting.shortcut_key
+        if _shortcut_widget:
+            _shortcut_widget.setEnabled(True)
+        print(f"快捷键已启用: {shortcut}")
     else:
-        # 移除快捷键
-        try:
-            import keyboard
-            keyboard.unhook_all()
-            print("快捷键已暂停")
-        except Exception as e:
-            print(f"暂停快捷键失败: {e}")
+        # 禁用快捷键
+        if _shortcut_widget:
+            _shortcut_widget.setEnabled(False)
+        print("快捷键已暂停")
     
     # 更新托盘菜单文字
     if _tray_icon:
@@ -697,18 +703,14 @@ def open_settings():
 
 
 def register_global_shortcut(app, discover_app, shortcut="Alt+D"):
-    """注册全局快捷键"""
-    try:
-        import keyboard
-        keyboard.add_hotkey(shortcut, lambda: show_overlay(app, discover_app))
-        print(f"全局快捷键已注册: {shortcut}")
-    except ImportError:
-        print("keyboard模块未安装，使用PyQt快捷键")
-        # 使用PyQt的全局快捷键作为后备
-        from PyQt6.QtWidgets import QShortcut
-        from PyQt6.QtGui import QKeySequence
-        shortcut_widget = QShortcut(QKeySequence(shortcut), None)
-        shortcut_widget.activated.connect(lambda: show_overlay(app, discover_app))
+    """注册全局快捷键 - 使用PyQt的全局快捷键"""
+    global _shortcut_widget
+    
+    # 使用PyQt的全局快捷键
+    from PyQt6.QtGui import QKeySequence
+    _shortcut_widget = QShortcut(QKeySequence(shortcut), None)
+    _shortcut_widget.activated.connect(lambda: show_overlay(app, discover_app))
+    print(f"全局快捷键已注册: {shortcut}")
 
 
 def run_gui():
