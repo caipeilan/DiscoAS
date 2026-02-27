@@ -501,11 +501,34 @@ def show_overlay(app, discover_app):
 def open_settings():
     """打开设置窗口"""
     try:
-        from settings.setting_gui import SettingsWindow
-        settings_window = SettingsWindow()
-        settings_window.show()
+        # 获取项目根目录
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        settings_dir = os.path.join(root_dir, 'settings')
+        
+        # 保存原始工作目录
+        original_cwd = os.getcwd()
+        
+        try:
+            # 切换到settings目录，这样相对导入就能正常工作
+            os.chdir(settings_dir)
+            
+            # 添加settings目录到path
+            if settings_dir not in sys.path:
+                sys.path.insert(0, settings_dir)
+            
+            # 导入setting_gui（它会使用相对导入找到music_setting和gui_setting）
+            import setting_gui
+            SettingsWindow = setting_gui.SettingsWindow
+            
+            settings_window = SettingsWindow()
+            settings_window.show()
+        finally:
+            # 恢复原始工作目录
+            os.chdir(original_cwd)
     except Exception as e:
         print(f"无法打开设置: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def register_global_shortcut(app, discover_app, shortcut="Alt+D"):
