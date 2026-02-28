@@ -54,25 +54,29 @@ _preload_thread = None
 _preload_songs_thread = None
 
 
-def preload_images_background(discover_app):
-    """在后台线程预加载图片"""
+def preload_next_batch(discover_app):
+    """
+    在后台线程预加载下一批歌曲（歌曲详情 + 封面图片），
+    并将结果存入 _cached_songs，供下次打开浮窗时直接使用。
+    """
     global _preload_thread
-    
+
     if _preload_thread and _preload_thread.is_alive():
         print("预加载线程已在运行中，跳过")
         return
-    
+
     def _preload():
         import requests
+        global _cached_songs
         try:
-            print("开始预加载图片...")
-            # 获取歌曲列表
+            print("开始预加载下一批歌曲...")
+            # 1. 获取下一批歌曲
             songs = discover_app.discover_songs()
-            # 加载详情
+            # 2. 加载每首歌的详情（含图片URL）
             for song in songs:
                 if not song.have_loaded:
                     song.load_song_detail()
-            # 下载图片
+            # 3. 下载封面图片到缓存
             count = 0
             for song in songs:
                 url = song.get_album_pic_url()
@@ -82,12 +86,16 @@ def preload_images_background(discover_app):
                         if response.status_code == 200:
                             _image_cache[url] = response.content
                             count += 1
-                    except:
-                        pass
-            print(f"预加载完成，新增 {count} 张图片，缓存共 {len(_image_cache)} 张")
+                    except Exception as e:
+                        print(f"图片预加载失败: {url[:50]}... - {e}")
+            # 4. 将这批歌曲存入全局缓存，供下次打开浮窗直接使用
+            _cached_songs = songs
+            print(f"预加载完成：{len(songs)} 首歌曲，新增 {count} 张图片，缓存共 {len(_image_cache)} 张")
         except Exception as e:
+            import traceback
             print(f"预加载失败: {e}")
-    
+            traceback.print_exc()
+
     _preload_thread = threading.Thread(target=_preload, daemon=True)
     _preload_thread.start()
 
@@ -696,15 +704,17 @@ class DiscoverOverlay(QMainWindow):
     def _on_song_play(self, song_card):
         """播放歌曲"""
         # 标记用户播放了歌曲，下次进入需要刷新
-        global _user_played_song
+        global _user_played_song, _cached_songs
         _user_played_song = True
-        print("用户播放了歌曲，标记为已播放")
+        # 播放后清除缓存，确保下次进入时重新随机
+        _cached_songs = []
+        print("用户播放了歌曲，标记为已播放，清除歌曲缓存")
         
         # 播放
         self.discover_app.play_song(song_card)
         
-        # 播放后立即触发下一批预加载
-        preload_images_background(self.discover_app)
+        # 播放后立即在后台预加载下一批歌曲（含详情+图片），存入 _cached_songs
+        preload_next_batch(self.discover_app)
         
         # 延迟隐藏窗口
         QTimer.singleShot(500, self._on_close)
@@ -722,12 +732,16 @@ class DiscoverOverlay(QMainWindow):
             _cached_songs = []
             _need_refresh_songs = True
             print("取消选择后刷新=True，清除缓存")
+            self.hide()
+            # 在后台预加载下一批（刷新模式下也预加载，加速下次显示）
+            preload_next_batch(self.discover_app)
         else:
             # 刷新=False，保存缓存，下次进入不刷新
             _cached_songs = self.songs.copy()
             print("取消选择后刷新=False，保存缓存")
-        
-        self.hide()
+            self.hide()
+            # 在后台预加载下一批，覆盖 _cached_songs 为新的随机歌曲
+            preload_next_batch(self.discover_app)
         
     def closeEvent(self, event):
         """窗口关闭事件"""
@@ -752,12 +766,15 @@ class DiscoverOverlay(QMainWindow):
                 _need_refresh_songs = True
                 print("取消选择后刷新=True，清除缓存，下次进入将刷新歌曲")
                 self.hide()
-                preload_images_background(self.discover_app)
+                # 在后台预加载下一批（刷新模式下也预加载，加速下次显示）
+                preload_next_batch(self.discover_app)
             else:
                 # 刷新=False，保存缓存，下次进入不刷新
                 _cached_songs = self.songs.copy()
                 print("取消选择后刷新=False，保存缓存，下次进入不刷新")
                 self.hide()
+                # 在后台预加载下一批，覆盖 _cached_songs 为新的随机歌曲
+                preload_next_batch(self.discover_app)
             return
         super().keyPressEvent(event)
         
@@ -1069,8 +1086,8 @@ def run_gui():
     # 创建应用实例
     discover_app = DiscoverApp()
     
-    # 程序启动时立即开始预加载
-    preload_images_background(discover_app)
+    # 程序启动时立即开始预加载（歌曲详情 + 封面图片 + 存入缓存）
+    preload_next_batch(discover_app)
     
     # 创建托盘
     create_tray_icon(app, discover_app)
