@@ -369,35 +369,38 @@ class DiscoverOverlay(QMainWindow):
         self.songs_loaded.connect(self._on_songs_loaded)
         
         # 检查是否需要刷新歌曲
-        global _need_refresh_songs, _user_played_song
-        
+        global _need_refresh_songs, _user_played_song, _cached_songs
+
         # 如果用户播放了歌曲，下次进入需要刷新（清除缓存）
         if _user_played_song:
             _user_played_song = False  # 重置标记
             _need_refresh_songs = True
             print("用户播放过歌曲，下次进入将刷新")
-        
+
         should_refresh = _need_refresh_songs
         if not should_refresh:
             # 检查设置：refreshing_after_cancel
             should_refresh = self.discover_app.music_setting.refreshing_after_cancel
-        
-        if should_refresh:
-            # 需要刷新，清除缓存并重置
+
+        # 优先判断：预加载是否已经准备好了新歌曲
+        # 只要 _cached_songs 不为空，说明预加载线程已经完成，
+        # 直接使用，避免重新异步加载导致"加载中..."延迟
+        if _cached_songs:
+            print(f"使用预加载缓存的歌曲，共 {len(_cached_songs)} 首（跳过刷新逻辑）")
             _need_refresh_songs = False
-            # 清除 Playlist 的缓存
+            self.songs = _cached_songs.copy()
+            _cached_songs = []  # 清空全局缓存，防止下次误用同一批
+            self._display_songs()
+        elif should_refresh:
+            # 没有预加载缓存，且需要刷新：清除 Playlist 缓存后重新加载
+            _need_refresh_songs = False
             from load_playlist_json import Playlist
             Playlist.clear_cache()
-            print("已清除歌曲缓存，需要刷新")
-            # 重新加载
+            print("无预加载缓存，需要刷新，重新加载歌曲...")
             self._load_songs()
-        elif _cached_songs:
-            # 使用缓存的歌曲
-            print(f"使用缓存的歌曲，共 {len(_cached_songs)} 首")
-            self.songs = _cached_songs
-            self._display_songs()
         else:
-            # 没有缓存，加载新歌曲
+            # 没有缓存，也不需要刷新：直接加载
+            print("无预加载缓存，直接加载歌曲...")
             self._load_songs()
         
     def _get_close_button_style(self):
