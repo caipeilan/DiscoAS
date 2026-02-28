@@ -413,6 +413,7 @@ class DiscoverOverlay(QMainWindow):
         
         bg = btn_config.get("background", "#FFFFFF")
         bg_hover = btn_config.get("background_hover", "#f5d5d0")
+        border = btn_config.get("border", "#d6533e")
         font_color = btn_config.get("font_color", "#000000")
         
         # 圆角和字体大小也按比例缩放
@@ -423,13 +424,18 @@ class DiscoverOverlay(QMainWindow):
             QPushButton {{
                 background-color: {bg};
                 color: {font_color};
-                border: none;
+                border: 2px solid {border};
                 border-radius: {radius}px;
                 font-size: {font_size}px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
                 background-color: {bg_hover};
+                border: 4px solid {border};
+            }}
+            QPushButton:pressed {{
+                background-color: {bg_hover};
+                border: 4px solid {border};
             }}
         """
         
