@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject, QPropertyAnimation, QEasingCurve, QRect, QPoint
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PyQt6.QtCore import QUrl
 
@@ -361,7 +361,9 @@ class DiscoverOverlay(QMainWindow):
         self.gui_setting = discover_app.gui_setting
         
         # 动画相关
-        self.fade_animation = None
+        self._open_anim = None
+        self._close_anim = None
+        self._closing = False  # 防止关闭动画期间重复触发
         
         self._setup_ui()
         
@@ -729,22 +731,21 @@ class DiscoverOverlay(QMainWindow):
         # 声明全局变量
         global _cached_songs, _need_refresh_songs
         
-        # 关闭时的行为与 ESC 保持一致
+        # 先处理缓存逻辑（同步执行，在动画前）
         if self.discover_app.music_setting.refreshing_after_cancel:
-            # 刷新=True，清除缓存，下次进入刷新歌曲
             _cached_songs = []
             _need_refresh_songs = True
             print("取消选择后刷新=True，清除缓存")
-            self.hide()
-            # 在后台预加载下一批（刷新模式下也预加载，加速下次显示）
-            preload_next_batch(self.discover_app)
         else:
-            # 刷新=False，保存缓存，下次进入不刷新
             _cached_songs = self.songs.copy()
             print("取消选择后刷新=False，保存缓存")
+        
+        # 播放弹出淡出动画，动画结束后隐藏窗口并启动预加载
+        def _do_hide():
             self.hide()
-            # 在后台预加载下一批，覆盖 _cached_songs 为新的随机歌曲
             preload_next_batch(self.discover_app)
+        
+        self.play_close_animation(_do_hide)
         
     def closeEvent(self, event):
         """窗口关闭事件"""
@@ -762,25 +763,93 @@ class DiscoverOverlay(QMainWindow):
             # 声明全局变量
             global _cached_songs, _need_refresh_songs
             
-            # 检查是否需要刷新
+            # 先处理缓存逻辑（同步执行，在动画前）
             if self.discover_app.music_setting.refreshing_after_cancel:
-                # 刷新=True，清除缓存，下次进入刷新歌曲
                 _cached_songs = []
                 _need_refresh_songs = True
                 print("取消选择后刷新=True，清除缓存，下次进入将刷新歌曲")
-                self.hide()
-                # 在后台预加载下一批（刷新模式下也预加载，加速下次显示）
-                preload_next_batch(self.discover_app)
             else:
-                # 刷新=False，保存缓存，下次进入不刷新
                 _cached_songs = self.songs.copy()
                 print("取消选择后刷新=False，保存缓存，下次进入不刷新")
+            
+            # 播放弹出淡出动画，动画结束后隐藏并预加载
+            def _do_hide():
                 self.hide()
-                # 在后台预加载下一批，覆盖 _cached_songs 为新的随机歌曲
                 preload_next_batch(self.discover_app)
+            
+            self.play_close_animation(_do_hide)
             return
         super().keyPressEvent(event)
         
+    def play_open_animation(self):
+        """弹入淡入动画（打开时）"""
+        # 停止任何正在播放的关闭动画
+        if self._close_anim and self._close_anim.state() == QPropertyAnimation.State.Running:
+            self._close_anim.stop()
+        if hasattr(self, '_close_pos_anim') and self._close_pos_anim and \
+                self._close_pos_anim.state() == QPropertyAnimation.State.Running:
+            self._close_pos_anim.stop()
+        self._closing = False
+
+        # 记录窗口正常位置
+        normal_pos = self.pos()
+        start_pos = QPoint(normal_pos.x(), normal_pos.y() + 40)
+
+        # --- 弹入位移动画（窗口 pos：从 y+40 弹入到 y）---
+        self._open_pos_anim = QPropertyAnimation(self, b"pos")
+        self._open_pos_anim.setDuration(380)
+        self._open_pos_anim.setStartValue(start_pos)
+        self._open_pos_anim.setEndValue(normal_pos)
+        self._open_pos_anim.setEasingCurve(QEasingCurve.Type.OutBack)
+
+        # --- 淡入动画（windowOpacity: 0 → 1）---
+        self.setWindowOpacity(0.0)
+        self.move(start_pos)  # 先移到起始位置
+        self._open_anim = QPropertyAnimation(self, b"windowOpacity")
+        self._open_anim.setDuration(320)
+        self._open_anim.setStartValue(0.0)
+        self._open_anim.setEndValue(1.0)
+        self._open_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._open_pos_anim.start()
+        self._open_anim.start()
+
+    def play_close_animation(self, callback):
+        """弹出淡出动画（关闭时），动画结束后执行 callback"""
+        if self._closing:
+            return
+        self._closing = True
+
+        # 停止任何正在播放的打开动画
+        if self._open_anim and self._open_anim.state() == QPropertyAnimation.State.Running:
+            self._open_anim.stop()
+        if hasattr(self, '_open_pos_anim') and self._open_pos_anim and \
+                self._open_pos_anim.state() == QPropertyAnimation.State.Running:
+            self._open_pos_anim.stop()
+
+        normal_pos = self.pos()
+        end_pos = QPoint(normal_pos.x(), normal_pos.y() + 20)
+
+        # --- 弹出位移动画（窗口 pos：向下 +20px）---
+        self._close_pos_anim = QPropertyAnimation(self, b"pos")
+        self._close_pos_anim.setDuration(220)
+        self._close_pos_anim.setStartValue(normal_pos)
+        self._close_pos_anim.setEndValue(end_pos)
+        self._close_pos_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+
+        # --- 淡出动画（windowOpacity: 当前 → 0）---
+        self._close_anim = QPropertyAnimation(self, b"windowOpacity")
+        self._close_anim.setDuration(220)
+        self._close_anim.setStartValue(self.windowOpacity())
+        self._close_anim.setEndValue(0.0)
+        self._close_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+
+        # 动画结束后执行回调
+        self._close_anim.finished.connect(callback)
+
+        self._close_pos_anim.start()
+        self._close_anim.start()
+
     def focusOutEvent(self, event):
         """窗口失去焦点事件"""
         print("窗口失去焦点")
@@ -927,11 +996,12 @@ def show_overlay(app, discover_app):
     _main_window = DiscoverOverlay(discover_app)
     print("DiscoverOverlay 创建完成")
     
-    # 直接显示窗口（无动画）
+    # 显示窗口并播放弹入淡入动画
     _main_window.show()
     _main_window.showFullScreen()
     _main_window.raise_()
     _main_window.activateWindow()
+    _main_window.play_open_animation()
     
     print("窗口已显示")
 
