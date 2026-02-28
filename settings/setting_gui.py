@@ -615,6 +615,16 @@ class SettingsWindow(QMainWindow):
             if Discover_gui._global_app and Discover_gui._global_discover_app:
                 Discover_gui.reregister_shortcut(Discover_gui._global_app, Discover_gui._global_discover_app)
                 print("快捷键已重新注册")
+            
+            # 重新应用 music_setting 并更新歌单
+            if Discover_gui._global_discover_app:
+                # 重新加载 music_setting
+                Discover_gui._global_discover_app.music_setting.load()
+                # 重新应用设置（更新 platform, playlist_type, playlist_id）
+                Discover_gui._global_discover_app._apply_settings()
+                # 更新启用的歌单数据
+                Discover_gui._global_discover_app._update_enabled_playlist()
+                print("已更新歌单设置")
         except Exception as e:
             print(f"刷新浮窗失败: {e}")
 
