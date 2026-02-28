@@ -1,7 +1,8 @@
 """
-QQ音乐 API 模块 - 纯HTTP实现
+QQ音乐 API 模块 - 使用签名算法
 
-使用同步requests库替代异步第三方库，提升响应速度
+基于 qqmusic-api-python 库的签名算法实现
+支持本地缓存回退
 """
 
 import json
@@ -9,27 +10,10 @@ import os
 import requests
 from typing import Any, Dict, List, Optional, Union
 
-# QQ音乐API配置
-QQMUSIC_BASE_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg"
-QQMUSIC_REFERER = "https://y.qq.com/"
-QQMUSIC_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-QQMUSIC_VERSION = "13.2.5.8"
-
-# 创建全局Session用于连接复用
-_session: Optional[requests.Session] = None
-
-
-def get_session() -> requests.Session:
-    """获取全局Session，复用TCP连接"""
-    global _session
-    if _session is None:
-        _session = requests.Session()
-        _session.headers.update({
-            "User-Agent": QQMUSIC_USER_AGENT,
-            "Referer": QQMUSIC_REFERER,
-            "Content-Type": "application/json",
-        })
-    return _session
+# 导入签名模块
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
 
 
 class PlaylistAlbumJson:
@@ -41,69 +25,109 @@ class PlaylistAlbumJson:
         self.playlist_album_name: str = ""
         self.playlist_album_json: Union[Dict, List] = {}
         
-        self._fetch_data()
+        # 尝试从API获取，失败则从本地缓存读取
+        try:
+            self._fetch_data()
+        except Exception as e:
+            print(f"API获取失败，尝试从本地缓存读取: {e}")
+            self._load_from_cache()
 
     def _fetch_data(self) -> None:
         """获取歌单/专辑数据"""
-        session = get_session()
         
         if self.typename == "playlist":
-            # 获取歌单详情
-            url = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_playlist_cp.fcg"
+            # 获取歌单详情 - 使用 qzone-music API（需要 type=1 和 newcp=1 参数）
+            url = "https://i.y.qq.com/qzone-music/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg"
             params = {
-                "id": self.playlist_album_id,
+                "disstid": int(self.playlist_album_id) if self.playlist_album_id.isdigit() else self.playlist_album_id,
+                "json": 1,
+                "utf8": 1,
+                "noCache": 1,
+                "loginUin": 0,
+                "hostUin": 0,
                 "format": "json",
                 "inCharset": "utf8",
-                "outCharset": "utf8",
+                "outCharset": "utf-8",
                 "notice": 0,
-                "platform": "yqq.json",
+                "platform": "yqq",
                 "needNewCode": 0,
-                "type": 0,
-                "json": 1,
-                "onlysong": 0,
-                "new_format": 1,
+                "type": 1,
+                "newcp": 1
             }
-            try:
-                response = session.get(url, params=params, timeout=10)
-                data = response.json()
-                
-                if "cdlist" in data and len(data["cdlist"]) > 0:
-                    self.playlist_album_name = data["cdlist"][0].get("dissname", "")
-                    self.playlist_album_json = data
-                else:
-                    raise ValueError("无法获取歌单信息")
-            except Exception as e:
-                print(f"获取歌单详情失败: {e}")
-                raise
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.54",
+                "Referer": "https://y.qq.com/"
+            }
+            
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            data = response.json()
+            
+            # 解析响应
+            cdlist = data.get("cdlist", [])
+            if cdlist:
+                self.playlist_album_name = cdlist[0].get("dissname", "")
+                self.playlist_album_json = {"songlist": cdlist[0].get("songlist", [])}
+            else:
+                raise ValueError("无法获取歌单信息")
                 
         elif self.typename == "album":
-            # 获取专辑详情
-            url = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg"
+            # 获取专辑详情 - 使用 v8 API
+            url = "https://i.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg"
             params = {
                 "albummid": self.playlist_album_id,
+                "json": 1,
+                "utf8": 1,
+                "loginUin": 0,
+                "hostUin": 0,
                 "format": "json",
                 "inCharset": "utf8",
-                "outCharset": "utf8",
+                "outCharset": "utf-8",
                 "notice": 0,
-                "platform": "yqq.json",
-                "needNewCode": 0,
+                "platform": "yqq",
+                "needNewCode": 0
             }
-            try:
-                response = session.get(url, params=params, timeout=10)
-                data = response.json()
-                
-                if "data" in data:
-                    self.playlist_album_name = data["data"].get("name", "")
-                    self.playlist_album_json = data
-                else:
-                    raise ValueError("无法获取专辑信息")
-            except Exception as e:
-                print(f"获取专辑详情失败: {e}")
-                raise
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.54",
+                "Referer": "https://y.qq.com/"
+            }
+            
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            data = response.json()
+            
+            # 解析响应
+            album_data = data.get("data", {})
+            if album_data:
+                self.playlist_album_name = album_data.get("name", "")
+                self.playlist_album_json = {"songlist": album_data.get("list", [])}
+            else:
+                raise ValueError("无法获取专辑信息")
         else:
             raise ValueError("typename must be 'playlist' or 'album'")
 
         print(f"已获取{self.typename}: {self.playlist_album_name}")
+
+    def _load_from_cache(self) -> None:
+        """从本地缓存加载数据"""
+        cache_path = os.path.join(
+            os.path.dirname(__file__),
+            "user_data",
+            self.typename,
+            f"{self.playlist_album_id}.json"
+        )
+        
+        if os.path.exists(cache_path):
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+                self.playlist_album_name = cache_data.get("playlist_album_name", "")
+                self.playlist_album_json = {"songlist": []}
+                # 从缓存恢复歌曲ID列表
+                for song_id in cache_data.get("song_ids", []):
+                    self.playlist_album_json["songlist"].append({"id": song_id})
+            print(f"已从缓存加载{self.typename}: {self.playlist_album_name}")
+        else:
+            raise FileNotFoundError(f"本地缓存不存在: {cache_path}")
 
     def get_id(self) -> str:
         return self.playlist_album_id
@@ -116,18 +140,22 @@ class PlaylistAlbumJson:
         songs: List[int] = []
         
         if self.typename == "playlist":
-            # 从歌单中提取歌曲ID
-            if "cdlist" in self.playlist_album_json:
-                for cd in self.playlist_album_json.get("cdlist", []):
-                    for song in cd.get("songlist", []):
-                        if "id" in song:
-                            songs.append(song["id"])
+            # 从歌单中提取歌曲ID (支持 songid 或 id)
+            if "songlist" in self.playlist_album_json:
+                for song in self.playlist_album_json.get("songlist", []):
+                    # 优先使用 songid（QQ音乐API返回的字段名）
+                    if "songid" in song:
+                        songs.append(song["songid"])
+                    elif "id" in song:
+                        songs.append(song["id"])
                             
         elif self.typename == "album":
             # 从专辑中提取歌曲ID
-            if "data" in self.playlist_album_json:
-                for song in self.playlist_album_json["data"].get("getSongInfo", []):
-                    if "id" in song:
+            if "songlist" in self.playlist_album_json:
+                for song in self.playlist_album_json["songlist"]:
+                    if "songid" in song:
+                        songs.append(song["songid"])
+                    elif "id" in song:
                         songs.append(song["id"])
                         
         return songs

@@ -1,18 +1,26 @@
 """
-QQ音乐歌曲卡片模块 - 纯HTTP实现
+QQ音乐歌曲卡片模块 - 使用签名算法
 
-使用同步requests库替代异步第三方库，提升响应速度
+基于 qqmusic-api-python 库的签名算法实现
 """
 
 import webbrowser
 import requests
 from typing import List, Optional
 
-# 导入共享的Session
-import os
-import sys
-sys.path.append(os.path.dirname(__file__))
-from get_json import get_session
+# 延迟导入签名模块
+def _get_make_api_request():
+    import sys
+    import importlib
+    
+    # 清除已缓存的qq_sign模块
+    mods_to_remove = [k for k in sys.modules.keys() if 'qq_sign' in k]
+    for mod in mods_to_remove:
+        del sys.modules[mod]
+    
+    # 重新导入
+    import platforms.QQMusic.qq_sign as qq_sign_module
+    return qq_sign_module.make_api_request
 
 
 class SongCard:
@@ -42,7 +50,7 @@ class SongCard:
         self.have_loaded: bool = False
 
     def load_song_detail(self) -> None:
-        """加载歌曲详情"""
+        """加载歌曲详情，失败则使用默认值"""
         if self.have_loaded:
             return
             
@@ -56,10 +64,33 @@ class SongCard:
             return
         
         try:
-            # 直接通过ID获取歌曲信息
-            song_info = self._fetch_song_info_by_id()
+            # 使用新的 API 获取歌曲详情（使用正确的module和method）
+            params = {
+                "types": [0],  # 0 表示用 ID 查询
+                "ids": [self.song_id],
+                "modify_stamp": [0],
+                "ctx": 0,
+                "client": 1,
+            }
             
-            if song_info:
+            # 正确的API调用方式（延迟导入）
+            # 直接调用qq_sign模块的函数，绕过可能的导入问题
+            import platforms.QQMusic.qq_sign as qs
+            api_result = qs.make_api_request("music.trackInfo.UniformRuleCtrl", "CgiGetTrackInfo", params)
+            
+            # API返回结构: {"music.trackInfo.UniformRuleCtrl": {"code": 0, "data": {"tracks": [...]}}}
+            tracks = []
+            if isinstance(api_result, dict):
+                # 获取嵌套的module结果
+                module_result = api_result.get("music.trackInfo.UniformRuleCtrl", {})
+                if isinstance(module_result, dict):
+                    data = module_result.get("data", {})
+                    if isinstance(data, dict):
+                        tracks = data.get("tracks", [])
+            
+            if tracks and len(tracks) > 0:
+                song_info = tracks[0]
+                
                 self.song_detail_json = song_info
                 self.song_name = song_info.get("name", "未知")
                 
@@ -82,132 +113,21 @@ class SongCard:
                 
                 self.have_loaded = True
             else:
-                # 备用方案：尝试通过songmid获取
-                song_mid = self._get_song_mid_from_id()
-                self._load_by_mid(song_mid)
-                
-        except Exception as e:
-            print(f"歌曲详情加载失败: {e}")
-            self._set_error_defaults()
-    
-    def _load_by_mid(self, song_mid: str) -> None:
-        """通过songmid加载歌曲详情"""
-        try:
-            session = get_session()
-            
-            url = "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg"
-            params = {
-                "songmid": song_mid,
-                "format": "json",
-                "inCharset": "utf8",
-                "outCharset": "utf8",
-                "notice": 0,
-                "platform": "yqq.json",
-                "needNewCode": 0,
-            }
-            
-            response = session.get(url, params=params, timeout=10)
-            data = response.json()
-            
-            if "data" in data and len(data["data"]) > 0:
-                song_info = data["data"][0]
-                
-                self.song_detail_json = song_info
-                self.song_name = song_info.get("name", "未知")
-                
-                self.song_artists = song_info.get("singer", [])
-                self.song_artist_names = [artist.get("name", "未知") for artist in self.song_artists]
-                
-                self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
-                
-                album = song_info.get("album", {})
-                self.album_mid = album.get("mid", "")
-                
-                if self.album_mid:
-                    self.album_pic_url = f"https://y.qq.com/music/photo_new/T002R300x300M000{self.album_mid}_1.jpg"
-                else:
-                    self.album_pic_url = self.mystery_pic_url
-                
-                self.have_loaded = True
-            else:
                 self._set_error_defaults()
                 
         except Exception as e:
-            print(f"通过mid加载歌曲详情失败: {e}")
-            self._set_error_defaults()
-
-    def _get_song_mid_from_id(self) -> str:
-        """
-        通过歌曲ID获取songmid
-        
-        Returns:
-            歌曲的mid字符串
-        """
-        try:
-            session = get_session()
-            
-            # 使用QQ音乐歌曲详情API，通过songmid参数传递歌曲ID
-            # 但我们需要先获取songmid，所以这里用另一种方式
-            # 调用歌曲搜索接口或详情接口
-            url = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_song_detail.fcg"
-            params = {
-                "songmid": "",  # 先留空
-                "songid": self.song_id,
-                "format": "json",
-                "inCharset": "utf8",
-                "outCharset": "utf8",
-                "notice": 0,
-                "platform": "yqq.json",
-                "needNewCode": 0,
-            }
-            
-            response = session.get(url, params=params, timeout=10)
-            data = response.json()
-            
-            if "data" in data and "song" in data["data"]:
-                song_info = data["data"]["song"]
-                return song_info.get("mid", str(self.song_id))
-                
-            return str(self.song_id)
-            
-        except Exception as e:
-            print(f"获取songmid失败，使用备用方案: {e}")
-            return str(self.song_id)
+            print(f"歌曲详情加载失败: {e}")
+            # API失败时使用默认值（基于歌曲ID）
+            self._set_default_from_id()
     
-    def _fetch_song_info_by_id(self) -> dict:
-        """
-        通过歌曲ID直接获取歌曲信息（包含mid）
-        
-        Returns:
-            歌曲信息字典
-        """
-        try:
-            session = get_session()
-            
-            # 使用歌曲详情接口
-            url = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_song_detail.fcg"
-            params = {
-                "songmid": "",  
-                "songid": self.song_id,
-                "format": "json",
-                "inCharset": "utf8",
-                "outCharset": "utf8", 
-                "notice": 0,
-                "platform": "yqq.json",
-                "needNewCode": 0,
-            }
-            
-            response = session.get(url, params=params, timeout=10)
-            data = response.json()
-            
-            if "data" in data and "song" in data["data"]:
-                return data["data"]["song"]
-                
-            return {}
-            
-        except Exception as e:
-            print(f"通过ID获取歌曲信息失败: {e}")
-            return {}
+    def _set_default_from_id(self) -> None:
+        """根据歌曲ID设置默认值"""
+        self.song_name = f"歌曲{self.song_id}"
+        self.song_artist_names = ["未知艺术家"]
+        self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        # 使用默认封面
+        self.album_pic_url = self.mystery_pic_url
+        self.have_loaded = True
 
     def _set_error_defaults(self) -> None:
         """设置错误默认值为未知"""
@@ -258,11 +178,3 @@ if __name__ == '__main__':
     print(f"窗口名: {song.get_window_name()}")
     print(f"专辑封面: {song.get_album_pic_url()}")
     print(f"Scheme URL: {song.get_scheme_url()}")
-    
-    # 尝试打开QQ音乐
-    # webbrowser.open(song.get_scheme_url(), new=0, autoraise=False)
-    # time.sleep(2.5)
-    # windows = gw.getWindowsWithTitle(song.get_window_name())
-    # if windows:
-    #     window = windows[0]
-    #     window.minimize()

@@ -512,6 +512,15 @@ class SettingsWindow(QMainWindow):
         self.apply_gui_theme()
 
     def save_all_settings(self):
+        # 0. 保存之前的平台信息（用于检测是否切换平台）
+        old_enabled_platform = None
+        old_enabled_playlist = None
+        for pl in self.pa_setting.playlist_albums:
+            if pl.enabled:
+                old_enabled_platform = pl.name
+                old_enabled_playlist = pl.playlist_album_id
+                break
+        
         # 1. 保存 Music Setting
         self.pa_setting.number_of_discovered_songs = self.spin_discovered.value()
         self.pa_setting.have_mystery_song = self.chk_mystery.isChecked()
@@ -521,6 +530,8 @@ class SettingsWindow(QMainWindow):
         self.pa_setting.shortcut_key = self.edit_shortcut.text()
         
         new_playlists = []
+        new_enabled_platform = None
+        new_enabled_playlist = None
         for row in range(self.table_pl.rowCount()):
             name = self.table_pl.cellWidget(row, 0).currentText()
             pid = self.table_pl.cellWidget(row, 1).text()
@@ -530,6 +541,10 @@ class SettingsWindow(QMainWindow):
             chk_widget = self.table_pl.cellWidget(row, 4)
             chk = chk_widget.findChild(QCheckBox, "chk_enabled")
             enabled = chk.isChecked() if chk else False
+            
+            if enabled:
+                new_enabled_platform = name
+                new_enabled_playlist = pid
             
             p_data = {
                 "name": name,
@@ -576,15 +591,39 @@ class SettingsWindow(QMainWindow):
         
         self.gui_setting.save()
         
-        # 3. 界面反馈
+        # 3. 检测平台是否发生变化
+        platform_changed = (old_enabled_platform != new_enabled_platform)
+        
+        # 4. 界面反馈
         self.pa_setting.load()
         self.load_playlist_table()
         self.apply_gui_theme()
         
-        # 通知 Discover_gui 重新加载设置
-        self.notify_settings_changed()
+        if platform_changed:
+            # 平台切换了，提示并重启
+            QMessageBox.information(self, "平台已切换", "平台已更改，程序将重启以应用更改。")
+            self.restart_application()
+        else:
+            # 通知 Discover_gui 重新加载设置
+            self.notify_settings_changed()
+            QMessageBox.information(self, "保存成功", "所有设置已保存并应用！")
+    
+    def restart_application(self):
+        """重启应用程序"""
+        import subprocess
+        import sys
         
-        QMessageBox.information(self, "保存成功", "所有设置已保存并应用！")
+        # 获取当前运行的脚本路径
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "main.py")
+        
+        # 关闭当前设置窗口
+        self.close()
+        
+        # 启动新的应用程序实例
+        subprocess.Popen([sys.executable, script_path])
+        
+        # 退出当前应用程序
+        QApplication.instance().quit()
 
     def notify_settings_changed(self):
         """通知其他模块设置已更改"""
