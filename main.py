@@ -1,9 +1,3 @@
-"""
-DiscoverASong - 音乐选择器主程序
-
-通过Scheme URL协议唤起本地音乐播放器，从歌单中随机挑选歌曲供用户选择
-"""
-
 import sys
 import os
 import webbrowser
@@ -30,7 +24,7 @@ except ImportError:
 
 
 class DiscoverApp:
-    """DiscoverASong应用主类"""
+    """DiscovAS应用主类"""
 
     def __init__(self):
         # 加载设置
@@ -143,7 +137,7 @@ class DiscoverApp:
             
             # 打开URL唤起音乐播放器
             webbrowser.open(url, new=0, autoraise=False)
-            
+
             # 尝试最小化播放器窗口
             self._minimize_player_window(song_card)
             
@@ -158,7 +152,7 @@ class DiscoverApp:
             import pygetwindow as gw
             import time
             
-            time.sleep(2)  # 等待窗口出现
+            time.sleep(4)  # 等待窗口出现
             
             windows = gw.getWindowsWithTitle(song_card.get_window_name())
             if windows:
@@ -169,7 +163,7 @@ class DiscoverApp:
             
     def run_cli(self) -> None:
         """命令行模式运行"""
-        print("=== DiscoverASong 音乐选择器 ===\n")
+        print("=== DiscoAS 音乐选择器 ===\n")
         
         # 发现歌曲
         print("正在发现歌曲...")

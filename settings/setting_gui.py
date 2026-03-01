@@ -96,7 +96,7 @@ class SettingsWindow(QMainWindow):
         self.gui_setting.load()
 
         # 2. 初始化界面
-        self.setWindowTitle("编辑你的DiscoverASong！")
+        self.setWindowTitle("编辑你的DiscoAS！")
         self.resize(1050, 750)
         
         self.central_widget = QWidget()
