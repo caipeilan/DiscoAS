@@ -709,6 +709,16 @@ class SettingsWindow(QMainWindow):
                 # 更新启用的歌单数据
                 Discover_gui._global_discover_app._update_enabled_playlist()
                 print("已更新歌单设置")
+
+            # 清空图片缓存和歌曲缓存，让下次打开浮窗时使用最新设置
+            Discover_gui._image_cache.clear()
+            Discover_gui._cached_songs.clear()
+            print("已清空图片缓存和歌曲缓存")
+
+            # 立即在后台重新预加载（新封面 + 新歌曲）
+            if Discover_gui._global_discover_app:
+                Discover_gui.preload_next_batch(Discover_gui._global_discover_app)
+                print("已触发重新预加载")
         except Exception as e:
             print(f"刷新浮窗失败: {e}")
 
