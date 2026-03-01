@@ -96,7 +96,7 @@ class SettingsWindow(QMainWindow):
         self.gui_setting.load()
 
         # 2. 初始化界面
-        self.setWindowTitle("编辑")
+        self.setWindowTitle("编辑你的DiscoverASong！")
         self.resize(1050, 750)
         
         self.central_widget = QWidget()
@@ -113,12 +113,12 @@ class SettingsWindow(QMainWindow):
         # 底部按钮
         self.bottom_layout = QHBoxLayout()
         
-        self.btn_apply = QPushButton("应用并保存 (Apply & Save)")
+        self.btn_apply = QPushButton("应用并保存")
         self.btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply.setMinimumHeight(40)
         self.btn_apply.clicked.connect(self.save_all_settings)
         
-        self.btn_close = QPushButton("关闭 (Close)")
+        self.btn_close = QPushButton("关闭")
         self.btn_close.setMinimumHeight(40)
         self.btn_close.clicked.connect(self.close)
         
@@ -145,9 +145,9 @@ class SettingsWindow(QMainWindow):
         self.spin_discovered.setValue(self.pa_setting.number_of_discovered_songs)
         self.spin_discovered.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_discovered.setMinimumWidth(120)
-        form_basic.addRow("发现歌曲数量:", self.spin_discovered)
+        form_basic.addRow("发现歌曲的数量 (此处数量不含下面秘密歌曲~):", self.spin_discovered)
         
-        self.chk_mystery = QCheckBox("启用秘密歌曲 (Mystery Song)")
+        self.chk_mystery = QCheckBox("◀︎要启用秘密歌曲🐴 (启用后会出现隐藏了歌曲详细信息的选项哦)")
         self.chk_mystery.setChecked(self.pa_setting.have_mystery_song)
         form_basic.addRow(self.chk_mystery)
         
@@ -156,20 +156,20 @@ class SettingsWindow(QMainWindow):
         self.spin_mystery_num.setValue(self.pa_setting.num_of_mystery_song)
         self.spin_mystery_num.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_mystery_num.setMinimumWidth(120)
-        form_basic.addRow("秘密歌曲数量:", self.spin_mystery_num)
+        form_basic.addRow("秘密歌曲数量呢 (一般来说设为1就够用了捏):", self.spin_mystery_num)
         
-        self.chk_overlap = QCheckBox("允许重复 (Overlap)")
+        self.chk_overlap = QCheckBox("◀︎允许重复选项吗 (仅在    歌单曲数<选项数   的时候生效)")
         self.chk_overlap.setChecked(self.pa_setting.overlap)
         form_basic.addRow(self.chk_overlap)
         
-        self.chk_refresh = QCheckBox("取消选择后刷新")
+        self.chk_refresh = QCheckBox("◀︎取消选择后，再次发现时要刷新🐴(不启用的话，不选就不刷新选项的说~)")
         self.chk_refresh.setChecked(self.pa_setting.refreshing_after_cancel)
         form_basic.addRow(self.chk_refresh)
         
         self.edit_shortcut = QLineEdit()
         self.edit_shortcut.setText(self.pa_setting.shortcut_key)
-        self.edit_shortcut.setPlaceholderText("例如: Alt+D")
-        form_basic.addRow("全局快捷键:", self.edit_shortcut)
+        self.edit_shortcut.setPlaceholderText("就比如作者爱用的: Alt+D")
+        form_basic.addRow("全局快捷键(键盘坏了可以从系统托盘左键进入哦):", self.edit_shortcut)
         
         layout.addWidget(group_basic)
 
@@ -180,8 +180,8 @@ class SettingsWindow(QMainWindow):
 
         # 说明标签
         hint_label = QLabel(
-            "留空则使用内置默认封面。\n"
-            "支持 http/https 网址，或本地图片文件路径（jpg/png等）。"
+            "留空的话，使用内置默认封面。\n"
+            "支持http/https网址和本地图片文件(jpg/png)。"
         )
         hint_label.setWordWrap(True)
         form_cover.addRow(hint_label)
@@ -214,6 +214,7 @@ class SettingsWindow(QMainWindow):
         self.table_pl.setHorizontalHeaderLabels(["平台", "ID", "类型", "名称/备注", "启用", "操作"])
         self.table_pl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table_pl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self.table_pl.setColumnWidth(0, 90)
         self.table_pl.setColumnWidth(5, 180)
         self.table_pl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_pl.verticalHeader().setDefaultSectionSize(50)  # 设置默认行高
@@ -395,8 +396,8 @@ class SettingsWindow(QMainWindow):
         form_global = QFormLayout(group_global)
         
         self.mode_toggle_layout = QHBoxLayout()
-        self.btn_day_mode = QPushButton("🌞 日间模式")
-        self.btn_night_mode = QPushButton("🌙 夜间模式")
+        self.btn_day_mode = QPushButton("日间模式(*^▽^*)")
+        self.btn_night_mode = QPushButton("夜间模式Zz(´-ω-`*)")
         
         self.btn_day_mode.setCheckable(True)
         self.btn_night_mode.setCheckable(True)

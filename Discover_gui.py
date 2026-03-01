@@ -941,14 +941,14 @@ def create_tray_icon(app, discover_app):
     menu = QMenu()
     
     # 发现歌曲
-    discover_action = QAction("🎵 发现", menu)
+    discover_action = QAction("发现一首歌！", menu)
     discover_action.triggered.connect(lambda: show_overlay(app, discover_app))
     menu.addAction(discover_action)
     
     menu.addSeparator()
     
     # 设置
-    settings_action = QAction("⚙️ 设置", menu)
+    settings_action = QAction("设置", menu)
     settings_action.triggered.connect(open_settings)
     menu.addAction(settings_action)
     
@@ -962,7 +962,7 @@ def create_tray_icon(app, discover_app):
     menu.addSeparator()
     
     # 退出
-    quit_action = QAction("❌ 退出", menu)
+    quit_action = QAction("退出(´;ω;`)", menu)
     quit_action.triggered.connect(app.quit)
     menu.addAction(quit_action)
     

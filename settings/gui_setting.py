@@ -105,8 +105,8 @@ class GuiSetting:
             },
             "cancel_button": {
                 "background": "#FFFFFF",
-                "background_hover": "#f5d5d0",
-                "border": "#d6533e",
+                "background_hover": "#d0ebf0",
+                "border": "#76e8fd",
                 "font_color": "#000000"
             },
             "setting": {
@@ -114,15 +114,15 @@ class GuiSetting:
                 "font_color": "#000000"
             },
             "card_night_mode": {
-                "background": "#444444",
+                "background": "##565656",
                 "background_hover": "#3dabbf",
                 "border": "#76c6fd",
                 "font_color": "#ffffff"
             },
             "cancel_button_night_mode": {
                 "background": "#444444",
-                "background_hover": "#d6533e",
-                "border": "#d6533e",
+                "background_hover": "#3dabbf",
+                "border": "#76c6fd",
                 "font_color": "#ffffff"
             },
             "setting_night_mode": {
