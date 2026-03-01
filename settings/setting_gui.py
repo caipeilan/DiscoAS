@@ -317,7 +317,7 @@ class SettingsWindow(QMainWindow):
             
             if enabled_count == 0:
                 sender.setChecked(True)
-                QMessageBox.warning(self, "操作阻止", "必须至少有一个歌单处于启用状态！")
+                QMessageBox.warning(self, "操作阻止", "必须至少有一个歌单处于被启用状态！")
 
     def delete_current_row(self):
         button = self.sender()
@@ -337,7 +337,7 @@ class SettingsWindow(QMainWindow):
                                     enabled_count += 1
                         
                         if enabled_count == 0:
-                            QMessageBox.warning(self, "操作阻止", "不能删除唯一启用的歌单！请先启用其他歌单。")
+                            QMessageBox.warning(self, "操作阻止", "不能删除唯一被启用的歌单！请先启用其他歌单。")
                             return
                     
                     self.table_pl.removeRow(r)
@@ -591,17 +591,18 @@ class SettingsWindow(QMainWindow):
         
         self.gui_setting.save()
         
-        # 3. 检测平台是否发生变化
+        # 3. 检测平台、歌单是否发生变化
         platform_changed = (old_enabled_platform != new_enabled_platform)
+        playlist_changed = (new_enabled_playlist != old_enabled_playlist)
         
         # 4. 界面反馈
         self.pa_setting.load()
         self.load_playlist_table()
         self.apply_gui_theme()
         
-        if platform_changed:
-            # 平台切换了，提示并重启
-            QMessageBox.information(self, "平台已切换", "平台已更改，程序将重启以应用更改。")
+        if platform_changed or playlist_changed:
+            # 平台、歌单切换了，提示并重启
+            QMessageBox.information(self, "歌单已切换", "歌单已切换，程序将重启以应用更改。")
             self.restart_application()
         else:
             # 通知 Discover_gui 重新加载设置
