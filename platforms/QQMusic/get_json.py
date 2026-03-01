@@ -74,8 +74,14 @@ class PlaylistAlbumJson:
         elif self.typename == "album":
             # 获取专辑详情 - 使用 v8 API
             url = "https://i.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg"
+            
+            # 修复：判断是传入了整型 albumid 还是字符串 albummid
+            is_digit = self.playlist_album_id.isdigit()
+            param_key = "albumid" if is_digit else "albummid"
+            param_val = int(self.playlist_album_id) if is_digit else self.playlist_album_id
+            
             params = {
-                "albummid": self.playlist_album_id,
+                param_key: param_val, # 动态设置键名
                 "json": 1,
                 "utf8": 1,
                 "loginUin": 0,
@@ -86,6 +92,7 @@ class PlaylistAlbumJson:
                 "notice": 0,
                 "platform": "yqq",
                 "needNewCode": 0
+                # "type" 和 "newcp" 对这个特定的 v8 API 其实不是必需的
             }
             
             headers = {
@@ -100,9 +107,10 @@ class PlaylistAlbumJson:
             album_data = data.get("data", {})
             if album_data:
                 self.playlist_album_name = album_data.get("name", "")
-                self.playlist_album_json = {"songlist": album_data.get("list", [])}
+                # data["list"] 数组里面正常包含了每一首歌的字典，里面拥有 "songid" / "songmid"
+                self.playlist_album_json = {"songlist": album_data.get("list",[])}
             else:
-                raise ValueError("无法获取专辑信息")
+                raise ValueError(f"无法获取专辑信息，API返回: {data}")
         else:
             raise ValueError("typename must be 'playlist' or 'album'")
 
