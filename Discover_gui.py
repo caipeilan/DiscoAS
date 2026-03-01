@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QFrame, QGridLayout,
     QMenu, QSystemTrayIcon
 )
-from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette
+from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette, QPainterPath
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject, QPropertyAnimation, QEasingCurve, QRect, QPoint
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
@@ -35,8 +35,26 @@ _hotkey_id = None
 _shortcut_action = None  # 托盘菜单中的快捷键开关项
 _network_manager = None  # 全局网络管理器
 
-# 全局图片缓存 {url: bytes}
+# 全局图片缓存 {url_or_path: bytes}
 _image_cache = {}
+
+
+def _fetch_image_data(url_or_path: str) -> bytes:
+    """
+    获取图片原始字节，同时支持：
+    - 本地文件路径（绝对路径 / 相对路径，os.path.isfile 为真时直接读取）
+    - http/https 网络 URL（使用 requests 下载）
+    返回 bytes；失败时抛出异常。
+    """
+    if os.path.isfile(url_or_path):
+        with open(url_or_path, 'rb') as f:
+            return f.read()
+    else:
+        import requests
+        response = requests.get(url_or_path, timeout=10)
+        if response.status_code == 200:
+            return response.content
+        raise Exception(f"HTTP 错误 {response.status_code}: {url_or_path[:80]}")
 
 # 全局歌曲缓存（歌曲对象列表）
 _cached_songs = []
@@ -66,7 +84,6 @@ def preload_next_batch(discover_app):
         return
 
     def _preload():
-        import requests
         global _cached_songs
         try:
             print("开始预加载下一批歌曲...")
@@ -76,16 +93,14 @@ def preload_next_batch(discover_app):
             for song in songs:
                 if not song.have_loaded:
                     song.load_song_detail()
-            # 3. 下载封面图片到缓存
+            # 3. 下载封面图片到缓存（支持URL和本地路径）
             count = 0
             for song in songs:
                 url = song.get_album_pic_url()
                 if url and url not in _image_cache:
                     try:
-                        response = requests.get(url, timeout=10)
-                        if response.status_code == 200:
-                            _image_cache[url] = response.content
-                            count += 1
+                        _image_cache[url] = _fetch_image_data(url)
+                        count += 1
                     except Exception as e:
                         print(f"图片预加载失败: {url[:50]}... - {e}")
             # 4. 将这批歌曲存入全局缓存，供下次打开浮窗直接使用
@@ -116,15 +131,11 @@ class ImageLoader(QObject):
         self._thread.start()
         
     def _load_image(self):
-        import requests
         try:
-            response = requests.get(self.url, timeout=10)
-            if response.status_code == 200:
-                pixmap = QPixmap()
-                if pixmap.loadFromData(response.content):
-                    self.image_loaded.emit(self.url, pixmap)
-                else:
-                    self.load_failed.emit(self.url)
+            data = _fetch_image_data(self.url)
+            pixmap = QPixmap()
+            if pixmap.loadFromData(data):
+                self.image_loaded.emit(self.url, pixmap)
             else:
                 self.load_failed.emit(self.url)
         except Exception as e:
@@ -149,11 +160,11 @@ class SongCardWidget(QFrame):
         
         self._setup_ui()
         
-        # 如果有预加载的图片，直接使用
+        # 如果有预加载的图片，直接使用圆角裁剪后显示
         if preloaded_pixmap:
             self.current_pixmap = preloaded_pixmap
-            # setScaledContents(True) 会让图片自动缩放填满整个 QLabel
-            self.cover_label.setPixmap(preloaded_pixmap)
+            rounded = self._make_rounded_pixmap(preloaded_pixmap, self._cover_size, self._cover_radius)
+            self.cover_label.setPixmap(rounded)
             self.image_loaded = True
         else:
             self._load_cover_image()
@@ -243,14 +254,17 @@ class SongCardWidget(QFrame):
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(cover_size, cover_size)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_label.setScaledContents(True)  # 改为True让图片铺满整个区域
+        # 不使用 setScaledContents，改为手动生成圆角 pixmap
+        self.cover_label.setScaledContents(False)
         # 强制设置透明背景
         self.cover_label.setAutoFillBackground(False)
         palette = self.cover_label.palette()
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.cover_label.setPalette(palette)
-        # 圆角也按比例缩放
+        # 圆角也按比例缩放（用于占位背景和 _make_rounded_pixmap）
         radius = int(12 * self.card_size)
+        self._cover_radius = radius          # 供 _make_rounded_pixmap 使用
+        self._cover_size = cover_size        # 供 _make_rounded_pixmap 使用
         self.cover_label.setStyleSheet(f"""
             background-color: rgba(200, 200, 200, 0.3);
             border-radius: {radius}px;
@@ -303,6 +317,39 @@ class SongCardWidget(QFrame):
         
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
+    @staticmethod
+    def _make_rounded_pixmap(pixmap: QPixmap, size: int, radius: int) -> QPixmap:
+        """
+        将任意 QPixmap 缩放到 size×size 并裁剪为圆角矩形。
+        返回带透明通道的圆角 QPixmap，不依赖 CSS border-radius。
+        """
+        # 目标画布：透明背景
+        rounded = QPixmap(size, size)
+        rounded.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        # 建立圆角裁剪路径
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, size, size, radius, radius)
+        painter.setClipPath(path)
+
+        # 将原始图片缩放后绘制到裁剪区域内
+        scaled = pixmap.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        # 居中绘制（以防缩放后比目标大）
+        x_off = (scaled.width() - size) // 2
+        y_off = (scaled.height() - size) // 2
+        painter.drawPixmap(-x_off, -y_off, scaled)
+        painter.end()
+
+        return rounded
+
     def _load_cover_image(self):
         """异步加载封面图"""
         url = self.song_card.get_album_pic_url()
@@ -318,9 +365,9 @@ class SongCardWidget(QFrame):
         """图片加载完成"""
         if url == self.song_card.get_album_pic_url():
             self.current_pixmap = pixmap
-            # setScaledContents(True) 会让图片自动缩放填满整个 QLabel
-            # 不需要手动裁剪
-            self.cover_label.setPixmap(pixmap)
+            # 使用圆角裁剪后再显示
+            rounded = self._make_rounded_pixmap(pixmap, self._cover_size, self._cover_radius)
+            self.cover_label.setPixmap(rounded)
             self.image_loaded = True
             
     def _on_load_failed(self, url: str):

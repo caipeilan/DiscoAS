@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem, 
                              QPushButton, QHeaderView, QGroupBox, 
                              QFormLayout, QScrollArea, QComboBox, QMessageBox, 
-                             QDoubleSpinBox, QButtonGroup, QSlider)
+                             QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog)
 from PyQt6.QtGui import QColor, QAction, QFont
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -172,6 +172,38 @@ class SettingsWindow(QMainWindow):
         form_basic.addRow("全局快捷键:", self.edit_shortcut)
         
         layout.addWidget(group_basic)
+
+        # --- 秘密歌曲封面设置 ---
+        group_mystery_cover = QGroupBox("秘密歌曲封面")
+        form_cover = QFormLayout(group_mystery_cover)
+        form_cover.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        # 说明标签
+        hint_label = QLabel(
+            "留空则使用内置默认封面。\n"
+            "支持 http/https 网址，或本地图片文件路径（jpg/png等）。"
+        )
+        hint_label.setWordWrap(True)
+        form_cover.addRow(hint_label)
+
+        # 输入框 + 浏览按钮
+        cover_input_row = QWidget()
+        cover_input_layout = QHBoxLayout(cover_input_row)
+        cover_input_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.edit_mystery_cover = QLineEdit()
+        self.edit_mystery_cover.setText(self.pa_setting.mystery_song_cover)
+        self.edit_mystery_cover.setPlaceholderText("留空 = 使用平台默认封面，或填入 URL / 本地路径")
+        cover_input_layout.addWidget(self.edit_mystery_cover)
+
+        btn_browse_cover = QPushButton("📂 浏览...")
+        btn_browse_cover.setFixedWidth(90)
+        btn_browse_cover.clicked.connect(self._browse_mystery_cover)
+        cover_input_layout.addWidget(btn_browse_cover)
+
+        form_cover.addRow("封面来源:", cover_input_row)
+
+        layout.addWidget(group_mystery_cover)
         
         # --- 列表区 ---
         group_list = QGroupBox("歌单/专辑管理")
@@ -488,6 +520,17 @@ class SettingsWindow(QMainWindow):
         
         v_layout.addLayout(h_colors)
 
+    def _browse_mystery_cover(self):
+        """打开文件选择对话框，选择本地图片作为秘密封面"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择秘密歌曲封面图片",
+            "",
+            "图片文件 (*.jpg *.jpeg *.png *.gif *.bmp *.webp);;所有文件 (*)"
+        )
+        if file_path:
+            self.edit_mystery_cover.setText(file_path)
+
     def switch_to_day_mode(self):
         self.gui_setting.night_mode = False
         self.apply_gui_theme()
@@ -525,6 +568,7 @@ class SettingsWindow(QMainWindow):
         self.pa_setting.number_of_discovered_songs = self.spin_discovered.value()
         self.pa_setting.have_mystery_song = self.chk_mystery.isChecked()
         self.pa_setting.num_of_mystery_song = self.spin_mystery_num.value()
+        self.pa_setting.mystery_song_cover = self.edit_mystery_cover.text().strip()
         self.pa_setting.overlap = self.chk_overlap.isChecked()
         self.pa_setting.refreshing_after_cancel = self.chk_refresh.isChecked()
         self.pa_setting.shortcut_key = self.edit_shortcut.text()
