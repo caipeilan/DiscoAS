@@ -620,7 +620,7 @@ class SettingsWindow(QMainWindow):
         typename = self.table_pl.cellWidget(row, 2).currentText()
         
         if not playlist_id:
-            QMessageBox.warning(self, "加载失败", "请输入歌单/专辑ID")
+            QMessageBox.warning(self, _("load_failed"), _("enter_id_first"))
             return
             
         try:
@@ -636,9 +636,9 @@ class SettingsWindow(QMainWindow):
             if remark_widget.text() == "":
                 remark_widget.setText(playlist_album.get_name())
             
-            QMessageBox.information(self, "加载成功", f"已成功加载 {playlist_album.get_name()}")
+            QMessageBox.information(self, _("load_success"), _("loaded_successfully").format(name=playlist_album.get_name()))
         except Exception as e:
-            QMessageBox.critical(self, "加载失败", f"加载过程中出现错误:\n{str(e)}")
+            QMessageBox.critical(self, _("load_failed"), _("load_error").format(error=str(e)))
 
 
     def handle_enabled_checkbox_toggled(self, checked):
@@ -659,7 +659,7 @@ class SettingsWindow(QMainWindow):
             
             if enabled_count == 0:
                 sender.setChecked(True)
-                QMessageBox.warning(self, "操作阻止", "必须至少有一个歌单被启用！")
+                QMessageBox.warning(self, _("must_enable_one"), _("must_enable_one_msg"))
 
 
     def delete_current_row(self):
@@ -672,14 +672,14 @@ class SettingsWindow(QMainWindow):
                     chk = chk_widget.findChild(QCheckBox, "chk_enabled")
                     # 如果要删除的歌单已启用，直接禁止
                     if chk and chk.isChecked():
-                        QMessageBox.warning(self, "操作阻止", "不能删除已启用的歌单！")
+                        QMessageBox.warning(self, _("cannot_delete_enabled"), _("cannot_delete_enabled_msg"))
                         return
                     
                     # 未启用歌单，询问确认
                     reply = QMessageBox.question(
                         self, 
-                        "确认删除", 
-                        "确定要删除该歌单吗？",
+                        _("confirm_delete_title"), 
+                        _("confirm_delete_msg"),
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         QMessageBox.StandardButton.No
                     )
@@ -691,11 +691,11 @@ class SettingsWindow(QMainWindow):
 
     def _browse_mystery_cover(self):
         """打开文件选择对话框"""
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, file_filter = QFileDialog.getOpenFileName(
             self,
-            "选择秘密歌曲封面图片",
+            _("select_cover_image"),
             "",
-            "图片文件 (*.jpg *.jpeg *.png *.gif *.bmp *.webp);;所有文件 (*)"
+            _("image_files_filter")
         )
         if file_path:
             self.edit_mystery_cover.setText(file_path)
@@ -842,11 +842,11 @@ class SettingsWindow(QMainWindow):
         self.apply_gui_theme()
         
         if platform_changed or playlist_changed:
-            QMessageBox.information(self, "歌单已切换", "歌单已切换，程序将重启以应用更改。")
+            QMessageBox.information(self, _("playlist_switched"), _("playlist_switched_restart"))
             self.restart_application()
         else:
             self.notify_settings_changed()
-            QMessageBox.information(self, "保存成功", "所有设置已保存并应用！")
+            QMessageBox.information(self, _("save_success"), _("all_settings_saved"))
     
 
     def restart_application(self):

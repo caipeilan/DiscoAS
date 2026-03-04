@@ -1018,17 +1018,9 @@ def toggle_shortcut(app, discover_app):
             _shortcut_widget.setEnabled(False)
         print("快捷键已暂停")
     
-    # 更新托盘菜单文字
-    if _tray_icon:
-        menu = _tray_icon.contextMenu()
-        if menu:
-            # 找到快捷键动作并更新
-            for action in menu.actions():
-                if _shortcut_enabled:
-                    action.setText(_("enable_shortcut"))
-                else:
-                    action.setText(_("pause_shortcut"))
-                break
+    # 更新托盘菜单文字 - 直接更新 _shortcut_action 的文本
+    if _shortcut_action:
+        _shortcut_action.setText(_("pause_shortcut") if _shortcut_enabled else _("enable_shortcut"))
 
 
 def show_overlay(app, discover_app):
