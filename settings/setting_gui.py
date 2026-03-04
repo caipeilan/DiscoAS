@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QHeaderView, QGroupBox, 
                              QFormLayout, QScrollArea, QComboBox, QMessageBox, 
                              QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog)
-from PyQt6.QtGui import QColor, QAction, QFont
+from PyQt6.QtGui import QColor, QAction, QFont ,QIcon
 from PyQt6.QtCore import Qt, pyqtSignal
 
 # 导入你修改后的类
@@ -97,6 +97,12 @@ class SettingsWindow(QMainWindow):
 
         # 2. 初始化界面
         self.setWindowTitle("编辑你的DiscoAS！")
+        
+        # 设置窗口图标
+        icon_path = os.path.join(os.path.dirname(__file__), "Icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        
         self.resize(1050, 750)
         
         self.central_widget = QWidget()

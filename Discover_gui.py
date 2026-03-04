@@ -935,13 +935,14 @@ def create_tray_icon(app, discover_app):
         p.end()
         tray.setIcon(QIcon(pixmap))
     
-    tray.setToolTip("DiscoverASong - 音乐选择器")
+    tray.setToolTip("DiscoAS - 发现一首歌！")
     
     # 创建右键菜单
     menu = QMenu()
     
     # 发现歌曲
     discover_action = QAction("发现一首歌！", menu)
+    discover_action.setFont(QFont("", weight=QFont.Weight.Bold)) 
     discover_action.triggered.connect(lambda: show_overlay(app, discover_app))
     menu.addAction(discover_action)
     
@@ -1042,6 +1043,10 @@ def show_overlay(app, discover_app):
     # 每次都创建新窗口，确保全新的歌曲列表
     _main_window = DiscoverOverlay(discover_app)
     print("DiscoverOverlay 创建完成")
+    
+    # 设置窗口图标为托盘图标
+    if _tray_icon:
+        _main_window.setWindowIcon(_tray_icon.icon())
     
     # 显示窗口并播放弹入淡入动画
     _main_window.show()
