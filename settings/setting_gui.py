@@ -249,7 +249,7 @@ class SettingsWindow(QMainWindow):
         usage = QLabel(
             "1. 在「发现设置」中添加你的歌单\n"
             "2. 点击「加载」获取歌曲列表\n"
-            "3. 启用一个歌单，应用并保存\n"
+            "3. 启用（必须且只能）一个歌单，应用并保存\n"
             "4. 待程序重启后，发现一首歌！"
         )
         layout.addWidget(usage)
@@ -353,7 +353,7 @@ class SettingsWindow(QMainWindow):
         self.table_pl.setColumnWidth(4, 60)   # 启用
         self.table_pl.setColumnWidth(5, 150) # 操作
         self.table_pl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table_pl.verticalHeader().setDefaultSectionSize(45)
+        self.table_pl.verticalHeader().setDefaultSectionSize(50)
         v_list.addWidget(self.table_pl)
         
         h_btn = QHBoxLayout()
@@ -564,18 +564,19 @@ class SettingsWindow(QMainWindow):
         
         # 6. Delete & Load
         btn_load = QPushButton("加载")
-        btn_load.setStyleSheet("color: white; background-color: #3e8ed6; border: none; border-radius: 3px;")
-        btn_load.setFixedSize(60, 28)
+        btn_load.setStyleSheet("color: white; background-color: #3e8ed6; border: none; border-radius: 3px; padding: 0px;")
+        btn_load.setFixedSize(60, 32)
         btn_load.clicked.connect(lambda: self.load_playlist_data(row))
 
         btn_del = QPushButton("删除")
-        btn_del.setStyleSheet("color: white; background-color: #d6533e; border: none; border-radius: 3px;")
-        btn_del.setFixedSize(60, 28)
+        btn_del.setStyleSheet("color: white; background-color: #d6533e; border: none; border-radius: 3px; padding: 0px;")
+        btn_del.setFixedSize(60, 32)
         btn_del.clicked.connect(self.delete_current_row)
         
         cell_widget_del = QWidget()
         layout_del = QHBoxLayout(cell_widget_del)
-        layout_del.setContentsMargins(0,0,0,0)
+        layout_del.setContentsMargins(2,0,2,0)
+        layout_del.setSpacing(4)
         layout_del.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_del.addWidget(btn_del)
         layout_del.addWidget(btn_load)
@@ -640,20 +641,22 @@ class SettingsWindow(QMainWindow):
                 if cell_w.isAncestorOf(button):
                     chk_widget = self.table_pl.cellWidget(r, 4)
                     chk = chk_widget.findChild(QCheckBox, "chk_enabled")
+                    # 如果要删除的歌单已启用，直接禁止
                     if chk and chk.isChecked():
-                        enabled_count = 0
-                        for row in range(self.table_pl.rowCount()):
-                            if row != r:
-                                other_chk_widget = self.table_pl.cellWidget(row, 4)
-                                other_chk = other_chk_widget.findChild(QCheckBox, "chk_enabled")
-                                if other_chk and other_chk.isChecked():
-                                    enabled_count += 1
-                        
-                        if enabled_count == 0:
-                            QMessageBox.warning(self, "操作阻止", "不能删除唯一被启用的歌单！")
-                            return
+                        QMessageBox.warning(self, "操作阻止", "不能删除已启用的歌单！")
+                        return
                     
-                    self.table_pl.removeRow(r)
+                    # 未启用歌单，询问确认
+                    reply = QMessageBox.question(
+                        self, 
+                        "确认删除", 
+                        "确定要删除该歌单吗？",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.table_pl.removeRow(r)
                     return
 
 
@@ -872,6 +875,11 @@ class SettingsWindow(QMainWindow):
         if is_night:
             left_bg = "#2d2d2d"
 
+        # 滚动条颜色
+        scroll_bg = bg
+        scroll_handle = btn_bd
+        scroll_hover = btn_hover
+        
         style = f"""
             QMainWindow, QWidget {{
                 background-color: {bg};
@@ -881,7 +889,7 @@ class SettingsWindow(QMainWindow):
             }}
             QGroupBox {{
                 border: 1px solid {input_bd};
-                border-radius: 5px;
+                border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
                 font-weight: bold;
@@ -889,33 +897,110 @@ class SettingsWindow(QMainWindow):
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
-                padding: 0 5px;
+                padding: 0 8px;
                 color: {fg};
             }}
             QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
                 background-color: {input_bg};
                 color: {input_fg};
                 border: 1px solid {input_bd};
-                padding: 4px;
-                border-radius: 3px;
+                padding: 6px 8px;
+                border-radius: 6px;
             }}
-            QTableWidget {{
-                gridline-color: {input_bd};
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox::down-arrow {{
+                width: 10px;
+                height: 10px;
+            }}
+            /* 现代表格样式 */
+            QTableWidget, QTableView {{
                 background-color: {input_bg};
                 alternate-background-color: {bg};
+                gridline-color: transparent;
+                border: none;
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QTableWidget::item {{
+                padding: 6px;
+                border-bottom: 1px solid {input_bd}20;
+            }}
+            QTableWidget::item:selected {{
+                background-color: transparent;
+                color: {fg};
+            }}
+            QTableWidget::item:hover {{
+                background-color: transparent;
             }}
             QHeaderView::section {{
                 background-color: {btn_bg};
                 color: {btn_fg};
-                padding: 4px;
-                border: 1px solid {btn_bd};
+                padding: 8px 4px;
+                border: none;
+                border-bottom: 2px solid {btn_bd};
+                font-weight: bold;
+            }}
+            /* 现代滚动条样式 */
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {scroll_handle}80;
+                min-height: 40px;
+                border-radius: 5px;
+                margin: 2px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {scroll_hover};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {scroll_handle}80;
+                min-width: 40px;
+                border-radius: 5px;
+                margin: 2px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {scroll_hover};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
+            /* 现代滑块样式 */
+            QSlider::groove:horizontal {{
+                height: 6px;
+                background: {btn_hover};
+                border-radius: 3px;
+                margin: 4px 0;
+            }}
+            QSlider::handle:horizontal {{
+                width: 18px;
+                height: 18px;
+                margin: -6px 0;
+                background: {btn_bd};
+                border-radius: 9px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: {btn_hover};
             }}
             QPushButton {{
                 background-color: {btn_bg};
                 color: {btn_fg};
                 border: 1px solid {btn_bd};
-                border-radius: 4px;
-                padding: 5px 15px;
+                border-radius: 6px;
+                padding: 8px 16px;
             }}
             QPushButton:hover {{
                 background-color: {btn_hover};
@@ -926,6 +1011,17 @@ class SettingsWindow(QMainWindow):
             }}
             QCheckBox {{
                 color: {fg};
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 2px solid {btn_bd};
+                background: {input_bg};
+            }}
+            QCheckBox::indicator:checked {{
+                background: {btn_bd};
             }}
             QScrollArea {{
                 border: none;
