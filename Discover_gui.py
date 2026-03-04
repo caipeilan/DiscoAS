@@ -27,6 +27,15 @@ from PyQt6.QtCore import QUrl
 sys.path.append(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'settings'))
 
+# 导入 i18n 模块
+try:
+    import i18n
+    _ = i18n.t
+except ImportError:
+    # 如果导入失败，创建一个简单的翻译函数
+    def _(key):
+        return key
+
 # 全局引用，用于托盘控制
 _main_window = None
 _tray_icon = None
@@ -693,7 +702,7 @@ class DiscoverOverlay(QMainWindow):
         """)
         
         # 加载中文字
-        loading_label = QLabel("加载中...")
+        loading_label = QLabel(_("loading"))
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -935,13 +944,13 @@ def create_tray_icon(app, discover_app):
         p.end()
         tray.setIcon(QIcon(pixmap))
     
-    tray.setToolTip("DiscoAS - 发现一首歌！")
+    tray.setToolTip("DiscoAS - " + _("discover"))
     
     # 创建右键菜单
     menu = QMenu()
     
     # 发现歌曲
-    discover_action = QAction("发现一首歌！", menu)
+    discover_action = QAction(_("discover"), menu)
     font = QFont()
     font.setBold(True)
     discover_action.setFont(font)
@@ -951,21 +960,21 @@ def create_tray_icon(app, discover_app):
     menu.addSeparator()
     
     # 设置
-    settings_action = QAction("设置", menu)
+    settings_action = QAction(_("settings"), menu)
     settings_action.triggered.connect(open_settings)
     menu.addAction(settings_action)
     
     menu.addSeparator()
     
     # 暂停/启用快捷键
-    _shortcut_action = QAction("⏸️ 暂停快捷键", menu)
+    _shortcut_action = QAction(_("pause_shortcut"), menu)
     _shortcut_action.triggered.connect(lambda: toggle_shortcut(app, discover_app))
     menu.addAction(_shortcut_action)
     
     menu.addSeparator()
     
     # 退出
-    quit_action = QAction("退出(´;ω;`)", menu)
+    quit_action = QAction(_("quit"), menu)
     quit_action.triggered.connect(app.quit)
     menu.addAction(quit_action)
     
@@ -1015,12 +1024,11 @@ def toggle_shortcut(app, discover_app):
         if menu:
             # 找到快捷键动作并更新
             for action in menu.actions():
-                if "暂停" in action.text() or "启用" in action.text():
-                    if _shortcut_enabled:
-                        action.setText("⏸️ 暂停快捷键")
-                    else:
-                        action.setText("▶️ 启用快捷键")
-                    break
+                if _shortcut_enabled:
+                    action.setText(_("enable_shortcut"))
+                else:
+                    action.setText(_("pause_shortcut"))
+                break
 
 
 def show_overlay(app, discover_app):

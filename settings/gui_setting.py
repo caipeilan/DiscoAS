@@ -31,6 +31,9 @@ class GuiSetting:
         self.cancel_button_size = 1.0
         self.setting_size = 1.0
         
+        # 语言设置
+        self.language = "zh_CN"
+        
         # 日间模式配置
         self.card = {}
         self.cancel_button = {}
@@ -54,6 +57,9 @@ class GuiSetting:
         self.card_size = self.settings.get("card_size", 1.0)
         self.cancel_button_size = self.settings.get("cancel_button_size", 1.0)
         self.setting_size = self.settings.get("setting_size", 1.0)
+        
+        # 加载语言设置
+        self.language = self.settings.get("language", "zh_CN")
         
         self.card = self.settings.get("card", {})
         self.cancel_button = self.settings.get("cancel_button", {})
@@ -79,6 +85,7 @@ class GuiSetting:
             "card_size": self.card_size,
             "cancel_button_size": self.cancel_button_size,
             "setting_size": self.setting_size,
+            "language": self.language,
             "card": self.card,
             "cancel_button": self.cancel_button,
             "setting": self.setting,

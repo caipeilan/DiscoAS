@@ -8,6 +8,15 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QHeaderView, QGroupBox, 
                              QFormLayout, QScrollArea, QComboBox, QMessageBox, 
                              QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog,QFrame)
+
+# 导入 i18n 模块
+try:
+    import i18n
+    _ = i18n.t
+except ImportError:
+    # 如果导入失败，创建一个简单的翻译函数
+    def _(key):
+        return key
 from PyQt6.QtGui import QColor, QAction, QFont, QIcon, QPixmap
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -98,7 +107,7 @@ class SettingsWindow(QMainWindow):
         self.gui_setting.load()
 
         # 2. 初始化界面
-        self.setWindowTitle("编辑你的DiscoAS！")
+        self.setWindowTitle(_("app_name") + " - Settings")
         
         # 设置窗口图标
         icon_path = os.path.join(os.path.dirname(__file__), "../src", "Icon.ico")
@@ -134,9 +143,9 @@ class SettingsWindow(QMainWindow):
         
         # 导航按钮
         nav_buttons = [
-            ("关于", 0),
-            ("发现设置", 1),
-            ("界面设置", 2),
+            (_("about"), 0),
+            (_("discover_settings"), 1),
+            (_("gui_settings"), 2),
         ]
         
         self.btn_group = QButtonGroup(self)
@@ -155,12 +164,12 @@ class SettingsWindow(QMainWindow):
         left_layout.addStretch()
         
         # 底部按钮
-        self.btn_apply = QPushButton("应用并保存")
+        self.btn_apply = QPushButton(_("apply_and_save"))
         self.btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply.setMinimumHeight(40)
         self.btn_apply.clicked.connect(self.save_all_settings)
         
-        self.btn_close = QPushButton("关闭")
+        self.btn_close = QPushButton(_("close"))
         self.btn_close.setMinimumHeight(40)
         self.btn_close.clicked.connect(self.close)
         
@@ -204,7 +213,7 @@ class SettingsWindow(QMainWindow):
         layout.setContentsMargins(40, 40, 40, 40)
         
         # 标题
-        title = QLabel("DiscoAS - 发现一首歌！")
+        title = QLabel(_("about_title"))
         title_font = QFont()
         title_font.setPointSize(24)
         title_font.setBold(True)
@@ -214,10 +223,7 @@ class SettingsWindow(QMainWindow):
         layout.addSpacing(20)
         
         # 简介
-        intro = QLabel(
-            "一个基于PyQt6的音乐选择工具，\n"
-            "通过scheme url链接唤醒本地音乐软件。"
-        )
+        intro = QLabel(_("about_intro"))
         intro.setWordWrap(True)
         intro_font = QFont()
         intro_font.setPointSize(12)
@@ -227,32 +233,52 @@ class SettingsWindow(QMainWindow):
         layout.addSpacing(30)
         
         # 功能列表
-        features_title = QLabel("主要功能很简单↓")
+        features_title = QLabel(_("features_title"))
         features_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(features_title)
         
-        features = QLabel(
-            "• 通过全局快捷键或系统托盘进行“发现”\n"
-            "• 全屏浮窗随机展示歌曲卡片\n"
-            "• 附带秘密歌曲模式，利好选择困难症\n"
-            "• 自定义界面配色和尺寸"
-        )
+        features = QLabel(_("features_list"))
         layout.addWidget(features)
         
         layout.addSpacing(30)
         
         # 使用说明
-        usage_title = QLabel("使用方法：")
+        usage_title = QLabel(_("usage_title"))
         usage_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(usage_title)
         
-        usage = QLabel(
-            "1. 在「发现设置」中添加你的歌单\n"
-            "2. 点击「加载」获取歌曲列表\n"
-            "3. 启用（必须且只能）一个歌单，应用并保存\n"
-            "4. 待程序重启后，发现一首歌！"
-        )
+        usage = QLabel(_("usage_steps"))
         layout.addWidget(usage)
+        
+        layout.addSpacing(30)
+        
+        # 语言选择
+        language_title = QLabel(_("language"))
+        language_title.setFont(QFont("", weight=QFont.Weight.Bold))
+        layout.addWidget(language_title)
+        
+        language_row = QHBoxLayout()
+        self.combo_language = QComboBox()
+        
+        # 获取可用语言
+        try:
+            from i18n import LANGUAGES, get_language, set_language as i18n_set_language
+            for code, name in LANGUAGES.items():
+                self.combo_language.addItem(name, code)
+            
+            current_lang = get_language()
+            index = self.combo_language.findData(current_lang)
+            if index >= 0:
+                self.combo_language.setCurrentIndex(index)
+            
+            self.combo_language.currentIndexChanged.connect(self.on_language_changed)
+        except ImportError:
+            self.combo_language.addItem("简体中文", "zh_CN")
+            self.combo_language.addItem("English", "en_US")
+        
+        language_row.addWidget(self.combo_language)
+        language_row.addStretch()
+        layout.addLayout(language_row)
         
         layout.addStretch()
         
@@ -679,6 +705,35 @@ class SettingsWindow(QMainWindow):
     def switch_to_night_mode(self):
         self.gui_setting.night_mode = True
         self.apply_gui_theme()
+
+
+    def on_language_changed(self, index):
+        """语言切换处理"""
+        lang_code = self.combo_language.currentData()
+        if lang_code:
+            try:
+                import i18n
+                i18n.set_language(lang_code)
+                self.gui_setting.language = lang_code
+                self.gui_setting.save()
+                # 语言切换后先提示再重启
+                reply = QMessageBox.question(
+                    self, 
+                    _("language_change"), 
+                    _("restart_to_apply"),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.restart_application()
+                else:
+                    # 用户选择不重启，刷新当前窗口使用新语言
+                    self.close()
+                    # 重新打开设置窗口
+                    self.__init__()
+                    self.show()
+            except Exception as e:
+                print(f"语言切换失败: {e}")
 
 
     def update_color_preview(self, color_preview, text):
