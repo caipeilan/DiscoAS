@@ -301,7 +301,7 @@ class SettingsWindow(QMainWindow):
         v_layout.setSpacing(15)
         
         # --- 参数区 ---
-        group_basic = QGroupBox("基础参数")
+        group_basic = QGroupBox(_("basic_params"))
         form_basic = QFormLayout(group_basic)
         form_basic.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
         
@@ -310,9 +310,9 @@ class SettingsWindow(QMainWindow):
         self.spin_discovered.setValue(self.pa_setting.number_of_discovered_songs)
         self.spin_discovered.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_discovered.setMinimumWidth(120)
-        form_basic.addRow("发现歌曲数量:", self.spin_discovered)
+        form_basic.addRow(_("discovered_songs_count"), self.spin_discovered)
         
-        self.chk_mystery = QCheckBox("启用秘密歌曲模式")
+        self.chk_mystery = QCheckBox(_("mystery_mode"))
         self.chk_mystery.setChecked(self.pa_setting.have_mystery_song)
         form_basic.addRow(self.chk_mystery)
         
@@ -321,28 +321,28 @@ class SettingsWindow(QMainWindow):
         self.spin_mystery_num.setValue(self.pa_setting.num_of_mystery_song)
         self.spin_mystery_num.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_mystery_num.setMinimumWidth(120)
-        form_basic.addRow("秘密歌曲数量:", self.spin_mystery_num)
+        form_basic.addRow(_("mystery_songs_count"), self.spin_mystery_num)
         
-        self.chk_overlap = QCheckBox("允许歌曲重复（当歌单歌曲不足时）")
+        self.chk_overlap = QCheckBox(_("allow_overlap"))
         self.chk_overlap.setChecked(self.pa_setting.overlap)
         form_basic.addRow(self.chk_overlap)
         
-        self.chk_refresh = QCheckBox("取消选择后刷新歌曲列表")
+        self.chk_refresh = QCheckBox(_("refresh_after_cancel"))
         self.chk_refresh.setChecked(self.pa_setting.refreshing_after_cancel)
         form_basic.addRow(self.chk_refresh)
         
         self.edit_shortcut = QLineEdit()
         self.edit_shortcut.setText(self.pa_setting.shortcut_key)
-        self.edit_shortcut.setPlaceholderText("例如: Alt+D")
-        form_basic.addRow("全局快捷键:", self.edit_shortcut)
+        self.edit_shortcut.setPlaceholderText(_("shortcut_placeholder"))
+        form_basic.addRow(_("global_shortcut"), self.edit_shortcut)
         
         v_layout.addWidget(group_basic)
 
         # --- 秘密歌曲封面设置 ---
-        group_mystery_cover = QGroupBox("秘密歌曲封面")
+        group_mystery_cover = QGroupBox(_("mystery_cover"))
         form_cover = QFormLayout(group_mystery_cover)
         
-        hint_label = QLabel("留空使用默认封面，支持URL和本地图片路径")
+        hint_label = QLabel(_("mystery_cover_hint"))
         hint_label.setWordWrap(True)
         form_cover.addRow(hint_label)
 
@@ -352,25 +352,28 @@ class SettingsWindow(QMainWindow):
 
         self.edit_mystery_cover = QLineEdit()
         self.edit_mystery_cover.setText(self.pa_setting.mystery_song_cover)
-        self.edit_mystery_cover.setPlaceholderText("图片URL或本地路径")
+        self.edit_mystery_cover.setPlaceholderText(_("mystery_cover_placeholder"))
         cover_input_layout.addWidget(self.edit_mystery_cover)
 
-        btn_browse_cover = QPushButton("浏览...")
-        btn_browse_cover.setFixedWidth(80)
+        btn_browse_cover = QPushButton(_("browse"))
+        btn_browse_cover.setFixedWidth(120)
         btn_browse_cover.clicked.connect(self._browse_mystery_cover)
         cover_input_layout.addWidget(btn_browse_cover)
 
-        form_cover.addRow("封面来源:", cover_input_row)
+        form_cover.addRow(_("cover_source"), cover_input_row)
 
         v_layout.addWidget(group_mystery_cover)
         
         # --- 列表区 ---
-        group_list = QGroupBox("歌单/专辑管理")
+        group_list = QGroupBox(_("playlist_management"))
         v_list = QVBoxLayout(group_list)
         
         self.table_pl = QTableWidget()
         self.table_pl.setColumnCount(6)
-        self.table_pl.setHorizontalHeaderLabels(["平台", "ID", "类型", "名称/备注", "启用", "操作"])
+        self.table_pl.setHorizontalHeaderLabels([
+            _("table_platform"), _("table_id"), _("table_type"), 
+            _("table_name_remark"), _("table_enabled"), _("table_action")
+        ])
         self.table_pl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table_pl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         self.table_pl.setColumnWidth(0, 200)   # 平台
@@ -383,7 +386,7 @@ class SettingsWindow(QMainWindow):
         v_list.addWidget(self.table_pl)
         
         h_btn = QHBoxLayout()
-        btn_add = QPushButton("添加歌单")
+        btn_add = QPushButton(_("add_playlist"))
         btn_add.clicked.connect(self.add_playlist_row)
         h_btn.addWidget(btn_add)
         h_btn.addStretch()
@@ -415,12 +418,12 @@ class SettingsWindow(QMainWindow):
         main_layout.setSpacing(15)
         
         # --- 全局 ---
-        group_global = QGroupBox("全局设置")
+        group_global = QGroupBox(_("global_settings"))
         form_global = QFormLayout(group_global)
         
         self.mode_toggle_layout = QHBoxLayout()
-        self.btn_day_mode = QPushButton("日间模式")
-        self.btn_night_mode = QPushButton("夜间模式")
+        self.btn_day_mode = QPushButton(_("day_mode"))
+        self.btn_night_mode = QPushButton(_("night_mode"))
         
         self.btn_day_mode.setCheckable(True)
         self.btn_night_mode.setCheckable(True)
@@ -439,18 +442,18 @@ class SettingsWindow(QMainWindow):
         
         self.mode_toggle_layout.addWidget(self.btn_day_mode)
         self.mode_toggle_layout.addWidget(self.btn_night_mode)
-        form_global.addRow("界面模式:", self.mode_toggle_layout)
+        form_global.addRow(_("interface_mode"), self.mode_toggle_layout)
         
         # 尺寸设置
         self.slider_card_size = FloatSlider(self.gui_setting.card_size)
-        form_global.addRow("卡片尺寸:", self.slider_card_size)
+        form_global.addRow(_("card_size"), self.slider_card_size)
         
         self.slider_cancel_size = FloatSlider(self.gui_setting.cancel_button_size)
-        form_global.addRow("取消按钮尺寸:", self.slider_cancel_size)
+        form_global.addRow(_("cancel_button_size"), self.slider_cancel_size)
         
         self.slider_setting_size = FloatSlider(self.gui_setting.setting_size)
         self.slider_setting_size.valueChanged.connect(self.live_update_setting_size)
-        form_global.addRow("设置界面尺寸:", self.slider_setting_size)
+        form_global.addRow(_("setting_size"), self.slider_setting_size)
         
         main_layout.addWidget(group_global)
         
@@ -466,18 +469,18 @@ class SettingsWindow(QMainWindow):
             self.color_previews[prefix] = {} 
             
             fields = [
-                ("卡片背景", "card", "background"),
-                ("卡片悬停", "card", "background_hover"),
-                ("卡片边框", "card", "border"),
-                ("卡片文字", "card", "font_color"),
+                (_("color_card_background"), "card", "background"),
+                (_("color_card_hover"), "card", "background_hover"),
+                (_("color_card_border"), "card", "border"),
+                (_("color_card_font"), "card", "font_color"),
                 
-                ("取消键背景", "cancel_button", "background"),
-                ("取消键悬停", "cancel_button", "background_hover"),
-                ("取消键边框", "cancel_button", "border"),
-                ("取消键文字", "cancel_button", "font_color"),
+                (_("color_cancel_background"), "cancel_button", "background"),
+                (_("color_cancel_hover"), "cancel_button", "background_hover"),
+                (_("color_cancel_border"), "cancel_button", "border"),
+                (_("color_cancel_font"), "cancel_button", "font_color"),
                 
-                ("设置窗背景", "setting", "background"),
-                ("设置窗文字", "setting", "font_color"),
+                (_("color_setting_background"), "setting", "background"),
+                (_("color_setting_font"), "setting", "font_color"),
             ]
             
             for label, main_key, sub_key in fields:
@@ -523,12 +526,12 @@ class SettingsWindow(QMainWindow):
         w_day = QWidget()
         l_day = QVBoxLayout(w_day)
         l_day.setContentsMargins(0,0,0,0)
-        create_color_section(l_day, "日间模式配色", day_data, "day")
+        create_color_section(l_day, _("day_color_scheme"), day_data, "day")
         
         w_night = QWidget()
         l_night = QVBoxLayout(w_night)
         l_night.setContentsMargins(0,0,0,0)
-        create_color_section(l_night, "夜间模式配色", night_data, "night")
+        create_color_section(l_night, _("night_color_scheme"), night_data, "night")
         
         h_colors.addWidget(w_day)
         h_colors.addWidget(w_night)
@@ -589,12 +592,12 @@ class SettingsWindow(QMainWindow):
         chk_enabled.toggled.connect(self.handle_enabled_checkbox_toggled)
         
         # 6. Delete & Load
-        btn_load = QPushButton("加载")
+        btn_load = QPushButton(_("load"))
         btn_load.setStyleSheet("color: white; background-color: #3e8ed6; border: none; border-radius: 3px; padding: 0px;")
         btn_load.setFixedSize(60, 32)
         btn_load.clicked.connect(lambda: self.load_playlist_data(row))
 
-        btn_del = QPushButton("删除")
+        btn_del = QPushButton(_("delete"))
         btn_del.setStyleSheet("color: white; background-color: #d6533e; border: none; border-radius: 3px; padding: 0px;")
         btn_del.setFixedSize(60, 32)
         btn_del.clicked.connect(self.delete_current_row)

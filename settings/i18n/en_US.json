@@ -77,5 +77,22 @@
     "language_change": "Language Change",
     "restart_to_apply": "Language change requires restart to take effect. Restart now?",
     "cannot_delete_only_enabled": "Action Blocked",
-    "cannot_delete_only_enabled_msg": "Cannot delete the only enabled playlist!"
+    "cannot_delete_only_enabled_msg": "Cannot delete the only enabled playlist!",
+    "mystery_cover_placeholder": "Image URL or local path",
+    "table_platform": "Platform",
+    "table_id": "ID",
+    "table_type": "Type",
+    "table_name_remark": "Name/Remark",
+    "table_enabled": "Enabled",
+    "table_action": "Action",
+    "color_card_background": "Card Background",
+    "color_card_hover": "Card Hover",
+    "color_card_border": "Card Border",
+    "color_card_font": "Card Text",
+    "color_cancel_background": "Cancel Background",
+    "color_cancel_hover": "Cancel Hover",
+    "color_cancel_border": "Cancel Border",
+    "color_cancel_font": "Cancel Text",
+    "color_setting_background": "Settings Background",
+    "color_setting_font": "Settings Text"
 }

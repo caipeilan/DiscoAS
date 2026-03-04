@@ -48,7 +48,7 @@ class SongCard:
             
         if self.mystery_mode:
             # 神秘模式不需要加载详情
-            self.song_name = "秘密歌曲"
+            self.song_name = "??????????"
             self.song_artist_names = ["??????????"]
             self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
             self.album_pic_url = self.mystery_pic_url
@@ -71,11 +71,11 @@ class SongCard:
                 song_info = data["songs"][0]
                 
                 self.song_detail_json = song_info
-                self.song_name = song_info.get("name", "未知")
+                self.song_name = song_info.get("name", "??????????")
                 
                 # 获取艺术家信息
                 self.song_artists = song_info.get("artists", [])
-                self.song_artist_names = [artist.get("name", "未知") for artist in self.song_artists]
+                self.song_artist_names = [artist.get("name", "??????????") for artist in self.song_artists]
                 
                 # 构建窗口名
                 self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
@@ -94,8 +94,8 @@ class SongCard:
 
     def _set_error_defaults(self) -> None:
         """设置错误默认值为未知"""
-        self.song_name = "未知"
-        self.song_artist_names = ["未知艺术家"]
+        self.song_name = "??????????"
+        self.song_artist_names = ["??????????"]
         self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
         self.album_pic_url = self.mystery_pic_url
         self.have_loaded = False
@@ -105,13 +105,13 @@ class SongCard:
 
     def get_name(self) -> str:
         if self.mystery_mode:
-            return "秘密歌曲"
-        return self.song_name or "未知"
+            return "??????????"
+        return self.song_name or "??????????"
     
     def get_artist_names(self) -> List[str]:
         if self.mystery_mode:
             return ["??????????"]
-        return self.song_artist_names or ["未知艺术家"]
+        return self.song_artist_names or ["??????????"]
 
     def get_window_name(self) -> str:
         return self.window_name or ""
