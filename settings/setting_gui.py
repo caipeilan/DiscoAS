@@ -204,7 +204,7 @@ class SettingsWindow(QMainWindow):
         layout.setContentsMargins(40, 40, 40, 40)
         
         # 标题
-        title = QLabel("DiscoAS - 音乐选择器")
+        title = QLabel("DiscoAS - 发现一首歌！")
         title_font = QFont()
         title_font.setPointSize(24)
         title_font.setBold(True)
@@ -215,8 +215,8 @@ class SettingsWindow(QMainWindow):
         
         # 简介
         intro = QLabel(
-            "一个简洁优雅的音乐随机选择工具，\n"
-            "帮助你从歌单中随机发现和选择想听的歌曲。"
+            "一个基于PyQt6的音乐选择工具，\n"
+            "通过scheme url链接唤醒本地音乐软件。"
         )
         intro.setWordWrap(True)
         intro_font = QFont()
@@ -227,16 +227,15 @@ class SettingsWindow(QMainWindow):
         layout.addSpacing(30)
         
         # 功能列表
-        features_title = QLabel("主要功能：")
+        features_title = QLabel("主要功能很简单↓")
         features_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(features_title)
         
         features = QLabel(
+            "• 通过全局快捷键或系统托盘进行“发现”\n"
             "• 全屏浮窗随机展示歌曲卡片\n"
-            "• 支持网易云音乐、QQ音乐等平台\n"
-            "• 秘密歌曲模式，增加趣味性\n"
-            "• 自定义界面配色和尺寸\n"
-            "• 全局快捷键快速启动"
+            "• 附带秘密歌曲模式，利好选择困难症\n"
+            "• 自定义界面配色和尺寸"
         )
         layout.addWidget(features)
         
@@ -250,8 +249,8 @@ class SettingsWindow(QMainWindow):
         usage = QLabel(
             "1. 在「发现设置」中添加你的歌单\n"
             "2. 点击「加载」获取歌曲列表\n"
-            "3. 设置全局快捷键（如 Alt+D）\n"
-            "4. 随时按下快捷键发现随机歌曲！"
+            "3. 启用一个歌单，应用并保存\n"
+            "4. 待程序重启后，发现一首歌！"
         )
         layout.addWidget(usage)
         

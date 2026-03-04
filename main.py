@@ -161,37 +161,6 @@ class DiscoverApp:
         except Exception as e:
             print(f"最小化窗口失败: {e}")
             
-    def run_cli(self) -> None:
-        """命令行模式运行"""
-        print("=== DiscoAS 音乐选择器 ===\n")
-        
-        # 发现歌曲
-        print("正在发现歌曲...")
-        songs = self.discover_songs()
-        
-        # 显示歌曲列表
-        print("\n发现的歌曲:")
-        for i, song in enumerate(songs):
-            song.load_song_detail()
-            print(f"{i}. {song.get_name()} - {'/'.join(song.get_artist_names())}")
-            
-        # 用户选择
-        while True:
-            try:
-                choice = input("\n请选择要播放的歌曲序号 (输入q退出): ")
-                if choice.lower() == 'q':
-                    break
-                    
-                index = int(choice)
-                if 0 <= index < len(songs):
-                    self.play_song(songs[index])
-                else:
-                    print("无效的序号")
-            except ValueError:
-                print("请输入有效的数字")
-            except Exception as e:
-                print(f"错误: {e}")
-                
     def run_gui(self) -> None:
         """GUI模式运行"""
         if not GUI_AVAILABLE:
@@ -259,28 +228,19 @@ def handle_scheme_url(url: str) -> bool:
 
 def main():
     """主入口函数"""
-    # 检查命令行参数
-    if len(sys.argv) > 1:
-        # 检查是否是scheme URL
-        if sys.argv[1].startswith("discoverasong://"):
-            handle_scheme_url(sys.argv[1])
-            return
-            
-        # 检查命令行模式
-        if sys.argv[1] == "--cli":
-            app = DiscoverApp()
-            app.run_cli()
-            return
-            
-    # 默认尝试GUI模式
-    if GUI_AVAILABLE:
-        app = DiscoverApp()
-        app.run_gui()
-    else:
-        # 回退到命令行模式
-        print("PyQt6未安装，使用命令行模式...")
-        app = DiscoverApp()
-        app.run_cli()
+    # 检查是否是scheme URL
+    if len(sys.argv) > 1 and sys.argv[1].startswith("discoverasong://"):
+        handle_scheme_url(sys.argv[1])
+        return
+    
+    # 默认启动GUI模式
+    if not GUI_AVAILABLE:
+        print("错误: GUI模式需要安装PyQt6")
+        print("请运行: pip install PyQt6")
+        return
+        
+    app = DiscoverApp()
+    app.run_gui()
 
 
 if __name__ == "__main__":
