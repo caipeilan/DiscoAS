@@ -942,7 +942,9 @@ def create_tray_icon(app, discover_app):
     
     # 发现歌曲
     discover_action = QAction("发现一首歌！", menu)
-    discover_action.setFont(QFont("", weight=QFont.Weight.Bold)) 
+    font = QFont()
+    font.setBold(True)
+    discover_action.setFont(font)
     discover_action.triggered.connect(lambda: show_overlay(app, discover_app))
     menu.addAction(discover_action)
     

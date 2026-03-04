@@ -99,7 +99,7 @@ class SettingsWindow(QMainWindow):
         self.setWindowTitle("编辑你的DiscoAS！")
         
         # 设置窗口图标
-        icon_path = os.path.join(os.path.dirname(__file__), "Icon.ico")
+        icon_path = os.path.join(os.path.dirname(__file__), "../src","Icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         
