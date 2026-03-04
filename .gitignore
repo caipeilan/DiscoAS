@@ -41,5 +41,5 @@ settings/gui_setting.json
 settings/music_setting.json
 *.log
 
-platforms/*/user_data/album/*.json
-platforms/*/user_data/playlist/*.json
+# Platform user data
+platforms/*/user_data/**/*.json
