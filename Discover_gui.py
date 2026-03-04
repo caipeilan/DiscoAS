@@ -336,16 +336,16 @@ class SongCardWidget(QFrame):
         path.addRoundedRect(0, 0, size, size, radius, radius)
         painter.setClipPath(path)
 
-        # 将原始图片缩放后绘制到裁剪区域内
+        # 使用 KeepAspectRatio 模式，保持纵横比，完整显示在目标区域内
         scaled = pixmap.scaled(
             size, size,
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation
         )
-        # 居中绘制（以防缩放后比目标大）
-        x_off = (scaled.width() - size) // 2
-        y_off = (scaled.height() - size) // 2
-        painter.drawPixmap(-x_off, -y_off, scaled)
+        # 居中绘制
+        x_off = (size - scaled.width()) // 2
+        y_off = (size - scaled.height()) // 2
+        painter.drawPixmap(x_off, y_off, scaled)
         painter.end()
 
         return rounded

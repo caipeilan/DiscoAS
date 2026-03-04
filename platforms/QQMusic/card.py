@@ -58,7 +58,8 @@ class SongCard:
             # 神秘模式不需要加载详情
             self.song_name = "秘密歌曲"
             self.song_artist_names = ["??????????"]
-            self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+            # self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+            self.window_name = "QQ音乐 听我想听"
             self.album_pic_url = self.mystery_pic_url
             self.have_loaded = True
             return
@@ -99,7 +100,8 @@ class SongCard:
                 self.song_artist_names = [artist.get("name", "未知") for artist in self.song_artists]
                 
                 # 构建窗口名
-                self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+                # self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+                self.window_name = "QQ音乐 听我想听"
                 
                 # 获取专辑信息
                 album = song_info.get("album", {})
@@ -124,7 +126,8 @@ class SongCard:
         """根据歌曲ID设置默认值"""
         self.song_name = f"歌曲{self.song_id}"
         self.song_artist_names = ["未知艺术家"]
-        self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        # self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        self.window_name = "QQ音乐 听我想听"
         # 使用默认封面
         self.album_pic_url = self.mystery_pic_url
         self.have_loaded = True
@@ -133,7 +136,8 @@ class SongCard:
         """设置错误默认值为未知"""
         self.song_name = "未知"
         self.song_artist_names = ["未知艺术家"]
-        self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        # self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        self.window_name = "QQ音乐 听我想听"
         self.album_pic_url = self.mystery_pic_url
         self.have_loaded = False
 
