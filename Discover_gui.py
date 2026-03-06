@@ -802,11 +802,9 @@ class DiscoverOverlay(QMainWindow):
     def _on_song_play(self, song_card):
         """播放歌曲"""
         # 标记用户播放了歌曲，下次进入需要刷新
-        global _user_played_song, _cached_song_batches
+        global _user_played_song
         _user_played_song = True
-        # 播放后清除缓存，确保下次进入时重新随机
-        _cached_song_batches = []
-        print("用户播放了歌曲，标记为已播放，清除歌曲缓存")
+        print("用户播放了歌曲，标记为已播放")
         
         # 播放
         self.discover_app.play_song(song_card)
@@ -825,16 +823,19 @@ class DiscoverOverlay(QMainWindow):
         global _cached_song_batches, _need_refresh_songs, _user_played_song
         
         # 先处理缓存逻辑（同步执行，在动画前）
-        # refreshing_after_cancel=True：无论是否选歌都清除缓存
-        # refreshing_after_cancel=False：只有选歌了才清除缓存，未选歌则放回队头
-        if self.discover_app.music_setting.refreshing_after_cancel or _user_played_song:
-            _cached_song_batches = []
+        # 当前这批歌曲已经从缓存 pop(0) 取走了
+        # refreshing_after_cancel=True：清除 Playlist 缓存，下次进入重新加载
+        # refreshing_after_cancel=False 且 用户未选歌：把当前这批插回队头
+        if self.discover_app.music_setting.refreshing_after_cancel:
             _need_refresh_songs = True
-            print("取消选择后刷新=True 或 用户已选歌，清除缓存")
-        else:
-            # 将当前歌曲保存为一批缓存，插回队头（保持缓存顺序不变）
+            print("取消选择后刷新=True，下次进入将刷新")
+        elif not _user_played_song:
+            # 用户未选歌，把当前这批插回队头
             _cached_song_batches.insert(0, self.songs.copy())
-            print("取消选择后刷新=False 且 用户未选歌，将当前歌曲插回队头")
+            print("用户未选歌，将当前歌曲插回队头")
+        else:
+            # 用户已选歌，当前这批已经被释放（pop走了），其他预加载批次保留
+            print("用户已选歌，当前歌曲已释放，保留其他预加载批次")
         
         # 播放弹出淡出动画，动画结束后隐藏窗口并启动预加载
         def _do_hide():
@@ -860,16 +861,19 @@ class DiscoverOverlay(QMainWindow):
             global _cached_song_batches, _need_refresh_songs, _user_played_song
             
             # 先处理缓存逻辑（同步执行，在动画前）
-            # refreshing_after_cancel=True：无论是否选歌都清除缓存
-            # refreshing_after_cancel=False：只有选歌了才清除缓存，未选歌则放回队头
-            if self.discover_app.music_setting.refreshing_after_cancel or _user_played_song:
-                _cached_song_batches = []
+            # 当前这批歌曲已经从缓存 pop(0) 取走了
+            # refreshing_after_cancel=True：清除 Playlist 缓存，下次进入重新加载
+            # refreshing_after_cancel=False 且 用户未选歌：把当前这批插回队头
+            if self.discover_app.music_setting.refreshing_after_cancel:
                 _need_refresh_songs = True
-                print("取消选择后刷新=True 或 用户已选歌，清除缓存，下次进入将刷新歌曲")
-            else:
-                # 将当前歌曲保存为一批缓存，插回队头（保持缓存顺序不变）
+                print("取消选择后刷新=True，下次进入将刷新")
+            elif not _user_played_song:
+                # 用户未选歌，把当前这批插回队头
                 _cached_song_batches.insert(0, self.songs.copy())
-                print("取消选择后刷新=False 且 用户未选歌，将当前歌曲插回队头，下次进入不刷新")
+                print("用户未选歌，将当前歌曲插回队头")
+            else:
+                # 用户已选歌，当前这批已经被释放（pop走了），其他预加载批次保留
+                print("用户已选歌，当前歌曲已释放，保留其他预加载批次")
             
             # 播放弹出淡出动画，动画结束后隐藏并预加载
             def _do_hide():
