@@ -65,8 +65,12 @@ def _fetch_image_data(url_or_path: str) -> bytes:
             return response.content
         raise Exception(f"HTTP 错误 {response.status_code}: {url_or_path[:80]}")
 
-# 全局歌曲缓存（歌曲对象列表）
-_cached_songs = []
+# 全局歌曲缓存（多批歌曲对象列表）
+# 每批是一个 discover_songs() 返回的列表
+_cached_song_batches = []
+
+# 预加载目标批数
+_preload_target_batches = 0
 
 # 全局标记：用户是否播放了歌曲
 _user_played_song = False
@@ -83,38 +87,67 @@ _preload_songs_thread = None
 
 def preload_next_batch(discover_app):
     """
-    在后台线程预加载下一批歌曲（歌曲详情 + 封面图片），
-    并将结果存入 _cached_songs，供下次打开浮窗时直接使用。
+    在后台线程预加载多批歌曲（歌曲详情 + 封面图片），
+    并将结果存入 _cached_song_batches，支持缓存批数设置。
     """
-    global _preload_thread
+    global _preload_thread, _preload_target_batches
+
+    # 获取缓存批数设置
+    cache_batches = discover_app.music_setting.cache_batches
+    
+    # 如果缓存批数为0，禁用预加载
+    if cache_batches <= 0:
+        print("缓存批数设置为0，禁用预加载")
+        return
+    
+    _preload_target_batches = cache_batches
+    print(f"开始预加载，目标缓存批数: {cache_batches}")
 
     if _preload_thread and _preload_thread.is_alive():
-        print("预加载线程已在运行中，跳过")
+        # 如果预加载线程正在运行，检查是否需要补充更多批次
+        print("预加载线程已在运行中，检查是否需要补充批次...")
         return
 
     def _preload():
-        global _cached_songs
+        global _cached_song_batches
         try:
-            print("开始预加载下一批歌曲...")
-            # 1. 获取下一批歌曲
-            songs = discover_app.discover_songs()
-            # 2. 加载每首歌的详情（含图片URL）
-            for song in songs:
-                if not song.have_loaded:
-                    song.load_song_detail()
-            # 3. 下载封面图片到缓存（支持URL和本地路径）
-            count = 0
-            for song in songs:
-                url = song.get_album_pic_url()
-                if url and url not in _image_cache:
-                    try:
-                        _image_cache[url] = _fetch_image_data(url)
-                        count += 1
-                    except Exception as e:
-                        print(f"图片预加载失败: {url[:50]}... - {e}")
-            # 4. 将这批歌曲存入全局缓存，供下次打开浮窗直接使用
-            _cached_songs = songs
-            print(f"预加载完成：{len(songs)} 首歌曲，新增 {count} 张图片，缓存共 {len(_image_cache)} 张")
+            # 计算还需要加载多少批
+            current_batches = len(_cached_song_batches)
+            batches_to_load = _preload_target_batches - current_batches
+            
+            if batches_to_load <= 0:
+                print(f"缓存已足够，当前 {current_batches} 批 >= 目标 {_preload_target_batches} 批")
+                return
+            
+            print(f"需要补充 {batches_to_load} 批歌曲...")
+            
+            for i in range(batches_to_load):
+                print(f"开始预加载第 {i+1} 批歌曲...")
+                # 1. 获取下一批歌曲
+                songs = discover_app.discover_songs()
+                # 2. 加载每首歌的详情（含图片URL）
+                for song in songs:
+                    if not song.have_loaded:
+                        song.load_song_detail()
+                # 3. 下载封面图片到缓存（支持URL和本地路径）
+                count = 0
+                for song in songs:
+                    url = song.get_album_pic_url()
+                    if url and url not in _image_cache:
+                        try:
+                            _image_cache[url] = _fetch_image_data(url)
+                            count += 1
+                        except Exception as e:
+                            print(f"图片预加载失败: {url[:50]}... - {e}")
+                # 4. 将这批歌曲存入全局缓存
+                _cached_song_batches.append(songs)
+                print(f"第 {i+1} 批预加载完成：{len(songs)} 首歌曲，新增 {count} 张图片")
+                
+                # 每批之间稍作延迟，避免过于频繁
+                time.sleep(0.1)
+            
+            total_songs = sum(len(batch) for batch in _cached_song_batches)
+            print(f"所有预加载完成：共 {len(_cached_song_batches)} 批，总计 {total_songs} 首歌曲，缓存共 {len(_image_cache)} 张图片")
         except Exception as e:
             import traceback
             print(f"预加载失败: {e}")
@@ -427,7 +460,7 @@ class DiscoverOverlay(QMainWindow):
         self.songs_loaded.connect(self._on_songs_loaded)
         
         # 检查是否需要刷新歌曲
-        global _need_refresh_songs, _user_played_song, _cached_songs
+        global _need_refresh_songs, _user_played_song, _cached_song_batches
 
         # 如果用户播放了歌曲，下次进入需要刷新（清除缓存）
         if _user_played_song:
@@ -441,13 +474,17 @@ class DiscoverOverlay(QMainWindow):
             should_refresh = self.discover_app.music_setting.refreshing_after_cancel
 
         # 优先判断：预加载是否已经准备好了新歌曲
-        # 只要 _cached_songs 不为空，说明预加载线程已经完成，
+        # 只要 _cached_song_batches 不为空，说明预加载线程已经完成，
         # 直接使用，避免重新异步加载导致"加载中..."延迟
-        if _cached_songs:
-            print(f"使用预加载缓存的歌曲，共 {len(_cached_songs)} 首（跳过刷新逻辑）")
+        if _cached_song_batches:
+            # 取出一批歌曲使用
+            batch = _cached_song_batches.pop(0)
+            print(f"使用预加载缓存的歌曲，共 {len(batch)} 首（跳过刷新逻辑），剩余 {len(_cached_song_batches)} 批")
             _need_refresh_songs = False
-            self.songs = _cached_songs.copy()
-            _cached_songs = []  # 清空全局缓存，防止下次误用同一批
+            self.songs = batch
+            # 保留剩余的缓存，用于下次使用
+            # 触发预加载补充缓存
+            preload_next_batch(self.discover_app)
             self._display_songs()
         elif should_refresh:
             # 没有预加载缓存，且需要刷新：清除 Playlist 缓存后重新加载
@@ -765,16 +802,16 @@ class DiscoverOverlay(QMainWindow):
     def _on_song_play(self, song_card):
         """播放歌曲"""
         # 标记用户播放了歌曲，下次进入需要刷新
-        global _user_played_song, _cached_songs
+        global _user_played_song, _cached_song_batches
         _user_played_song = True
         # 播放后清除缓存，确保下次进入时重新随机
-        _cached_songs = []
+        _cached_song_batches = []
         print("用户播放了歌曲，标记为已播放，清除歌曲缓存")
         
         # 播放
         self.discover_app.play_song(song_card)
         
-        # 播放后立即在后台预加载下一批歌曲（含详情+图片），存入 _cached_songs
+        # 播放后立即在后台预加载多批歌曲（含详情+图片）
         preload_next_batch(self.discover_app)
         
         # 延迟隐藏窗口
@@ -785,16 +822,17 @@ class DiscoverOverlay(QMainWindow):
         print("关闭窗口被触发")
         
         # 声明全局变量
-        global _cached_songs, _need_refresh_songs
+        global _cached_song_batches, _need_refresh_songs
         
         # 先处理缓存逻辑（同步执行，在动画前）
         if self.discover_app.music_setting.refreshing_after_cancel:
-            _cached_songs = []
+            _cached_song_batches = []
             _need_refresh_songs = True
             print("取消选择后刷新=True，清除缓存")
         else:
-            _cached_songs = self.songs.copy()
-            print("取消选择后刷新=False，保存缓存")
+            # 将当前歌曲保存为一批缓存
+            _cached_song_batches.append(self.songs.copy())
+            print("取消选择后刷新=False，保存当前歌曲到缓存")
         
         # 播放弹出淡出动画，动画结束后隐藏窗口并启动预加载
         def _do_hide():
@@ -817,16 +855,17 @@ class DiscoverOverlay(QMainWindow):
             print("ESC 被按下，隐藏窗口")
             
             # 声明全局变量
-            global _cached_songs, _need_refresh_songs
+            global _cached_song_batches, _need_refresh_songs
             
             # 先处理缓存逻辑（同步执行，在动画前）
             if self.discover_app.music_setting.refreshing_after_cancel:
-                _cached_songs = []
+                _cached_song_batches = []
                 _need_refresh_songs = True
                 print("取消选择后刷新=True，清除缓存，下次进入将刷新歌曲")
             else:
-                _cached_songs = self.songs.copy()
-                print("取消选择后刷新=False，保存缓存，下次进入不刷新")
+                # 将当前歌曲保存为一批缓存
+                _cached_song_batches.append(self.songs.copy())
+                print("取消选择后刷新=False，保存当前歌曲到缓存，下次进入不刷新")
             
             # 播放弹出淡出动画，动画结束后隐藏并预加载
             def _do_hide():

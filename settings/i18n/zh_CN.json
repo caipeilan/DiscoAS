@@ -16,6 +16,8 @@
     "discovered_songs_count": "发现歌曲数量:",
     "mystery_mode": "启用秘密歌曲模式",
     "mystery_songs_count": "秘密歌曲数量:",
+    "cache_batches": "缓存批数:",
+    "cache_batches_hint": "预加载的歌曲批数，0为禁用预加载",
     "refresh_after_cancel": "取消选择后刷新歌曲列表",
     "global_shortcut": "全局快捷键:",
     "shortcut_placeholder": "例如: Alt+D",

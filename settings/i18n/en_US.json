@@ -16,6 +16,8 @@
     "discovered_songs_count": "Songs to Discover:",
     "mystery_mode": "Enable Secret Song Mode",
     "mystery_songs_count": "Secret Songs Count:",
+    "cache_batches": "Cache Batches:",
+    "cache_batches_hint": "Number of song batches to preload, 0 disables preload",
     "refresh_after_cancel": "Refresh song list after cancel",
     "global_shortcut": "Global Shortcut:",
     "shortcut_placeholder": "e.g.: Alt+D",
