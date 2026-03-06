@@ -3,10 +3,15 @@ import os
 import webbrowser
 import threading
 import time
+import logging
 from typing import Optional
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
+
+# 导入日志模块（必须在其他模块之前初始化）
+# 这会自动全局替换 print 函数，使所有模块的 print 都写入日志
+from log import logger
 
 from Discover import DiscoverASong
 from settings.music_setting import PASetting

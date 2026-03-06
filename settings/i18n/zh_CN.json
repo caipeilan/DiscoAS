@@ -14,7 +14,7 @@
     "usage_steps": "1. 在「发现设置」中添加你的歌单\n2. 点击「加载」获取歌曲列表\n3. 启用（必须且只能）一个歌单，应用并保存\n4. 待程序重启后，发现一首歌！",
     "basic_params": "基础参数",
     "discovered_songs_count": "发现歌曲数量:",
-    "mystery_mode": "启用秘密歌曲模式",
+    "mystery_mode": "启用秘密歌曲",
     "mystery_songs_count": "秘密歌曲数量:",
     "cache_batches": "缓存批数:",
     "cache_batches_hint": "预加载的歌曲批数，0为禁用预加载",
