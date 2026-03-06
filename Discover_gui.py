@@ -822,17 +822,19 @@ class DiscoverOverlay(QMainWindow):
         print("关闭窗口被触发")
         
         # 声明全局变量
-        global _cached_song_batches, _need_refresh_songs
+        global _cached_song_batches, _need_refresh_songs, _user_played_song
         
         # 先处理缓存逻辑（同步执行，在动画前）
-        if self.discover_app.music_setting.refreshing_after_cancel:
+        # refreshing_after_cancel=True：无论是否选歌都清除缓存
+        # refreshing_after_cancel=False：只有选歌了才清除缓存，未选歌则放回队头
+        if self.discover_app.music_setting.refreshing_after_cancel or _user_played_song:
             _cached_song_batches = []
             _need_refresh_songs = True
-            print("取消选择后刷新=True，清除缓存")
+            print("取消选择后刷新=True 或 用户已选歌，清除缓存")
         else:
-            # 将当前歌曲保存为一批缓存
-            _cached_song_batches.append(self.songs.copy())
-            print("取消选择后刷新=False，保存当前歌曲到缓存")
+            # 将当前歌曲保存为一批缓存，插回队头（保持缓存顺序不变）
+            _cached_song_batches.insert(0, self.songs.copy())
+            print("取消选择后刷新=False 且 用户未选歌，将当前歌曲插回队头")
         
         # 播放弹出淡出动画，动画结束后隐藏窗口并启动预加载
         def _do_hide():
@@ -855,17 +857,19 @@ class DiscoverOverlay(QMainWindow):
             print("ESC 被按下，隐藏窗口")
             
             # 声明全局变量
-            global _cached_song_batches, _need_refresh_songs
+            global _cached_song_batches, _need_refresh_songs, _user_played_song
             
             # 先处理缓存逻辑（同步执行，在动画前）
-            if self.discover_app.music_setting.refreshing_after_cancel:
+            # refreshing_after_cancel=True：无论是否选歌都清除缓存
+            # refreshing_after_cancel=False：只有选歌了才清除缓存，未选歌则放回队头
+            if self.discover_app.music_setting.refreshing_after_cancel or _user_played_song:
                 _cached_song_batches = []
                 _need_refresh_songs = True
-                print("取消选择后刷新=True，清除缓存，下次进入将刷新歌曲")
+                print("取消选择后刷新=True 或 用户已选歌，清除缓存，下次进入将刷新歌曲")
             else:
-                # 将当前歌曲保存为一批缓存
-                _cached_song_batches.append(self.songs.copy())
-                print("取消选择后刷新=False，保存当前歌曲到缓存，下次进入不刷新")
+                # 将当前歌曲保存为一批缓存，插回队头（保持缓存顺序不变）
+                _cached_song_batches.insert(0, self.songs.copy())
+                print("取消选择后刷新=False 且 用户未选歌，将当前歌曲插回队头，下次进入不刷新")
             
             # 播放弹出淡出动画，动画结束后隐藏并预加载
             def _do_hide():
