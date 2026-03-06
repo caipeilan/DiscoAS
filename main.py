@@ -111,7 +111,7 @@ class DiscoverApp:
             number,
             self.music_setting.have_mystery_song,
             self.music_setting.num_of_mystery_song,
-            self.music_setting.overlap,           # 传递允许重复设置
+            False,                                 # 不再允许歌曲重复
             self.music_setting.mystery_song_cover  # 传递自定义秘密封面
         )
         

@@ -21,7 +21,7 @@ class DiscoverASong(object):
         card_module = importlib.import_module('card')
         self.song_card_class = getattr(card_module, 'SongCard')
         
-    def get_songs(self, number_of_songs, mystery_song, number_of_mystery_song=1, overlap=True, mystery_pic_url=""):
+    def get_songs(self, number_of_songs, mystery_song, number_of_mystery_song=1, overlap=False, mystery_pic_url=""):
         """
         从Playlist中获取歌曲
         
@@ -29,7 +29,7 @@ class DiscoverASong(object):
             number_of_songs: 发现的歌曲数量
             mystery_song: 是否包含神秘歌曲
             number_of_mystery_song: 神秘歌曲数量
-            overlap: 是否允许重复填充（当歌曲数量不足时）
+            overlap: 是否允许重复填充（已废弃参数，现在固定为False）
             mystery_pic_url: 秘密歌曲封面URL或本地路径，空字符串=使用平台默认
             
         Returns:
@@ -44,13 +44,8 @@ class DiscoverASong(object):
         # 获取随机歌曲
         song_ids, sum_of_song = self.playlist.get_random_song(actual_song_count)
         
-        # 如果歌曲不足且允许重复，则填充
-        if overlap and len(song_ids) < actual_song_count:
-            # 计算需要填充的数量
-            needed = actual_song_count - len(song_ids)
-            # 随机选择现有歌曲进行填充
-            for _ in range(needed):
-                song_ids.append(random.choice(song_ids))
+        # 注意：allow_overlap 设置已移除，现在固定不允许重复
+        # 如果歌曲不足，直接返回可用歌曲（可能少于请求数量）
         
         # 自定义封面：空字符串时传 None，让 SongCard 使用平台默认
         custom_pic = mystery_pic_url if mystery_pic_url else None

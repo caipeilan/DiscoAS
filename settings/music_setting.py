@@ -32,7 +32,6 @@ class PASetting(object):
         self.have_mystery_song = True
         self.num_of_mystery_song = 1
         self.mystery_song_cover = ""  # 秘密歌曲封面，空字符串=使用平台默认
-        self.overlap = True
         self.refreshing_after_cancel = False
         self.shortcut_key = "Alt+D"
 
@@ -49,7 +48,6 @@ class PASetting(object):
         self.have_mystery_song = self.settings.get("have_mystery_song", True)
         self.num_of_mystery_song = self.settings.get("num_of_mystery_song", 1)
         self.mystery_song_cover = self.settings.get("mystery_song_cover", "")
-        self.overlap = self.settings.get("overlap", True)
         self.refreshing_after_cancel = self.settings.get("refreshing_after_cancel", False)
         self.shortcut_key = self.settings.get("shortcut_key", "Alt+D")
 
@@ -69,7 +67,6 @@ class PASetting(object):
             "have_mystery_song": self.have_mystery_song,
             "num_of_mystery_song": self.num_of_mystery_song,
             "mystery_song_cover": self.mystery_song_cover,
-            "overlap": self.overlap,
             "refreshing_after_cancel": self.refreshing_after_cancel,
             "shortcut_key": self.shortcut_key,
             "playlist_albums": playlist_albums_dicts
@@ -85,7 +82,6 @@ class PASetting(object):
             "number_of_discovered_songs": 3,     
             "have_mystery_song": True,
             "num_of_mystery_song": 1,
-            "overlap": True,
             "refreshing_after_cancel": False,
             "shortcut_key": "Alt+D",
             "playlist_albums": [

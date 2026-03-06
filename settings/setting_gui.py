@@ -323,10 +323,6 @@ class SettingsWindow(QMainWindow):
         self.spin_mystery_num.setMinimumWidth(120)
         form_basic.addRow(_("mystery_songs_count"), self.spin_mystery_num)
         
-        self.chk_overlap = QCheckBox(_("allow_overlap"))
-        self.chk_overlap.setChecked(self.pa_setting.overlap)
-        form_basic.addRow(self.chk_overlap)
-        
         self.chk_refresh = QCheckBox(_("refresh_after_cancel"))
         self.chk_refresh.setChecked(self.pa_setting.refreshing_after_cancel)
         form_basic.addRow(self.chk_refresh)
@@ -767,7 +763,6 @@ class SettingsWindow(QMainWindow):
         self.pa_setting.have_mystery_song = self.chk_mystery.isChecked()
         self.pa_setting.num_of_mystery_song = self.spin_mystery_num.value()
         self.pa_setting.mystery_song_cover = self.edit_mystery_cover.text().strip()
-        self.pa_setting.overlap = self.chk_overlap.isChecked()
         self.pa_setting.refreshing_after_cancel = self.chk_refresh.isChecked()
         self.pa_setting.shortcut_key = self.edit_shortcut.text()
         

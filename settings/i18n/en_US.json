@@ -16,7 +16,6 @@
     "discovered_songs_count": "Songs to Discover:",
     "mystery_mode": "Enable Secret Song Mode",
     "mystery_songs_count": "Secret Songs Count:",
-    "allow_overlap": "Allow duplicates (when playlist is insufficient)",
     "refresh_after_cancel": "Refresh song list after cancel",
     "global_shortcut": "Global Shortcut:",
     "shortcut_placeholder": "e.g.: Alt+D",

@@ -1032,7 +1032,7 @@ def show_overlay(app, discover_app):
     # 每次显示浮窗时，重新加载所有设置，确保使用最新设置
     discover_app.gui_setting.load()
     discover_app.music_setting.load()
-    print(f"已重新加载设置: GUI card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}, overlap={discover_app.music_setting.overlap}, refreshing_after_cancel={discover_app.music_setting.refreshing_after_cancel}")
+    print(f"已重新加载设置: GUI card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}, refreshing_after_cancel={discover_app.music_setting.refreshing_after_cancel}")
     
     # 检查是否已有窗口显示
     if _main_window is not None and _main_window.isVisible():
