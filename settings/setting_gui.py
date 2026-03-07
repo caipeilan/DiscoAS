@@ -559,8 +559,18 @@ class SettingsWindow(QMainWindow):
         
         # 1. Platform
         cmb_platform = QComboBox()
-        cmb_platform.addItems(["NeteaseCloudMusic", "QQMusic"])
-        if data: cmb_platform.setCurrentText(data.name)
+        platforms = [
+            ("NeteaseCloudMusic", _("platform_NeteaseCloudMusic")),
+            ("QQMusic", _("platform_QQMusic")),
+            ("Spotify", _("platform_Spotify"))
+        ]
+        for platform_id, platform_name in platforms:
+            cmb_platform.addItem(platform_name, platform_id)
+        if data: 
+            # 找到对应的索引
+            index = cmb_platform.findData(data.name)
+            if index >= 0:
+                cmb_platform.setCurrentIndex(index)
         self.table_pl.setCellWidget(row, 0, cmb_platform)
         
         # 2. ID
@@ -570,8 +580,16 @@ class SettingsWindow(QMainWindow):
         
         # 3. Type
         cmb_type = QComboBox()
-        cmb_type.addItems(["playlist", "album"])
-        if data: cmb_type.setCurrentText(data.typename)
+        types = [
+            ("playlist", _("type_playlist")),
+            ("album", _("type_album"))
+        ]
+        for type_id, type_name in types:
+            cmb_type.addItem(type_name, type_id)
+        if data: 
+            index = cmb_type.findData(data.typename)
+            if index >= 0:
+                cmb_type.setCurrentIndex(index)
         self.table_pl.setCellWidget(row, 2, cmb_type)
         
         # 4. Remark
@@ -619,9 +637,9 @@ class SettingsWindow(QMainWindow):
 
     def load_playlist_data(self, row):
         """加载歌单/专辑数据"""
-        platform = self.table_pl.cellWidget(row, 0).currentText()
+        platform = self.table_pl.cellWidget(row, 0).currentData()
         playlist_id = self.table_pl.cellWidget(row, 1).text()
-        typename = self.table_pl.cellWidget(row, 2).currentText()
+        typename = self.table_pl.cellWidget(row, 2).currentData()
         
         if not playlist_id:
             QMessageBox.warning(self, _("load_failed"), _("enter_id_first"))
@@ -779,9 +797,9 @@ class SettingsWindow(QMainWindow):
         new_enabled_platform = None
         new_enabled_playlist = None
         for row in range(self.table_pl.rowCount()):
-            name = self.table_pl.cellWidget(row, 0).currentText()
+            name = self.table_pl.cellWidget(row, 0).currentData()  # 使用 currentData 获取实际 ID
             pid = self.table_pl.cellWidget(row, 1).text()
-            typename = self.table_pl.cellWidget(row, 2).currentText()
+            typename = self.table_pl.cellWidget(row, 2).currentData()  # 使用 currentData 获取实际类型
             remark = self.table_pl.cellWidget(row, 3).text()
             
             chk_widget = self.table_pl.cellWidget(row, 4)

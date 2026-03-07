@@ -103,5 +103,10 @@
     "playlist_switched_restart_msg": "歌单已切换，程序将重启以应用更改。",
     "all_settings_saved_msg": "所有设置已保存并应用！",
     "confirm_delete_title": "确认删除",
-    "confirm_delete_msg": "确定要删除该歌单吗？"
+    "confirm_delete_msg": "确定要删除该歌单吗？",
+    "platform_NeteaseCloudMusic": "网易云音乐",
+    "platform_QQMusic": "QQ音乐",
+    "platform_Spotify": "Spotify",
+    "type_playlist": "歌单",
+    "type_album": "专辑"
 }

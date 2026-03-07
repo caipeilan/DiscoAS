@@ -103,5 +103,10 @@
     "playlist_switched_restart_msg": "Playlist switched, the app will restart to apply changes.",
     "all_settings_saved_msg": "All settings saved and applied!",
     "confirm_delete_title": "Confirm Delete",
-    "confirm_delete_msg": "Are you sure you want to delete this playlist?"
+    "confirm_delete_msg": "Are you sure you want to delete this playlist?",
+    "platform_NeteaseCloudMusic": "NetEase Cloud Music",
+    "platform_QQMusic": "QQ Music",
+    "platform_Spotify": "Spotify",
+    "type_playlist": "Playlist",
+    "type_album": "Album"
 }
