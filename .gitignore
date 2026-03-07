@@ -37,9 +37,7 @@ ENV/
 Thumbs.db
 
 # Project specific
-settings/gui_setting.json
-settings/music_setting.json
 *.log
 
-# Platform user data
-platforms/*/user_data/**/*.json
+#user data
+user_data/
