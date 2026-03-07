@@ -383,7 +383,7 @@ class SettingsWindow(QMainWindow):
         self.table_pl.setColumnWidth(0, 150)   # 平台
         self.table_pl.setColumnWidth(1, 120)   # ID
         self.table_pl.setColumnWidth(2, 100)   # 类型
-        self.table_pl.setColumnWidth(4, 60)   # 启用
+        self.table_pl.setColumnWidth(4, 80)   # 启用
         self.table_pl.setColumnWidth(5, 150) # 操作
         self.table_pl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_pl.verticalHeader().setDefaultSectionSize(50)
@@ -569,16 +569,16 @@ class SettingsWindow(QMainWindow):
         row = self.table_pl.rowCount()
         self.table_pl.insertRow(row)
         
-        # 表格中下拉框的样式
-        combo_style = """
+        # 表格中下拉框的样式（使用占位符，稍后由apply_gui_theme更新）
+        combo_style_template = """
             QComboBox {
-                background-color: #f5f5f5;
-                border: 1px solid #cccccc;
+                background-color: #PLACEHOLDER_BG#;
+                border: 1px solid #PLACEHOLDER_BORDER#;
                 border-radius: 4px;
                 padding: 4px 8px;
             }
             QComboBox:hover {
-                border: 1px solid #888888;
+                border: 1px solid #PLACEHOLDER_BORDER#;
             }
             QComboBox::drop-down {
                 border: none;
@@ -592,6 +592,17 @@ class SettingsWindow(QMainWindow):
                 margin-right: 4px;
             }
         """
+        
+        # 保存原始样式模板供后续动态更新
+        if not hasattr(self, '_combo_style_template'):
+            self._combo_style_template = combo_style_template
+        
+        # 如果已经有颜色值就直接替换，否则使用默认值
+        if hasattr(self, '_current_card_hover') and hasattr(self, '_current_card_border'):
+            combo_style = self._combo_style_template.replace('#PLACEHOLDER_BG#', self._current_card_hover).replace('#PLACEHOLDER_BORDER#', self._current_card_border)
+        else:
+            # 使用默认日间模式颜色
+            combo_style = self._combo_style_template.replace('#PLACEHOLDER_BG#', '#d0ebf0').replace('#PLACEHOLDER_BORDER#', '#76e8fd')
         
         # 1. Platform
         cmb_platform = QComboBox()
@@ -984,9 +995,26 @@ class SettingsWindow(QMainWindow):
         btn_bd = btn_conf.get("border", "#888888")
         btn_hover = btn_conf.get("background_hover", "#CCCCCC")
 
-        input_bg = input_conf.get("background", "#FFFFFF")
-        input_bd = input_conf.get("border", "#AAAAAA")
-        input_fg = input_conf.get("font_color", "#000000")
+        # 夜间模式使用日间模式的输入框样式，确保高度一致
+        if is_night:
+            # 使用日间模式的输入框颜色
+            input_bg = self.gui_setting.card.get("background", "#FFFFFF")
+            input_bd = self.gui_setting.card.get("border", "#AAAAAA")
+            input_fg = self.gui_setting.card.get("font_color", "#000000")
+            # 使用日间模式的卡片悬停色
+            card_hover = self.gui_setting.card.get("background_hover", "#d0ebf0")
+            card_border = self.gui_setting.card.get("border", "#76e8fd")
+        else:
+            input_bg = input_conf.get("background", "#FFFFFF")
+            input_bd = input_conf.get("border", "#AAAAAA")
+            input_fg = input_conf.get("font_color", "#000000")
+            # 卡片悬停色和边框色（用于表格下拉框）
+            card_hover = input_conf.get("background_hover", "#d0ebf0")
+            card_border = input_conf.get("border", "#76e8fd")
+        
+        # 保存当前颜色值供新增行时使用
+        self._current_card_hover = card_hover
+        self._current_card_border = card_border
 
         current_setting_scale = self.gui_setting.setting_size
         base_font_size = 14
@@ -998,10 +1026,19 @@ class SettingsWindow(QMainWindow):
         if is_night:
             left_bg = "#2d2d2d"
 
-        # 滚动条颜色
+        # 滚动条颜色 - 将十六进制颜色转换为RGBA格式
+        def hex_to_rgba(hex_color, alpha='80'):
+            """将十六进制颜色转换为RGBA格式"""
+            if hex_color.startswith('#') and len(hex_color) == 7:
+                r = hex_color[1:3]
+                g = hex_color[3:5]
+                b = hex_color[5:7]
+                return f"rgba({int(r,16)}, {int(g,16)}, {int(b,16)}, 0.5)"
+            return hex_color
+        
         scroll_bg = bg
-        scroll_handle = btn_bd
-        scroll_hover = btn_hover
+        scroll_handle = hex_to_rgba(btn_bd)
+        scroll_hover = hex_to_rgba(btn_hover)
         
         style = f"""
             QMainWindow, QWidget {{
@@ -1029,6 +1066,7 @@ class SettingsWindow(QMainWindow):
                 border: 1px solid {input_bd};
                 padding: 6px 8px;
                 border-radius: 6px;
+                min-height: 24px;
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -1049,7 +1087,8 @@ class SettingsWindow(QMainWindow):
             }}
             QTableWidget::item {{
                 padding: 6px;
-                border-bottom: 1px solid {input_bd}20;
+                border: none;
+                background-color: transparent;
             }}
             QTableWidget::item:selected {{
                 background-color: transparent;
@@ -1058,13 +1097,16 @@ class SettingsWindow(QMainWindow):
             QTableWidget::item:hover {{
                 background-color: transparent;
             }}
-            QHeaderView::section {{
+            QHeaderView::section:horizontal {{
                 background-color: {btn_bg};
                 color: {btn_fg};
                 padding: 8px 4px;
                 border: none;
-                border-bottom: 2px solid {btn_bd};
+                border-right: 1px solid {btn_bd};
                 font-weight: bold;
+            }}
+            QHeaderView::section:horizontal:first {{
+                border-left: 1px solid {btn_bd};
             }}
             /* 现代滚动条样式 */
             QScrollBar:vertical {{
@@ -1073,7 +1115,7 @@ class SettingsWindow(QMainWindow):
                 margin: 0px;
             }}
             QScrollBar::handle:vertical {{
-                background: {scroll_handle}80;
+                background: {scroll_handle};
                 min-height: 40px;
                 border-radius: 5px;
                 margin: 2px;
@@ -1090,7 +1132,7 @@ class SettingsWindow(QMainWindow):
                 margin: 0px;
             }}
             QScrollBar::handle:horizontal {{
-                background: {scroll_handle}80;
+                background: {scroll_handle};
                 min-width: 40px;
                 border-radius: 5px;
                 margin: 2px;
@@ -1175,6 +1217,18 @@ class SettingsWindow(QMainWindow):
                 border-radius: 4px;
             }}
         """)
+        
+        # 更新表格下拉框样式（使用card的悬停色和边框色）
+        if hasattr(self, '_combo_style_template'):
+            combo_style = self._combo_style_template.replace('#PLACEHOLDER_BG#', card_hover).replace('#PLACEHOLDER_BORDER#', card_border)
+            # 遍历表格中的下拉框并更新样式
+            for row in range(self.table_pl.rowCount()):
+                cmb_platform = self.table_pl.cellWidget(row, 0)
+                if cmb_platform and isinstance(cmb_platform, QComboBox):
+                    cmb_platform.setStyleSheet(combo_style)
+                cmb_type = self.table_pl.cellWidget(row, 2)
+                if cmb_type and isinstance(cmb_type, QComboBox):
+                    cmb_type.setStyleSheet(combo_style)
 
 
 if __name__ == "__main__":

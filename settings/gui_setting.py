@@ -109,6 +109,7 @@ class GuiSetting:
             "card_size": 1.0,
             "cancel_button_size": 1.0,
             "setting_size": 1.0,
+            "language": "zh_CN",
             "card": {
                 "background": "#FFFFFF",
                 "background_hover": "#d0ebf0",
@@ -123,10 +124,12 @@ class GuiSetting:
             },
             "setting": {
                 "background": "#FFFFFF",
+                "background_hover": "#d0ebf0",
+                "border": "#76e8fd",
                 "font_color": "#000000"
             },
             "card_night_mode": {
-                "background": "##565656",
+                "background": "#565656",
                 "background_hover": "#3dabbf",
                 "border": "#76c6fd",
                 "font_color": "#ffffff"
@@ -140,6 +143,8 @@ class GuiSetting:
             "setting_night_mode": {
                 "size": 1.0,
                 "background": "#444444",
+                "background_hover": "#3dabbf",
+                "border": "#76c6fd",
                 "font_color": "#ffffff"
             }
         }
