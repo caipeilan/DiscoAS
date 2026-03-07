@@ -376,7 +376,7 @@ class SettingsWindow(QMainWindow):
         self.table_pl.setColumnCount(6)
         self.table_pl.setHorizontalHeaderLabels([
             _("table_platform"), _("table_id"), _("table_type"), 
-            _("table_name_remark"), _("table_enabled"), _("table_action")
+            _("table_name"), _("table_enabled"), _("table_action")
         ])
         self.table_pl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table_pl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
@@ -553,6 +553,18 @@ class SettingsWindow(QMainWindow):
             self.add_playlist_row(data=pl)
 
 
+    def _get_playlist_name_from_json(self, platform, playlist_id, typename):
+        """从JSON文件读取歌单名称"""
+        try:
+            # 导入 Playlist 类
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+            from load_playlist_json import Playlist
+            playlist = Playlist(platform, typename, playlist_id)
+            return playlist.get_playlist_name()
+        except Exception as e:
+            print(f"读取歌单名称失败: {e}")
+            return ""
+
     def add_playlist_row(self, data=None):
         row = self.table_pl.rowCount()
         self.table_pl.insertRow(row)
@@ -591,12 +603,16 @@ class SettingsWindow(QMainWindow):
                 cmb_type.setCurrentIndex(index)
         self.table_pl.setCellWidget(row, 2, cmb_type)
         
-        # 4. Remark
-        edit_remark = QLineEdit()
-        if data: 
-            val = data.playlist_album_remark if data.playlist_album_remark else data.playlist_album_name
-            edit_remark.setText(val)
-        self.table_pl.setCellWidget(row, 3, edit_remark)
+        # 4. Name (只读，从JSON读取)
+        label_name = QLabel()
+        label_name.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        if data:
+            # 尝试从JSON文件读取歌单名称
+            name = self._get_playlist_name_from_json(data.name, data.playlist_album_id, data.typename)
+            if not name:
+                name = data.playlist_album_name or "未加载"
+            label_name.setText(name)
+        self.table_pl.setCellWidget(row, 3, label_name)
         
         # 5. Enabled
         chk_widget = QWidget()
@@ -799,7 +815,9 @@ class SettingsWindow(QMainWindow):
             name = self.table_pl.cellWidget(row, 0).currentData()  # 使用 currentData 获取实际 ID
             pid = self.table_pl.cellWidget(row, 1).text()
             typename = self.table_pl.cellWidget(row, 2).currentData()  # 使用 currentData 获取实际类型
-            remark = self.table_pl.cellWidget(row, 3).text()
+            # 名称从 JSON 读取，不再保存 remark
+            name_label = self.table_pl.cellWidget(row, 3)
+            playlist_name = name_label.text() if name_label else ""
             
             chk_widget = self.table_pl.cellWidget(row, 4)
             chk = chk_widget.findChild(QCheckBox, "chk_enabled")
@@ -813,8 +831,8 @@ class SettingsWindow(QMainWindow):
                 "name": name,
                 "playlist_album_id": pid,
                 "typename": typename,
-                "playlist_album_name": remark,
-                "playlist_album_remark": remark,
+                "playlist_album_name": playlist_name,
+                "playlist_album_remark": "",
                 "update_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "enabled": enabled
             }

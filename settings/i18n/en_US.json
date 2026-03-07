@@ -82,7 +82,7 @@
     "table_platform": "Platform",
     "table_id": "ID",
     "table_type": "Type",
-    "table_name_remark": "Name/Remark",
+    "table_name": "Name",
     "table_enabled": "Enabled",
     "table_action": "Action",
     "color_card_background": "Card Background",

@@ -82,7 +82,7 @@
     "table_platform": "平台",
     "table_id": "ID",
     "table_type": "类型",
-    "table_name_remark": "名称/备注",
+    "table_name": "名称",
     "table_enabled": "启用",
     "table_action": "操作",
     "color_card_background": "卡片背景",
