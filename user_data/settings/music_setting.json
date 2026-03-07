@@ -13,8 +13,17 @@
             "typename": "playlist",
             "playlist_album_name": "作者的小众亚逼二次元歌单",
             "playlist_album_remark": "作者的小众亚逼二次元歌单",
-            "update_time": "2026-03-07 21:46:29",
+            "update_time": "2026-03-08 01:12:06",
             "enabled": true
+        },
+        {
+            "name": "NeteaseCloudMusic",
+            "playlist_album_id": "34614503",
+            "typename": "album",
+            "playlist_album_name": "亚洲第一神专",
+            "playlist_album_remark": "亚洲第一神专",
+            "update_time": "2026-03-08 01:12:06",
+            "enabled": false
         }
     ]
 }

@@ -6,9 +6,14 @@
 
 import json
 import os
+import sys
 import random
 from functools import lru_cache
 from typing import List, Optional
+
+# 导入统一的路径管理模块
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'settings'))
+from settings.user_data_path import get_playlist_dir, get_album_dir
 
 
 class Playlist:
@@ -33,14 +38,12 @@ class Playlist:
         
     def _get_json_file_path(self) -> str:
         """获取JSON文件路径"""
-        return os.path.join(
-            os.path.dirname(__file__),
-            "platforms",
-            self.platform,
-            "user_data",
-            self.playlist_type,
-            f"{self.playlist_id}.json"
-        )
+        # 使用统一的路径管理
+        if self.playlist_type == "playlist":
+            base_dir = get_playlist_dir(self.platform)
+        else:
+            base_dir = get_album_dir(self.platform)
+        return os.path.join(base_dir, f"{self.playlist_id}.json")
     
     @lru_cache(maxsize=32)
     def _load_playlist_data(self) -> dict:
