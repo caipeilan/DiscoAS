@@ -2,6 +2,9 @@ import json, os, sys
 from functools import lru_cache
 import datetime
 
+# 导入统一的路径管理模块
+from .user_data_path import get_music_setting_path, init_user_data_dirs
+
 class PlaylistAlbum(object):
     def __init__(self, p_a_setting):
         self.name = p_a_setting.get("name", "")
@@ -23,7 +26,9 @@ class PlaylistAlbum(object):
 
 class PASetting(object):
     def __init__(self):
-        self.file_path = os.path.join(os.path.dirname(__file__), "music_setting.json")
+        # 初始化用户数据目录
+        init_user_data_dirs()
+        self.file_path = get_music_setting_path()
         if not os.path.exists(self.file_path):
             self.create_default_setting()
         self.settings = None

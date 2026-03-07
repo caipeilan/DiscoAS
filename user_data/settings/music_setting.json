@@ -1,0 +1,20 @@
+{
+    "number_of_discovered_songs": 3,
+    "have_mystery_song": true,
+    "num_of_mystery_song": 1,
+    "mystery_song_cover": "",
+    "cache_batches": 2,
+    "refreshing_after_cancel": false,
+    "shortcut_key": "Alt+D",
+    "playlist_albums": [
+        {
+            "name": "NeteaseCloudMusic",
+            "playlist_album_id": "8285082830",
+            "typename": "playlist",
+            "playlist_album_name": "作者的小众亚逼二次元歌单",
+            "playlist_album_remark": "作者的小众亚逼二次元歌单",
+            "update_time": "2026-03-07 21:46:29",
+            "enabled": true
+        }
+    ]
+}

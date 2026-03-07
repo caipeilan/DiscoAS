@@ -6,9 +6,14 @@
 
 import json
 import os
+import sys
 import requests
 from typing import Any, Dict, List, Optional, Union
 from functools import lru_cache
+
+# 添加 settings 目录到路径，导入统一的路径管理模块
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings'))
+from settings.user_data_path import get_playlist_dir, get_album_dir, ensure_dir
 
 # 网易云音乐API配置
 NETEASE_BASE_URL = "https://music.163.com"
@@ -129,12 +134,12 @@ class PlaylistAlbumJson:
 
     def save(self) -> None:
         """保存到本地JSON文件"""
-        path = os.path.join(
-            os.path.dirname(__file__), 
-            "user_data", 
-            self.typename
-        )
-        os.makedirs(path, exist_ok=True)
+        # 使用统一的路径管理
+        if self.typename == "playlist":
+            path = get_playlist_dir("NeteaseCloudMusic")
+        else:
+            path = get_album_dir("NeteaseCloudMusic")
+        ensure_dir(path)
         
         song_ids = self.get_songs()
         data = {

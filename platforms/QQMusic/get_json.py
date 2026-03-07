@@ -7,13 +7,13 @@ QQ音乐 API 模块 - 使用签名算法
 
 import json
 import os
+import sys
 import requests
 from typing import Any, Dict, List, Optional, Union
 
-# 导入签名模块
-import sys
-import os
-sys.path.append(os.path.dirname(__file__))
+# 添加 settings 目录到路径，导入统一的路径管理模块
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings'))
+from settings.user_data_path import get_playlist_dir, get_album_dir, ensure_dir
 
 
 class PlaylistAlbumJson:
@@ -118,12 +118,11 @@ class PlaylistAlbumJson:
 
     def _load_from_cache(self) -> None:
         """从本地缓存加载数据"""
-        cache_path = os.path.join(
-            os.path.dirname(__file__),
-            "user_data",
-            self.typename,
-            f"{self.playlist_album_id}.json"
-        )
+        # 使用统一的路径管理
+        if self.typename == "playlist":
+            cache_path = os.path.join(get_playlist_dir("QQMusic"), f"{self.playlist_album_id}.json")
+        else:
+            cache_path = os.path.join(get_album_dir("QQMusic"), f"{self.playlist_album_id}.json")
         
         if os.path.exists(cache_path):
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -170,12 +169,12 @@ class PlaylistAlbumJson:
 
     def save(self) -> None:
         """保存到本地JSON文件"""
-        path = os.path.join(
-            os.path.dirname(__file__), 
-            "user_data", 
-            self.typename
-        )
-        os.makedirs(path, exist_ok=True)
+        # 使用统一的路径管理
+        if self.typename == "playlist":
+            path = get_playlist_dir("QQMusic")
+        else:
+            path = get_album_dir("QQMusic")
+        ensure_dir(path)
         
         song_ids = self.get_songs()
         data = {

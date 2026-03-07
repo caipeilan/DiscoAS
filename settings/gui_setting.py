@@ -1,6 +1,9 @@
 import json, os, sys
 from functools import lru_cache
 
+# 导入统一的路径管理模块
+from .user_data_path import get_gui_setting_path, init_user_data_dirs
+
 # 全局设置实例，用于跨模块访问
 _global_gui_setting = None
 
@@ -21,7 +24,9 @@ def reload_global_gui_setting():
 
 class GuiSetting:
     def __init__(self):
-        self.file_path = os.path.join(os.path.dirname(__file__), "gui_setting.json")
+        # 初始化用户数据目录
+        init_user_data_dirs()
+        self.file_path = get_gui_setting_path()
         if not os.path.exists(self.file_path):
             self.create_default_setting()
         

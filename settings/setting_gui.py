@@ -22,8 +22,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 # 导入你修改后的类
 try:
-    from music_setting import PASetting, PlaylistAlbum
-    from gui_setting import GuiSetting
+    from settings.music_setting import PASetting, PlaylistAlbum
+    from settings.gui_setting import GuiSetting
 except ImportError:
     print("错误: 无法导入设置类，请确保 music_setting.py 和 gui_setting.py 在同一目录下。")
     sys.exit(1)
@@ -882,7 +882,7 @@ class SettingsWindow(QMainWindow):
 
     def notify_settings_changed(self):
         try:
-            from gui_setting import reload_global_gui_setting
+            from settings.gui_setting import reload_global_gui_setting
             reload_global_gui_setting()
             print("已通知 GUI 设置已更新")
         except Exception as e:
