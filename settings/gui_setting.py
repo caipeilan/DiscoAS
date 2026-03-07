@@ -135,14 +135,14 @@ class GuiSetting:
                 "font_color": "#ffffff"
             },
             "cancel_button_night_mode": {
-                "background": "#444444",
+                "background": "#565656",
                 "background_hover": "#3dabbf",
                 "border": "#76c6fd",
                 "font_color": "#ffffff"
             },
             "setting_night_mode": {
                 "size": 1.0,
-                "background": "#444444",
+                "background": "#565656",
                 "background_hover": "#3dabbf",
                 "border": "#76c6fd",
                 "font_color": "#ffffff"

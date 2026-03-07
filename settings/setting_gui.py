@@ -995,22 +995,13 @@ class SettingsWindow(QMainWindow):
         btn_bd = btn_conf.get("border", "#888888")
         btn_hover = btn_conf.get("background_hover", "#CCCCCC")
 
-        # 夜间模式使用日间模式的输入框样式，确保高度一致
-        if is_night:
-            # 使用日间模式的输入框颜色
-            input_bg = self.gui_setting.card.get("background", "#FFFFFF")
-            input_bd = self.gui_setting.card.get("border", "#AAAAAA")
-            input_fg = self.gui_setting.card.get("font_color", "#000000")
-            # 使用日间模式的卡片悬停色
-            card_hover = self.gui_setting.card.get("background_hover", "#d0ebf0")
-            card_border = self.gui_setting.card.get("border", "#76e8fd")
-        else:
-            input_bg = input_conf.get("background", "#FFFFFF")
-            input_bd = input_conf.get("border", "#AAAAAA")
-            input_fg = input_conf.get("font_color", "#000000")
-            # 卡片悬停色和边框色（用于表格下拉框）
-            card_hover = input_conf.get("background_hover", "#d0ebf0")
-            card_border = input_conf.get("border", "#76e8fd")
+        input_bg = input_conf.get("background", "#FFFFFF")
+        input_bd = input_conf.get("border", "#AAAAAA")
+        input_fg = input_conf.get("font_color", "#000000")
+        
+        # 卡片悬停色和边框色（用于表格下拉框）
+        card_hover = input_conf.get("background_hover", "#d0ebf0")
+        card_border = input_conf.get("border", "#76e8fd")
         
         # 保存当前颜色值供新增行时使用
         self._current_card_hover = card_hover

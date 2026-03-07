@@ -1,5 +1,5 @@
 {
-    "night_mode": true,
+    "night_mode": false,
     "card_size": 1.5,
     "cancel_button_size": 1.25,
     "setting_size": 1.2,
@@ -27,14 +27,14 @@
         "font_color": "#ffffff"
     },
     "cancel_button_night_mode": {
-        "background": "#444444",
+        "background": "#565656",
         "background_hover": "#3dabbf",
         "border": "#76c6fd",
         "font_color": "#ffffff"
     },
     "setting_night_mode": {
         "size": 1.0,
-        "background": "#444444",
+        "background": "#565656",
         "font_color": "#ffffff"
     }
 }

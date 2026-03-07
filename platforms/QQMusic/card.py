@@ -173,7 +173,8 @@ if __name__ == '__main__':
     import time
     import pygetwindow as gw
     
-    song = SongCard(284218927)
+    # song = SongCard(284218927)
+    song = SongCard(127570997)
     song.load_song_detail()
     
     print(f"歌曲ID: {song.get_id()}")
