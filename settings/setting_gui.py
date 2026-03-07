@@ -114,7 +114,7 @@ class SettingsWindow(QMainWindow):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         
-        self.resize(1200, 750)
+        self.resize(1450, 750)
         
         # 中央部件 - 使用水平布局
         central = QWidget()
@@ -380,7 +380,7 @@ class SettingsWindow(QMainWindow):
         ])
         self.table_pl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table_pl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self.table_pl.setColumnWidth(0, 200)   # 平台
+        self.table_pl.setColumnWidth(0, 150)   # 平台
         self.table_pl.setColumnWidth(1, 120)   # ID
         self.table_pl.setColumnWidth(2, 100)   # 类型
         self.table_pl.setColumnWidth(4, 60)   # 启用
@@ -569,8 +569,33 @@ class SettingsWindow(QMainWindow):
         row = self.table_pl.rowCount()
         self.table_pl.insertRow(row)
         
+        # 表格中下拉框的样式
+        combo_style = """
+            QComboBox {
+                background-color: #f5f5f5;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QComboBox:hover {
+                border: 1px solid #888888;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 3px solid transparent;
+                border-right: 3px solid transparent;
+                border-top: 5px solid #666666;
+                margin-right: 4px;
+            }
+        """
+        
         # 1. Platform
         cmb_platform = QComboBox()
+        cmb_platform.setStyleSheet(combo_style)
         platforms = [
             ("NeteaseCloudMusic", _("platform_NeteaseCloudMusic")),
             ("QQMusic", _("platform_QQMusic")),
@@ -591,6 +616,7 @@ class SettingsWindow(QMainWindow):
         
         # 3. Type
         cmb_type = QComboBox()
+        cmb_type.setStyleSheet(combo_style)
         types = [
             ("playlist", _("type_playlist")),
             ("album", _("type_album"))

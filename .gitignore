@@ -31,13 +31,16 @@ ENV/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Project specific
 *.log
+log/
 
-#user data
+# User data
 user_data/
