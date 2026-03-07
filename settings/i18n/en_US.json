@@ -108,5 +108,8 @@
     "platform_QQMusic": "QQ Music",
     "platform_Spotify": "Spotify",
     "type_playlist": "Playlist",
-    "type_album": "Album"
+    "type_album": "Album",
+    "other_settings": "Other Settings",
+    "auto_start": "Auto Start",
+    "version": "Version"
 }

@@ -146,6 +146,7 @@ class SettingsWindow(QMainWindow):
             (_("about"), 0),
             (_("discover_settings"), 1),
             (_("gui_settings"), 2),
+            (_("other_settings"), 3),
         ]
         
         self.btn_group = QButtonGroup(self)
@@ -187,10 +188,11 @@ class SettingsWindow(QMainWindow):
         self.stack = QStackedWidget()
         main_layout.addWidget(self.stack, 1)
         
-        # 创建三个页面
+        # 创建四个页面
         self.init_about_page()
         self.init_music_page()
         self.init_gui_page()
+        self.init_other_settings_page()
         
         # 默认显示关于页面
         self.btn_group.button(0).setChecked(True)
@@ -251,6 +253,13 @@ class SettingsWindow(QMainWindow):
         layout.addWidget(usage)
         
         layout.addSpacing(30)
+        
+        # 版本信息
+        version_title = QLabel(_("version") + ": v0.1.0")
+        version_title.setFont(QFont("", weight=QFont.Weight.Bold))
+        layout.addWidget(version_title)
+        
+        layout.addSpacing(20)
         
         # 语言选择
         language_title = QLabel(_("language"))
@@ -545,6 +554,101 @@ class SettingsWindow(QMainWindow):
         layout.addWidget(scroll)
         
         self.stack.addWidget(self.gui_page)
+
+
+    def init_other_settings_page(self):
+        """其他设置页面"""
+        self.other_page = QWidget()
+        layout = QVBoxLayout(self.other_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+        
+        main_layout = QVBoxLayout(content_widget)
+        main_layout.setSpacing(15)
+        
+        # --- 开机自启动 ---
+        group_auto_start = QGroupBox(_("auto_start"))
+        form_auto_start = QFormLayout(group_auto_start)
+        
+        self.chk_auto_start = QCheckBox(_("auto_start"))
+        # 读取当前开机自启动状态
+        self.chk_auto_start.setChecked(self._get_auto_start_status())
+        form_auto_start.addRow(self.chk_auto_start)
+        
+        main_layout.addWidget(group_auto_start)
+        
+        main_layout.addStretch()
+        
+        layout.addWidget(scroll)
+        
+        self.stack.addWidget(self.other_page)
+
+
+    def _get_auto_start_status(self):
+        """获取开机自启动状态"""
+        import winreg
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                0,
+                winreg.KEY_READ
+            )
+            try:
+                value = winreg.QueryValueEx(key, "DiscoAS")
+                winreg.CloseKey(key)
+                return True
+            except FileNotFoundError:
+                winreg.CloseKey(key)
+                return False
+        except Exception:
+            return False
+
+
+    def _set_auto_start(self, enable):
+        """设置开机自启动"""
+        import winreg
+        import sys
+        import os
+        
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                0,
+                winreg.KEY_WRITE
+            )
+            
+            if enable:
+                # 检测是否是打包后的exe
+                if getattr(sys, 'frozen', False):
+                    # 打包后的exe，使用exe本身路径
+                    exe_path = os.path.realpath(sys.executable)
+                    startup_cmd = f'"{exe_path}"'
+                else:
+                    # 开发环境，使用Python解释器运行main.py
+                    # 使用pythonw.exe避免弹出CMD窗口
+                    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "main.py")
+                    pythonw_path = sys.executable.replace("python.exe", "pythonw.exe").replace("python3.exe", "pythonw.exe")
+                    startup_cmd = f'"{pythonw_path}" "{script_path}"'
+                
+                winreg.SetValueEx(key, "DiscoAS", 0, winreg.REG_SZ, startup_cmd)
+            else:
+                try:
+                    winreg.DeleteValue(key, "DiscoAS")
+                except FileNotFoundError:
+                    pass
+            
+            winreg.CloseKey(key)
+            return True
+        except Exception as e:
+            print(f"设置开机自启动失败: {e}")
+            return False
 
 
     def load_playlist_table(self):
@@ -883,6 +987,9 @@ class SettingsWindow(QMainWindow):
         self.gui_setting.card_size = self.slider_card_size.value()
         self.gui_setting.cancel_button_size = self.slider_cancel_size.value()
         self.gui_setting.setting_size = self.slider_setting_size.value()
+        
+        # 3. 保存开机自启动设置
+        self._set_auto_start(self.chk_auto_start.isChecked())
         
         # 更新 Day Colors
         for main_key in ["card", "cancel_button", "setting"]:

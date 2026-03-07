@@ -108,5 +108,8 @@
     "platform_QQMusic": "QQ音乐",
     "platform_Spotify": "Spotify",
     "type_playlist": "歌单",
-    "type_album": "专辑"
+    "type_album": "专辑",
+    "other_settings": "其他设置",
+    "auto_start": "开机自启动",
+    "version": "版本"
 }
