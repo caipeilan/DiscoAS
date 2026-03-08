@@ -943,7 +943,10 @@ class SettingsWindow(QMainWindow):
                 old_enabled_platform = pl.name
                 old_enabled_playlist = pl.playlist_album_id
                 break
-        
+
+        # 记录旧的秘密歌曲封面路径
+        old_mystery_cover = self.pa_setting.mystery_song_cover
+
         # 1. 保存 Music Setting
         self.pa_setting.number_of_discovered_songs = self.spin_discovered.value()
         self.pa_setting.have_mystery_song = self.chk_mystery.isChecked()
@@ -1022,7 +1025,8 @@ class SettingsWindow(QMainWindow):
         # 3. 检测变化
         platform_changed = (old_enabled_platform != new_enabled_platform)
         playlist_changed = (new_enabled_playlist != old_enabled_playlist)
-        
+        mystery_cover_changed = (old_mystery_cover != self.pa_setting.mystery_song_cover)
+
         # 4. 界面反馈
         self.pa_setting.load()
         self.load_playlist_table()
@@ -1031,6 +1035,9 @@ class SettingsWindow(QMainWindow):
         if platform_changed or playlist_changed:
             QMessageBox.information(self, _("playlist_switched"), _("playlist_switched_restart"))
             self.restart_application()
+        elif mystery_cover_changed:
+            self.notify_settings_changed()
+            QMessageBox.information(self, _("save_success"), _("all_settings_saved"))
         else:
             self.notify_settings_changed()
             QMessageBox.information(self, _("save_success"), _("all_settings_saved"))
@@ -1076,7 +1083,7 @@ class SettingsWindow(QMainWindow):
                 print("已更新歌单设置")
 
             Discover_gui._image_cache.clear()
-            Discover_gui._cached_songs.clear()
+            Discover_gui._cached_song_batches.clear()
             print("已清空图片缓存和歌曲缓存")
 
             if Discover_gui._global_discover_app:
