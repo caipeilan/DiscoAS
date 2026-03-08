@@ -19,13 +19,173 @@ from settings.gui_setting import GuiSetting
 
 # GUI导入（可选，如果PyQt6未安装则跳过）
 try:
-    from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-    from PyQt6.QtGui import QIcon, QAction
-    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QLabel
+    from PyQt6.QtGui import QIcon, QAction, QPixmap
+    from PyQt6.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve, QByteArray
     GUI_AVAILABLE = True
 except ImportError:
     GUI_AVAILABLE = False
     print("警告: PyQt6未安装，GUI功能不可用")
+
+
+class SplashScreen(QWidget):
+    """启动画面：全屏浮动窗口显示图片，快速淡入淡出"""
+    
+    def __init__(self, image_path: str, fade_duration: int = 750, show_duration: int = 500):
+        """
+        初始化启动画面
+        
+        Args:
+            image_path: 图片路径
+            fade_duration: 淡入淡出持续时间(毫秒)
+            show_duration: 图片显示持续时间(毫秒)
+        """
+        super().__init__()
+        self.fade_duration = fade_duration
+        self.show_duration = show_duration
+        self.animation_finished = False
+        self.qApp = QApplication.instance()
+        self.image_path = image_path
+        
+        # 设置窗口属性：无边框、置顶、不在任务栏显示
+        # 使用 FramelessWindowHint 确保无边框
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.WindowStaysOnTopHint
+        )
+        
+        # 设置背景完全透明（必须在窗口显示之前设置）
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        
+        # 先创建标签并加载图片
+        self.label = QLabel(self)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # 加载图片
+        self.load_image(image_path)
+        
+        # 全屏显示
+        self.showFullScreen()
+        
+        # 确保标签在窗口中央
+        self.label.setGeometry(self.rect())
+        
+        # 初始显示（透明度0），然后淡入
+        self.setWindowOpacity(0)
+        
+        # 强制刷新显示
+        self.qApp.processEvents()
+        
+        # 开始淡入动画（从1到1其实不动画，直接淡出）
+        # 为了视觉效果，我们直接从1开始淡出
+        self.start_animation()
+    
+    def load_image(self, image_path: str):
+        """加载并显示图片"""
+        print(f"[SplashScreen] 尝试加载图片: {image_path}")
+        print(f"[SplashScreen] 文件存在: {os.path.exists(image_path)}")
+        
+        if os.path.exists(image_path):
+            # 使用绝对路径
+            abs_path = os.path.abspath(image_path)
+            print(f"[SplashScreen] 绝对路径: {abs_path}")
+            
+            # 尝试加载图片
+            pixmap = QPixmap(abs_path)
+            if pixmap.isNull():
+                print(f"[SplashScreen] 图片加载失败，尝试其他方式...")
+                # 尝试用文件 URL
+                pixmap = QPixmap(f"file:///{abs_path.replace(os.sep, '/')}")
+            
+            print(f"[SplashScreen] 图片是否为空: {pixmap.isNull()}")
+            print(f"[SplashScreen] 图片尺寸: {pixmap.width()}x{pixmap.height()}")
+            
+            if not pixmap.isNull():
+                # 获取屏幕尺寸
+                screen = QApplication.primaryScreen()
+                if screen:
+                    screen_geometry = screen.geometry()
+                    # 缩放到合适大小（屏幕的80%）
+                    scaled = pixmap.scaled(
+                        int(screen_geometry.width() * 0.5),
+                        int(screen_geometry.height() * 0.5),
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    print(f"[SplashScreen] 缩放后尺寸: {scaled.width()}x{scaled.height()}")
+                    self.label.setPixmap(scaled)
+                else:
+                    self.label.setPixmap(pixmap)
+            else:
+                print(f"[SplashScreen] 错误：无法加载图片")
+        else:
+            print(f"[SplashScreen] 启动画面图片不存在: {image_path}")
+    
+    def start_animation(self):
+        """开始淡入淡出动画"""
+        self.fade_in()
+    
+    def fade_in(self):
+        """淡入动画"""
+        self.anim = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
+        self.anim.setDuration(self.fade_duration)
+        self.anim.setStartValue(0.0)
+        self.anim.setEndValue(1.0)
+        self.anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.anim.finished.connect(self.fade_out)
+        self.anim.start()
+    
+    def fade_out(self):
+        """淡出动画"""
+        QTimer.singleShot(self.show_duration, self._do_fade_out)
+    
+    def _do_fade_out(self):
+        """执行淡出"""
+        self.anim = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
+        self.anim.setDuration(self.fade_duration)
+        self.anim.setStartValue(1.0)
+        self.anim.setEndValue(0.0)
+        self.anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.anim.finished.connect(self._on_animation_finished)
+        self.anim.start()
+    
+    def _on_animation_finished(self):
+        """动画全部完成"""
+        self.animation_finished = True
+        self.close()
+    
+    def wait_for_finish(self):
+        """等待动画完成（阻塞方式）"""
+        total_time = self.fade_duration * 2 + self.show_duration
+        # 每20ms处理一次事件
+        elapsed = 0
+        while elapsed < total_time and self.isVisible():
+            self.qApp.processEvents()
+            time.sleep(0.02)
+            elapsed += 20
+        # 确保窗口已关闭
+        if self.isVisible():
+            self.close()
+
+
+def get_splash_image_path() -> str:
+    """获取启动画面图片路径，支持打包后环境"""
+    # 先尝试常规路径
+    image_path = os.path.join(os.path.dirname(__file__), "src", "DiscoAS.png")
+    if os.path.exists(image_path):
+        return image_path
+    
+    # 尝试打包后的路径
+    try:
+        from settings.user_data_path import get_app_root
+        image_path = os.path.join(get_app_root(), "src", "DiscoAS.png")
+        if os.path.exists(image_path):
+            return image_path
+    except ImportError:
+        pass
+    
+    return ""
 
 
 class DiscoverApp:
@@ -243,8 +403,21 @@ def main():
         print("错误: GUI模式需要安装PyQt6")
         print("请运行: pip install PyQt6")
         return
-        
+    
+    # 创建Qt应用（必须在任何Qt组件之前）
+    qt_app = QApplication(sys.argv)
+    
+    # 显示启动画面
+    image_path = get_splash_image_path()
+    if image_path:
+        splash = SplashScreen(image_path)
+        # 等待启动画面动画完成
+        splash.wait_for_finish()
+    
+    # 创建并运行主应用
     app = DiscoverApp()
+    
+    # 运行GUI
     app.run_gui()
 
 

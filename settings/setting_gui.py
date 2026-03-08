@@ -143,17 +143,6 @@ class SettingsWindow(QMainWindow):
         left_layout.setContentsMargins(15, 20, 15, 20)
         left_layout.setSpacing(10)
         
-        # Logo - 使用 get_app_root() 支持打包后环境
-        logo_label = QLabel()
-        logo_path = os.path.join(_get_src_path(), "DiscoAS.png")
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path)
-            # 缩放到合适大小
-            scaled = pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            logo_label.setPixmap(scaled)
-            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        left_layout.addWidget(logo_label)
-        
         # 导航按钮
         nav_buttons = [
             (_("about"), 0),
