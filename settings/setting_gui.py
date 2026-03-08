@@ -581,15 +581,10 @@ class SettingsWindow(QMainWindow):
         main_layout.setSpacing(15)
         
         # --- 开机自启动 ---
-        group_auto_start = QGroupBox(_("auto_start"))
-        form_auto_start = QFormLayout(group_auto_start)
-        
         self.chk_auto_start = QCheckBox(_("auto_start"))
         # 读取当前开机自启动状态
         self.chk_auto_start.setChecked(self._get_auto_start_status())
-        form_auto_start.addRow(self.chk_auto_start)
-        
-        main_layout.addWidget(group_auto_start)
+        main_layout.addWidget(self.chk_auto_start)
         
         main_layout.addStretch()
         
