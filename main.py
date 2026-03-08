@@ -48,10 +48,11 @@ class SplashScreen(QWidget):
         self.image_path = image_path
         
         # 设置窗口属性：无边框、置顶、不在任务栏显示
-        # 使用 FramelessWindowHint 确保无边框
+        # 使用 FramelessWindowHint 确保无边框，Tool 隐藏任务栏图标
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
         )
         
         # 设置背景完全透明（必须在窗口显示之前设置）
