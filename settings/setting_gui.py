@@ -9,6 +9,19 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QFormLayout, QScrollArea, QComboBox, QMessageBox, 
                              QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog,QFrame)
 
+# 导入统一的路径管理模块
+from settings.user_data_path import get_app_root
+
+
+def _get_src_path():
+    """获取 src 目录路径，支持打包后的环境"""
+    return os.path.join(get_app_root(), "src")
+
+
+def _get_platforms_path():
+    """获取 platforms 目录路径，支持打包后的环境"""
+    return os.path.join(get_app_root(), "platforms")
+
 # 导入 i18n 模块
 try:
     import i18n
@@ -109,8 +122,8 @@ class SettingsWindow(QMainWindow):
         # 2. 初始化界面
         self.setWindowTitle(_("app_name") + " - Settings")
         
-        # 设置窗口图标
-        icon_path = os.path.join(os.path.dirname(__file__), "../src", "Icon.ico")
+        # 设置窗口图标 - 使用 get_app_root() 支持打包后环境
+        icon_path = os.path.join(_get_src_path(), "Icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         
@@ -130,9 +143,9 @@ class SettingsWindow(QMainWindow):
         left_layout.setContentsMargins(15, 20, 15, 20)
         left_layout.setSpacing(10)
         
-        # Logo
+        # Logo - 使用 get_app_root() 支持打包后环境
         logo_label = QLabel()
-        logo_path = os.path.join(os.path.dirname(__file__), "../src", "DiscoAS.png")
+        logo_path = os.path.join(_get_src_path(), "DiscoAS.png")
         if os.path.exists(logo_path):
             pixmap = QPixmap(logo_path)
             # 缩放到合适大小

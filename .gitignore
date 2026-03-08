@@ -44,3 +44,7 @@ log/
 
 # User data
 user_data/
+
+# Nuitka打包输出
+main.dist/
+main.build/
