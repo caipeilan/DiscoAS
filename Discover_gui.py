@@ -753,7 +753,67 @@ class DiscoverOverlay(QMainWindow):
         layout.addWidget(loading_label)
         
         self.song_layout.addWidget(loading_card, 0, 0)
-        
+
+    def _display_no_cards(self):
+        """显示没有卡牌提示"""
+        # 清空现有卡片
+        while self.song_layout.count():
+            item = self.song_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 获取样式配置
+        card_size = self.gui_setting.card_size if self.gui_setting else 1.0
+
+        if self.gui_setting:
+            if self.gui_setting.night_mode:
+                card_config = self.gui_setting.card_night_mode
+            else:
+                card_config = self.gui_setting.card
+        else:
+            card_config = {
+                "background": "#FFFFFF",
+                "font_color": "#000000"
+            }
+
+        bg = card_config.get("background", "#FFFFFF")
+        font_color = card_config.get("font_color", "#000000")
+
+        # 基础尺寸，随 card_size 缩放
+        width = int(280 * card_size)
+        height = int(100 * card_size)
+        radius = int(12 * card_size)
+        font_size = int(11 * card_size)
+
+        # 创建提示卡片容器
+        no_cards_card = QFrame()
+        no_cards_card.setFixedSize(width, height)
+        no_cards_card.setFrameStyle(QFrame.Shape.NoFrame)
+        no_cards_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bg};
+                border: none;
+                border-radius: {radius}px;
+            }}
+        """)
+
+        # 提示文字 - 使用换行符
+        no_cards_label = QLabel(_("no_cards"))
+        no_cards_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        no_cards_label.setWordWrap(True)  # 启用自动换行
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(font_size)
+        no_cards_label.setFont(font)
+        no_cards_label.setStyleSheet(f"color: {font_color}; background-color: transparent;")
+
+        # 使用水平布局居中
+        layout = QHBoxLayout(no_cards_card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(no_cards_label)
+
+        self.song_layout.addWidget(no_cards_card, 0, 0)
+
     def _get_font_color_for_label(self):
         """获取标签字体颜色"""
         if self.gui_setting:
@@ -770,7 +830,12 @@ class DiscoverOverlay(QMainWindow):
             item = self.song_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
+
+        # 检查是否有歌曲，没有则显示提示
+        if not self.songs or len(self.songs) == 0:
+            self._display_no_cards()
+            return
+
         # 不再等待预加载完成，直接使用缓存图片，没有则异步加载
         columns = 5
         # 获取卡片尺寸设置
