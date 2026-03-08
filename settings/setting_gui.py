@@ -119,6 +119,13 @@ class SettingsWindow(QMainWindow):
         self.gui_setting = GuiSetting()
         self.gui_setting.load()
 
+        # 加载保存的语言到 i18n 模块
+        try:
+            import i18n
+            i18n.set_language(self.gui_setting.language)
+        except ImportError:
+            pass
+
         # 2. 初始化界面
         self.setWindowTitle(_("app_name") + " - Settings")
         

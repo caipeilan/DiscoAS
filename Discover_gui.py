@@ -31,6 +31,26 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'settings'))
 try:
     import i18n
     _ = i18n.t
+    # 加载保存的语言设置
+    try:
+        import json
+        import os
+        # 查找用户数据目录
+        settings_dir = None
+        for base in [os.path.dirname(__file__), os.path.join(os.path.dirname(__file__), '..')]:
+            potential = os.path.join(base, 'user_data', 'settings')
+            if os.path.exists(potential):
+                settings_dir = potential
+                break
+        if settings_dir:
+            gui_settings_file = os.path.join(settings_dir, 'gui_settings.json')
+            if os.path.exists(gui_settings_file):
+                with open(gui_settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                lang = settings.get('language', 'zh_CN')
+                i18n.set_language(lang)
+    except:
+        pass
 except ImportError:
     # 如果导入失败，创建一个简单的翻译函数
     def _(key):
@@ -1144,7 +1164,15 @@ def show_overlay(app, discover_app):
     # 每次显示浮窗时，重新加载所有设置，确保使用最新设置
     discover_app.gui_setting.load()
     discover_app.music_setting.load()
-    print(f"已重新加载设置: GUI card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}, refreshing_after_cancel={discover_app.music_setting.refreshing_after_cancel}")
+
+    # 应用语言设置到 i18n
+    try:
+        import i18n
+        i18n.set_language(discover_app.gui_setting.language)
+    except:
+        pass
+
+    print(f"已重新加载设置: GUI card_size={discover_app.gui_setting.card_size}, night_mode={discover_app.gui_setting.night_mode}, language={discover_app.gui_setting.language}, refreshing_after_cancel={discover_app.music_setting.refreshing_after_cancel}")
     
     # 检查是否已有窗口显示
     if _main_window is not None and _main_window.isVisible():
@@ -1324,7 +1352,14 @@ def run_gui():
     
     # 创建应用实例
     discover_app = DiscoverApp()
-    
+
+    # 加载语言设置到 i18n（必须在创建托盘之前）
+    try:
+        import i18n
+        i18n.set_language(discover_app.gui_setting.language)
+    except:
+        pass
+
     # 程序启动时立即开始预加载（歌曲详情 + 封面图片 + 存入缓存）
     preload_next_batch(discover_app)
     
