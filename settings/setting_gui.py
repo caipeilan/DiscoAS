@@ -264,7 +264,7 @@ class SettingsWindow(QMainWindow):
         layout.addSpacing(30)
         
         # 版本信息
-        version_title = QLabel(_("version") + ": v0.1.0")
+        version_title = QLabel(_("version") + ": v0.1.1")
         version_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(version_title)
         

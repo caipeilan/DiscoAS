@@ -109,8 +109,8 @@ class SplashScreen(QWidget):
                     screen_geometry = screen.geometry()
                     # 缩放到合适大小（屏幕的80%）
                     scaled = pixmap.scaled(
-                        int(screen_geometry.width() * 0.5) ,
-                        int(screen_geometry.height() * 0.5),
+                        int(screen_geometry.width() * 0.45) ,
+                        int(screen_geometry.height() * 0.45),
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation
                     )
