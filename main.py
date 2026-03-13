@@ -9,12 +9,7 @@ import pygetwindow as gw
 from typing import Optional
 
 # 添加项目根目录到路径
-if getattr(sys, 'frozen', False):
-    # 打包后的环境，使用 sys._MEIPASS
-    app_root = sys._MEIPASS
-else:
-    app_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, app_root)
+sys.path.append(os.path.dirname(__file__))
 
 # 导入日志模块（必须在其他模块之前初始化）
 # 这会自动全局替换 print 函数，使所有模块的 print 都写入日志
@@ -23,15 +18,6 @@ from log import logger
 from Discover import DiscoverASong
 from settings.music_setting import PASetting
 from settings.gui_setting import GuiSetting
-
-# 静态导入所有平台的 get_json 模块
-from platforms.NeteaseCloudMusic.get_json import PlaylistAlbumJson as NeteasePlaylistAlbumJson
-from platforms.QQMusic.get_json import PlaylistAlbumJson as QQMusicPlaylistAlbumJson
-# 平台 PlaylistAlbumJson 类映射
-PLATFORM_JSON_MAP = {
-    'NeteaseCloudMusic': NeteasePlaylistAlbumJson,
-    'QQMusic': QQMusicPlaylistAlbumJson,
-}
 
 # GUI导入
 try:
@@ -238,15 +224,15 @@ class DiscoverApp:
         print(f"正在更新启用的歌单: {enabled_playlist.playlist_album_id} ({enabled_playlist.typename})")
         
         try:
-            # 使用静态导入的 PlaylistAlbumJson 类
-            PlaylistAlbumJson = PLATFORM_JSON_MAP.get(enabled_playlist.name)
-
-            if not PlaylistAlbumJson:
-                raise ValueError(f"不支持的平台: {enabled_playlist.name}")
-
+            # 根据平台动态导入对应的 get_json 模块
+            platform = enabled_playlist.name
+            module_path = f"platforms.{platform}.get_json"
+            get_json_module = __import__(module_path, fromlist=['PlaylistAlbumJson'])
+            PlaylistAlbumJson = get_json_module.PlaylistAlbumJson
+            
             # 获取并保存歌单数据
             playlist_json = PlaylistAlbumJson(
-                enabled_playlist.playlist_album_id,
+                enabled_playlist.playlist_album_id, 
                 enabled_playlist.typename
             )
             playlist_json.save()
