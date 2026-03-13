@@ -1157,8 +1157,6 @@ class SettingsWindow(QMainWindow):
                 font-size: {scaled_font_size}px;
             }}
             QGroupBox {{
-                border: 1px solid {input_bd};
-                border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
                 font-weight: bold;
