@@ -19,6 +19,18 @@ from Discover import DiscoverASong
 from settings.music_setting import PASetting
 from settings.gui_setting import GuiSetting
 
+# 静态导入所有平台的 get_json 模块
+from platforms.NeteaseCloudMusic.get_json import PlaylistAlbumJson as NeteasePlaylistAlbumJson
+from platforms.QQMusic.get_json import PlaylistAlbumJson as QQMusicPlaylistAlbumJson
+from platforms.Spotify.get_json import PlaylistAlbumJson as SpotifyPlaylistAlbumJson
+
+# 平台 PlaylistAlbumJson 类映射
+PLATFORM_JSON_MAP = {
+    'NeteaseCloudMusic': NeteasePlaylistAlbumJson,
+    'QQMusic': QQMusicPlaylistAlbumJson,
+    'Spotify': SpotifyPlaylistAlbumJson,
+}
+
 # GUI导入
 try:
     from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QLabel
@@ -224,15 +236,15 @@ class DiscoverApp:
         print(f"正在更新启用的歌单: {enabled_playlist.playlist_album_id} ({enabled_playlist.typename})")
         
         try:
-            # 根据平台动态导入对应的 get_json 模块
-            platform = enabled_playlist.name
-            module_path = f"platforms.{platform}.get_json"
-            get_json_module = __import__(module_path, fromlist=['PlaylistAlbumJson'])
-            PlaylistAlbumJson = get_json_module.PlaylistAlbumJson
-            
+            # 使用静态导入的 PlaylistAlbumJson 类
+            PlaylistAlbumJson = PLATFORM_JSON_MAP.get(enabled_playlist.name)
+
+            if not PlaylistAlbumJson:
+                raise ValueError(f"不支持的平台: {enabled_playlist.name}")
+
             # 获取并保存歌单数据
             playlist_json = PlaylistAlbumJson(
-                enabled_playlist.playlist_album_id, 
+                enabled_playlist.playlist_album_id,
                 enabled_playlist.typename
             )
             playlist_json.save()

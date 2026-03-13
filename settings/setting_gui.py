@@ -2,15 +2,27 @@ import sys
 import os
 import importlib
 import datetime
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QStackedWidget, QLabel, QSpinBox, 
-                             QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem, 
-                             QPushButton, QHeaderView, QGroupBox, 
-                             QFormLayout, QScrollArea, QComboBox, QMessageBox, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QStackedWidget, QLabel, QSpinBox,
+                             QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem,
+                             QPushButton, QHeaderView, QGroupBox,
+                             QFormLayout, QScrollArea, QComboBox, QMessageBox,
                              QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog,QFrame)
 
 # 导入统一的路径管理模块
 from settings.user_data_path import get_app_root, get_resource_dir
+
+# 静态导入所有平台的 get_json 模块
+from platforms.NeteaseCloudMusic.get_json import PlaylistAlbumJson as NeteasePlaylistAlbumJson
+from platforms.QQMusic.get_json import PlaylistAlbumJson as QQMusicPlaylistAlbumJson
+from platforms.Spotify.get_json import PlaylistAlbumJson as SpotifyPlaylistAlbumJson
+
+# 平台 PlaylistAlbumJson 类映射
+PLATFORM_JSON_MAP = {
+    'NeteaseCloudMusic': NeteasePlaylistAlbumJson,
+    'QQMusic': QQMusicPlaylistAlbumJson,
+    'Spotify': SpotifyPlaylistAlbumJson,
+}
 
 
 def _get_src_path():
@@ -821,11 +833,12 @@ class SettingsWindow(QMainWindow):
             return
             
         try:
-            module_path = f"{platform}.get_json"
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'platforms'))
-            get_json_module = importlib.import_module(module_path)
-            PlaylistAlbumJson = getattr(get_json_module, 'PlaylistAlbumJson')
-            
+            # 使用静态导入的 PlaylistAlbumJson 类
+            PlaylistAlbumJson = PLATFORM_JSON_MAP.get(platform)
+
+            if not PlaylistAlbumJson:
+                raise ValueError(f"不支持的平台: {platform}")
+
             playlist_album = PlaylistAlbumJson(playlist_id, typename)
             playlist_album.save()
             

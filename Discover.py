@@ -12,6 +12,18 @@ from settings.user_data_path import get_app_root, get_resource_dir
 sys.path.append(os.path.dirname(__file__))
 from load_playlist_json import Playlist
 
+# 静态导入所有平台的 card 模块
+from platforms.NeteaseCloudMusic.card import SongCard as NeteaseSongCard
+from platforms.QQMusic.card import SongCard as QQMusicSongCard
+from platforms.Spotify.card import SongCard as SpotifySongCard
+
+# 平台 SongCard 类映射
+PLATFORM_SONG_CARD_MAP = {
+    'NeteaseCloudMusic': NeteaseSongCard,
+    'QQMusic': QQMusicSongCard,
+    'Spotify': SpotifySongCard,
+}
+
 
 def _get_platforms_path():
     """获取 platforms 目录路径，支持打包后的环境"""
@@ -21,15 +33,8 @@ class DiscoverASong(object):
     def __init__(self, platform, playlist_type, playlist_id):
         self.playlist = Playlist(platform, playlist_type, playlist_id)
         self.platform = platform
-        self.song_card_class = None
-        # 使用 get_app_root() 获取正确的 platforms 路径（支持打包后环境）
-        platform_path = os.path.join(_get_platforms_path(), platform)
-        if not os.path.exists(platform_path):
-            raise ValueError(f"{platform}平台不存在: {platform_path}")
-        sys.path.append(platform_path)
-        # 使用importlib动态导入模块
-        card_module = importlib.import_module('card')
-        self.song_card_class = getattr(card_module, 'SongCard')
+        # 使用静态导入的 SongCard 类
+        self.song_card_class = PLATFORM_SONG_CARD_MAP.get(platform)
         
     def get_songs(self, number_of_songs, mystery_song, number_of_mystery_song=1, overlap=False, mystery_pic_url=""):
         """
