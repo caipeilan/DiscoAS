@@ -117,6 +117,7 @@
     "other_settings": "Other Settings",
     "auto_start": "Auto Start",
     "view_log": "View Log",
+    "view_repo": "View Repository",
     "error": "Error",
     "version": "Version"
 }

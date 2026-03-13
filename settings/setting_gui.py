@@ -263,11 +263,12 @@ class SettingsWindow(QMainWindow):
         
         layout.addSpacing(30)
         
-        # 版本信息
-        version_title = QLabel(_("version") + ": v0.1.1")
+        # 版本信息（可点击超链接）
+        version_title = QLabel(f'<a href="https://github.com/caipeilan/DiscoAS">{_("version")}: v0.1.1</a>')
         version_title.setFont(QFont("", weight=QFont.Weight.Bold))
+        version_title.setOpenExternalLinks(True)
         layout.addWidget(version_title)
-        
+
         layout.addSpacing(20)
         
         # 语言选择
@@ -627,7 +628,6 @@ class SettingsWindow(QMainWindow):
             os.startfile(log_dir)
         else:
             QMessageBox.warning(self, _("error"), "日志目录不存在")
-
 
     def _set_auto_start(self, enable):
         """设置开机自启动"""

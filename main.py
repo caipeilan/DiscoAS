@@ -17,7 +17,7 @@ from Discover import DiscoverASong
 from settings.music_setting import PASetting
 from settings.gui_setting import GuiSetting
 
-# GUI导入（可选，如果PyQt6未安装则跳过）
+# GUI导入
 try:
     from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QLabel
     from PyQt6.QtGui import QIcon, QAction, QPixmap
@@ -25,7 +25,7 @@ try:
     GUI_AVAILABLE = True
 except ImportError:
     GUI_AVAILABLE = False
-    print("警告: PyQt6未安装，GUI功能不可用")
+    print("警告: PyQt6未安装")
 
 
 class SplashScreen(QWidget):

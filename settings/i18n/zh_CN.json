@@ -117,6 +117,7 @@
     "other_settings": "其他设置",
     "auto_start": "开机自启动",
     "view_log": "查看日志",
+    "view_repo": "查看仓库",
     "error": "错误",
     "version": "版本"
 }
