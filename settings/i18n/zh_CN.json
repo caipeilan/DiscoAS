@@ -101,6 +101,10 @@
     "image_files_filter": "图片文件 (*.jpg *.jpeg *.png *.gif *.bmp *.webp);;所有文件 (*)",
     "loaded_successfully": "已成功加载 {name}",
     "load_error": "加载过程中出现错误:\n{error}",
+    "playlist_load_failed": "歌单加载失败",
+    "playlist_load_failed_msg": "无法加载歌单: {error}\n请检查网络连接或歌单ID是否正确。",
+    "playlist_file_not_found": "播放列表文件不存在",
+    "playlist_file_not_found_msg": "无法找到播放列表文件。\n请在设置中加载歌单后再使用发现功能。",
     "playlist_switched_restart_msg": "歌单已切换，程序将重启以应用更改。",
     "all_settings_saved_msg": "所有设置已保存并应用！",
     "confirm_delete_title": "确认删除",
@@ -112,5 +116,7 @@
     "type_album": "专辑",
     "other_settings": "其他设置",
     "auto_start": "开机自启动",
+    "view_log": "查看日志",
+    "error": "错误",
     "version": "版本"
 }

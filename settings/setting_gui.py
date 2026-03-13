@@ -585,7 +585,12 @@ class SettingsWindow(QMainWindow):
         # 读取当前开机自启动状态
         self.chk_auto_start.setChecked(self._get_auto_start_status())
         main_layout.addWidget(self.chk_auto_start)
-        
+
+        # --- 查看日志 ---
+        btn_view_log = QPushButton(_("view_log"))
+        btn_view_log.clicked.connect(self._open_log_folder)
+        main_layout.addWidget(btn_view_log)
+
         main_layout.addStretch()
         
         layout.addWidget(scroll)
@@ -612,6 +617,16 @@ class SettingsWindow(QMainWindow):
                 return False
         except Exception:
             return False
+
+    def _open_log_folder(self):
+        """打开日志文件夹"""
+        import os
+        from settings.user_data_path import get_app_root
+        log_dir = os.path.join(get_app_root(), "log")
+        if os.path.exists(log_dir):
+            os.startfile(log_dir)
+        else:
+            QMessageBox.warning(self, _("error"), "日志目录不存在")
 
 
     def _set_auto_start(self, enable):

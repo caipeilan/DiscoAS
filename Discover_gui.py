@@ -701,6 +701,21 @@ class DiscoverOverlay(QMainWindow):
             import traceback
             print(f"加载歌曲失败: {e}")
             traceback.print_exc()
+            # 根据异常类型弹窗
+            if isinstance(e, FileNotFoundError):
+                try:
+                    from settings.i18n import gettext as _
+                    from PyQt6.QtWidgets import QMessageBox
+                    from PyQt6.QtCore import QApplication
+                    app = QApplication.instance()
+                    if app:
+                        QMessageBox.warning(
+                            None,
+                            _("playlist_file_not_found"),
+                            _("playlist_file_not_found_msg")
+                        )
+                except:
+                    pass
             self.songs_loaded.emit([])
             
     def _on_songs_loaded(self, songs):

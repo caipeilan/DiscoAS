@@ -239,6 +239,20 @@ class DiscoverApp:
             print(f"更新歌单失败: {e}")
             import traceback
             traceback.print_exc()
+            # 弹窗提示用户
+            try:
+                from settings.i18n import gettext as _
+                from PyQt6.QtWidgets import QMessageBox
+                from PyQt6.QtCore import QApplication
+                app = QApplication.instance()
+                if app:
+                    QMessageBox.critical(
+                        None,
+                        _("playlist_load_failed"),
+                        _("playlist_load_failed_msg").format(error=str(e))
+                    )
+            except:
+                pass
         
     def _apply_settings(self) -> None:
         """应用设置"""

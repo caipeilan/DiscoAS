@@ -101,6 +101,10 @@
     "image_files_filter": "Image Files (*.jpg *.jpeg *.png *.gif *.bmp *.webp);;All Files (*)",
     "loaded_successfully": "Successfully loaded {name}",
     "load_error": "Error loading:\n{error}",
+    "playlist_load_failed": "Playlist Load Failed",
+    "playlist_load_failed_msg": "Failed to load playlist: {error}\nPlease check your network connection or playlist ID.",
+    "playlist_file_not_found": "Playlist File Not Found",
+    "playlist_file_not_found_msg": "Cannot find playlist file.\nPlease load a playlist in settings before using the discover feature.",
     "playlist_switched_restart_msg": "Playlist switched, the app will restart to apply changes.",
     "all_settings_saved_msg": "All settings saved and applied!",
     "confirm_delete_title": "Confirm Delete",
@@ -112,5 +116,7 @@
     "type_album": "Album",
     "other_settings": "Other Settings",
     "auto_start": "Auto Start",
+    "view_log": "View Log",
+    "error": "Error",
     "version": "Version"
 }
