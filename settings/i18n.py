@@ -26,7 +26,11 @@ _translations = {}
 
 def get_i18n_dir():
     """Get the i18n directory path"""
-    return os.path.join(os.path.dirname(__file__), "i18n")
+    if getattr(sys, 'frozen', False):
+        # 打包后的环境 - 资源在 sys._MEIPASS
+        return os.path.join(sys._MEIPASS, "settings", "i18n")
+    else:
+        return os.path.join(os.path.dirname(__file__), "i18n")
 
 
 def load_translations(lang_code):

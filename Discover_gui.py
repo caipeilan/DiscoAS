@@ -32,6 +32,12 @@ from load_playlist_json import Playlist
 sys.path.append(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'settings'))
 
+# 导入设置界面模块
+try:
+    from settings.setting_gui import SettingsWindow
+except ImportError:
+    pass
+
 # 导入 i18n 模块
 try:
     import i18n
@@ -1212,33 +1218,10 @@ def show_overlay(app, discover_app):
 def open_settings():
     """打开设置窗口"""
     try:
-        # 获取项目根目录
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        settings_dir = os.path.join(root_dir, 'settings')
-        
-        # 保存原始工作目录
-        original_cwd = os.getcwd()
-        
-        try:
-            # 切换到settings目录，这样相对导入就能正常工作
-            os.chdir(settings_dir)
-            
-            # 添加settings目录到path
-            if settings_dir not in sys.path:
-                sys.path.insert(0, settings_dir)
-            
-            # 导入setting_gui（它会使用相对导入找到music_setting和gui_setting）
-            import setting_gui
-            SettingsWindow = setting_gui.SettingsWindow
-            
-            settings_window = SettingsWindow()
-            settings_window.show()
-        finally:
-            # 恢复原始工作目录
-            os.chdir(original_cwd)
+        settings_window = SettingsWindow()
+        settings_window.show()
     except Exception as e:
-        print(f"无法打开设置: {e}")
-        traceback.print_exc()
+        print(f"打开设置窗口失败: {e}")
 
 
 # 全局变量用于跨线程调用

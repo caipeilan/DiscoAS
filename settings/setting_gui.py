@@ -10,17 +10,17 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog,QFrame)
 
 # 导入统一的路径管理模块
-from settings.user_data_path import get_app_root
+from settings.user_data_path import get_app_root, get_resource_dir
 
 
 def _get_src_path():
     """获取 src 目录路径，支持打包后的环境"""
-    return os.path.join(get_app_root(), "src")
+    return os.path.join(get_resource_dir(), "src")
 
 
 def _get_platforms_path():
     """获取 platforms 目录路径，支持打包后的环境"""
-    return os.path.join(get_app_root(), "platforms")
+    return os.path.join(get_resource_dir(), "platforms")
 
 # 导入 i18n 模块
 try:
@@ -622,8 +622,8 @@ class SettingsWindow(QMainWindow):
     def _open_log_folder(self):
         """打开日志文件夹"""
         import os
-        from settings.user_data_path import get_app_root
-        log_dir = os.path.join(get_app_root(), "log")
+        from settings.user_data_path import get_resource_dir
+        log_dir = os.path.join(get_resource_dir(), "log")
         if os.path.exists(log_dir):
             os.startfile(log_dir)
         else:

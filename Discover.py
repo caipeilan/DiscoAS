@@ -6,7 +6,7 @@ import importlib
 
 # 导入统一的路径管理模块
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'settings'))
-from settings.user_data_path import get_app_root
+from settings.user_data_path import get_app_root, get_resource_dir
 
 #使用绝对路径导入模块
 sys.path.append(os.path.dirname(__file__))
@@ -15,7 +15,7 @@ from load_playlist_json import Playlist
 
 def _get_platforms_path():
     """获取 platforms 目录路径，支持打包后的环境"""
-    return os.path.join(get_app_root(), "platforms")
+    return os.path.join(get_resource_dir(), "platforms")
 
 class DiscoverASong(object):
     def __init__(self, platform, playlist_type, playlist_id):

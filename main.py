@@ -181,8 +181,8 @@ def get_splash_image_path() -> str:
     
     # 尝试打包后的路径
     try:
-        from settings.user_data_path import get_app_root
-        image_path = os.path.join(get_app_root(), "src", "DiscoAS.png")
+        from settings.user_data_path import get_resource_dir
+        image_path = os.path.join(get_resource_dir(), "src", "DiscoAS.png")
         if os.path.exists(image_path):
             return image_path
     except ImportError:
