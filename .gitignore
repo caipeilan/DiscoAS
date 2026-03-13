@@ -48,3 +48,4 @@ user_data/
 # Nuitka打包输出
 main.dist/
 main.build/
+.claude/settings.local.json

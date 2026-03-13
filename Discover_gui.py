@@ -10,18 +10,23 @@ import sys
 import os
 import threading
 import time
+import json
+import requests
+import traceback
+import keyboard
 from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea, QFrame, QGridLayout,
-    QMenu, QSystemTrayIcon
+    QMenu, QSystemTrayIcon, QMessageBox
 )
 from PyQt6.QtGui import QPixmap, QImage, QIcon, QFont, QAction, QKeySequence, QShortcut, QPainter, QBrush, QColor, QPalette, QPainterPath
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QTimerEvent, QObject, QPropertyAnimation, QEasingCurve, QRect, QPoint
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PyQt6.QtCore import QUrl
+from load_playlist_json import Playlist
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
@@ -33,8 +38,6 @@ try:
     _ = i18n.t
     # 加载保存的语言设置
     try:
-        import json
-        import os
         # 查找用户数据目录
         settings_dir = None
         for base in [os.path.dirname(__file__), os.path.join(os.path.dirname(__file__), '..')]:
@@ -79,7 +82,6 @@ def _fetch_image_data(url_or_path: str) -> bytes:
         with open(url_or_path, 'rb') as f:
             return f.read()
     else:
-        import requests
         response = requests.get(url_or_path, timeout=10)
         if response.status_code == 200:
             return response.content
@@ -169,7 +171,6 @@ def preload_next_batch(discover_app):
             total_songs = sum(len(batch) for batch in _cached_song_batches)
             print(f"所有预加载完成：共 {len(_cached_song_batches)} 批，总计 {total_songs} 首歌曲，缓存共 {len(_image_cache)} 张图片")
         except Exception as e:
-            import traceback
             print(f"预加载失败: {e}")
             traceback.print_exc()
 
@@ -509,7 +510,6 @@ class DiscoverOverlay(QMainWindow):
         elif should_refresh:
             # 没有预加载缓存，且需要刷新：清除 Playlist 缓存后重新加载
             _need_refresh_songs = False
-            from load_playlist_json import Playlist
             Playlist.clear_cache()
             print("无预加载缓存，需要刷新，重新加载歌曲...")
             self._load_songs()
@@ -661,8 +661,7 @@ class DiscoverOverlay(QMainWindow):
         
     def _preload_images(self):
         """预加载所有歌曲封面图片到缓存"""
-        import requests
-        
+
         for song in self.songs:
             url = song.get_album_pic_url()
             print(f"图片URL: {url}")
@@ -698,15 +697,11 @@ class DiscoverOverlay(QMainWindow):
             self.songs_loaded.emit(self.songs)
             print("信号已发送")
         except Exception as e:
-            import traceback
             print(f"加载歌曲失败: {e}")
             traceback.print_exc()
             # 根据异常类型弹窗
             if isinstance(e, FileNotFoundError):
                 try:
-                    from settings.i18n import gettext as _
-                    from PyQt6.QtWidgets import QMessageBox
-                    from PyQt6.QtCore import QApplication
                     app = QApplication.instance()
                     if app:
                         QMessageBox.warning(
@@ -1182,7 +1177,6 @@ def show_overlay(app, discover_app):
 
     # 应用语言设置到 i18n
     try:
-        import i18n
         i18n.set_language(discover_app.gui_setting.language)
     except:
         pass
@@ -1244,7 +1238,6 @@ def open_settings():
             os.chdir(original_cwd)
     except Exception as e:
         print(f"无法打开设置: {e}")
-        import traceback
         traceback.print_exc()
 
 
@@ -1291,10 +1284,8 @@ def register_global_shortcut(app, discover_app, shortcut="alt+d"):
     
     # 创建信号发射器（在主线程中创建）
     _shortcut_emitter = ShortcutSignalEmitter()
-    
+
     try:
-        import keyboard
-        
         # 先移除旧的快捷键（如果存在）
         if _keyboard_handle is not None:
             try:
@@ -1334,8 +1325,7 @@ def register_global_shortcut(app, discover_app, shortcut="alt+d"):
         # 删除旧的快捷键widget
         if _shortcut_widget:
             _shortcut_widget.deleteLater()
-        
-        from PyQt6.QtGui import QKeySequence
+
         _shortcut_widget = QShortcut(QKeySequence(shortcut), _shortcut_parent)
         _shortcut_widget.activated.connect(lambda: show_overlay(app, discover_app))
         print(f"PyQt全局快捷键已注册: {shortcut}")
@@ -1370,7 +1360,6 @@ def run_gui():
 
     # 加载语言设置到 i18n（必须在创建托盘之前）
     try:
-        import i18n
         i18n.set_language(discover_app.gui_setting.language)
     except:
         pass

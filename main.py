@@ -4,6 +4,8 @@ import webbrowser
 import threading
 import time
 import logging
+import traceback
+import pygetwindow as gw
 from typing import Optional
 
 # 添加项目根目录到路径
@@ -237,7 +239,6 @@ class DiscoverApp:
             print(f"歌单更新完成: {playlist_json.get_name()}")
         except Exception as e:
             print(f"更新歌单失败: {e}")
-            import traceback
             traceback.print_exc()
             # 弹窗提示用户
             try:
@@ -329,8 +330,6 @@ class DiscoverApp:
     def _minimize_player_window(self, song_card) -> None:
         """最小化播放器窗口"""
         try:
-            import pygetwindow as gw
-            import time
             
             time.sleep(4)  # 等待窗口出现
             
