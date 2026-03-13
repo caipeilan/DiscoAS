@@ -9,7 +9,12 @@ import pygetwindow as gw
 from typing import Optional
 
 # 添加项目根目录到路径
-sys.path.append(os.path.dirname(__file__))
+if getattr(sys, 'frozen', False):
+    # 打包后的环境，使用 sys._MEIPASS
+    app_root = sys._MEIPASS
+else:
+    app_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, app_root)
 
 # 导入日志模块（必须在其他模块之前初始化）
 # 这会自动全局替换 print 函数，使所有模块的 print 都写入日志
@@ -22,13 +27,10 @@ from settings.gui_setting import GuiSetting
 # 静态导入所有平台的 get_json 模块
 from platforms.NeteaseCloudMusic.get_json import PlaylistAlbumJson as NeteasePlaylistAlbumJson
 from platforms.QQMusic.get_json import PlaylistAlbumJson as QQMusicPlaylistAlbumJson
-from platforms.Spotify.get_json import PlaylistAlbumJson as SpotifyPlaylistAlbumJson
-
 # 平台 PlaylistAlbumJson 类映射
 PLATFORM_JSON_MAP = {
     'NeteaseCloudMusic': NeteasePlaylistAlbumJson,
     'QQMusic': QQMusicPlaylistAlbumJson,
-    'Spotify': SpotifyPlaylistAlbumJson,
 }
 
 # GUI导入
