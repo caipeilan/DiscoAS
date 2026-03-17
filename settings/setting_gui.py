@@ -662,21 +662,14 @@ class SettingsWindow(QMainWindow):
                     exe_path = os.path.realpath(sys.executable)
                     startup_cmd = f'"{exe_path}"'
                 else:
-                    # 开发环境，使用Python解释器运行main.py
-                    # 使用pythonw.exe避免弹出CMD窗口
+                    # 开发环境，直接使用当前 Python 解释器运行 main.py
                     # 获取项目根目录的绝对路径
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     script_path = os.path.join(base_dir, "main.py")
 
-                    # 可靠地获取 pythonw.exe 路径
-                    python_dir = os.path.dirname(sys.executable)
-                    pythonw_path = os.path.join(python_dir, "pythonw.exe")
-
-                    # 如果 pythonw.exe 不存在，回退到 python.exe
-                    if not os.path.exists(pythonw_path):
-                        pythonw_path = sys.executable
-
-                    startup_cmd = f'"{pythonw_path}" "{script_path}"'
+                    # 直接使用当前 Python 解释器
+                    python_path = sys.executable
+                    startup_cmd = f'"{python_path}" "{script_path}"'
 
                     # 调试日志
                     print(f"开机自启动命令: {startup_cmd}")
