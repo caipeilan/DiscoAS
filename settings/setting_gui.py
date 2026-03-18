@@ -662,14 +662,15 @@ class SettingsWindow(QMainWindow):
                     exe_path = os.path.realpath(sys.executable)
                     startup_cmd = f'"{exe_path}"'
                 else:
-                    # 开发环境，直接使用当前 Python 解释器运行 main.py
+                    # 开发环境，使用 Anaconda conda run 运行 main.py
                     # 获取项目根目录的绝对路径
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     script_path = os.path.join(base_dir, "main.py")
 
-                    # 直接使用当前 Python 解释器
-                    python_path = sys.executable
-                    startup_cmd = f'"{python_path}" "{script_path}"'
+                    # 使用 conda run 确保在正确的 Anaconda 环境中启动
+                    conda_path = r"D:\anaconda\Scripts\conda.exe"
+                    env_name = "DiscoverASong"
+                    startup_cmd = f'"{conda_path}" run -n {env_name} python "{script_path}"'
 
                     # 调试日志
                     print(f"开机自启动命令: {startup_cmd}")

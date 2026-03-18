@@ -411,28 +411,16 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1].startswith("discoverasong://"):
         handle_scheme_url(sys.argv[1])
         return
-    
+
     # 默认启动GUI模式
     if not GUI_AVAILABLE:
         print("错误: GUI模式需要安装PyQt6")
         print("请运行: pip install PyQt6")
         return
-    
-    # 创建Qt应用（必须在任何Qt组件之前）
-    qt_app = QApplication(sys.argv)
-    
-    # 显示启动画面
-    image_path = get_splash_image_path()
-    if image_path:
-        splash = SplashScreen(image_path)
-        # 等待启动画面动画完成
-        splash.wait_for_finish()
-    
-    # 创建并运行主应用
-    app = DiscoverApp()
-    
-    # 运行GUI
-    app.run_gui()
+
+    # 运行 GUI（Discover_gui.run_gui 会处理所有初始化）
+    from Discover_gui import run_gui
+    run_gui()
 
 
 if __name__ == "__main__":

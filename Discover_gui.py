@@ -1333,13 +1333,24 @@ def reregister_shortcut(app, discover_app):
 
 def run_gui():
     """运行GUI模式"""
-    from main import DiscoverApp
-    
+    from main import DiscoverApp, get_splash_image_path
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    
-    # 创建应用实例
+
+    # 显示启动画面（不等待完成）
+    image_path = get_splash_image_path()
+    splash = None
+    if image_path:
+        from main import SplashScreen
+        splash = SplashScreen(image_path)
+
+    # 创建应用实例（在后台加载）
     discover_app = DiscoverApp()
+
+    # 等待启动画面动画完成
+    if splash:
+        splash.wait_for_finish()
 
     # 加载语言设置到 i18n（必须在创建托盘之前）
     try:
@@ -1349,16 +1360,16 @@ def run_gui():
 
     # 程序启动时立即开始预加载（歌曲详情 + 封面图片 + 存入缓存）
     preload_next_batch(discover_app)
-    
+
     # 创建托盘
     create_tray_icon(app, discover_app)
-    
+
     # 注册全局快捷键
     try:
         register_global_shortcut(app, discover_app, discover_app.music_setting.shortcut_key)
     except:
         register_global_shortcut(app, discover_app, "Alt+D")
-    
+
     # 运行应用
     sys.exit(app.exec())
 
