@@ -1130,9 +1130,11 @@ def create_tray_icon(app, discover_app):
     
     # 左键点击显示浮窗 - 使用队列连接确保线程安全
     def on_tray_clicked(reason):
-        print(f"托盘被点击, reason={reason}")
+        # 只响应左键单击（Trigger），忽略右键菜单（Context）和其他事件
+        if reason == QSystemTrayIcon.ActivationReason.Context:
+            # 右键点击不处理，让系统显示上下文菜单
+            return
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            print("准备调用 show_overlay")
             show_overlay(app, discover_app)
     
     tray.activated.connect(on_tray_clicked)
