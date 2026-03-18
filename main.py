@@ -23,7 +23,7 @@ from settings.gui_setting import GuiSetting
 try:
     from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QLabel
     from PyQt6.QtGui import QIcon, QAction, QPixmap
-    from PyQt6.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve, QByteArray
+    from PyQt6.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve, QByteArray, QEventLoop
     GUI_AVAILABLE = True
 except ImportError:
     GUI_AVAILABLE = False
@@ -159,17 +159,12 @@ class SplashScreen(QWidget):
         self.close()
     
     def wait_for_finish(self):
-        """等待动画完成（阻塞方式）"""
-        total_time = self.fade_duration * 2 + self.show_duration
-        # 每20ms处理一次事件
-        elapsed = 0
-        while elapsed < total_time and self.isVisible():
-            self.qApp.processEvents()
-            time.sleep(0.02)
-            elapsed += 20
-        # 确保窗口已关闭
-        if self.isVisible():
-            self.close()
+        """等待动画完成（非阻塞方式，允许事件循环处理后台任务）"""
+        # 使用 QEventLoop 而非 time.sleep，让事件循环可以处理后台任务
+        loop = QEventLoop()
+        # 动画总时长后退出
+        QTimer.singleShot(self.fade_duration * 2 + self.show_duration, loop.quit)
+        loop.exec()
 
 
 def get_splash_image_path() -> str:

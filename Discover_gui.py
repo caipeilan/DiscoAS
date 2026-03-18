@@ -1338,39 +1338,50 @@ def run_gui():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    # 显示启动画面（不等待完成）
+    # 全局变量，用于后台加载完成后存储
+    discover_app_holder = [None]  # 使用列表以便在嵌套函数中修改
+
+    # 显示启动画面
     image_path = get_splash_image_path()
     splash = None
     if image_path:
         from main import SplashScreen
         splash = SplashScreen(image_path)
 
-    # 创建应用实例（在后台加载）
-    discover_app = DiscoverApp()
+    # 定义后台加载函数
+    def background_load():
+        """在事件循环中后台加载应用"""
+        # 创建应用实例
+        discover_app = DiscoverApp()
+        discover_app_holder[0] = discover_app
 
-    # 等待启动画面动画完成
+        # 加载语言设置到 i18n（必须在创建托盘之前）
+        try:
+            i18n.set_language(discover_app.gui_setting.language)
+        except:
+            pass
+
+        # 程序启动时立即开始预加载（歌曲详情 + 封面图片 + 存入缓存）
+        preload_next_batch(discover_app)
+
+        # 创建托盘
+        create_tray_icon(app, discover_app)
+
+        # 注册全局快捷键
+        try:
+            register_global_shortcut(app, discover_app, discover_app.music_setting.shortcut_key)
+        except:
+            register_global_shortcut(app, discover_app, "Alt+D")
+
+    # 使用 QTimer.singleShot(0, ...) 让后台加载在事件循环开始后执行
+    # 这样启动画面和后台加载可以并行进行
+    QTimer.singleShot(0, background_load)
+
+    # 等待启动画面动画完成（主线程阻塞，但后台加载已在事件循环中执行）
     if splash:
         splash.wait_for_finish()
 
-    # 加载语言设置到 i18n（必须在创建托盘之前）
-    try:
-        i18n.set_language(discover_app.gui_setting.language)
-    except:
-        pass
-
-    # 程序启动时立即开始预加载（歌曲详情 + 封面图片 + 存入缓存）
-    preload_next_batch(discover_app)
-
-    # 创建托盘
-    create_tray_icon(app, discover_app)
-
-    # 注册全局快捷键
-    try:
-        register_global_shortcut(app, discover_app, discover_app.music_setting.shortcut_key)
-    except:
-        register_global_shortcut(app, discover_app, "Alt+D")
-
-    # 运行应用
+    # 运行应用事件循环
     sys.exit(app.exec())
 
 
