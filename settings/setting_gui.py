@@ -16,12 +16,14 @@ from settings.user_data_path import get_app_root, get_resource_dir
 from platforms.NeteaseCloudMusic.get_json import PlaylistAlbumJson as NeteasePlaylistAlbumJson
 from platforms.QQMusic.get_json import PlaylistAlbumJson as QQMusicPlaylistAlbumJson
 from platforms.Spotify.get_json import PlaylistAlbumJson as SpotifyPlaylistAlbumJson
+from platforms.KugouMusic.get_json import PlaylistAlbumJson as KugouPlaylistAlbumJson
 
 # 平台 PlaylistAlbumJson 类映射
 PLATFORM_JSON_MAP = {
     'NeteaseCloudMusic': NeteasePlaylistAlbumJson,
     'QQMusic': QQMusicPlaylistAlbumJson,
     'Spotify': SpotifyPlaylistAlbumJson,
+    'KugouMusic': KugouPlaylistAlbumJson,
 }
 
 
@@ -883,6 +885,7 @@ class SettingsWindow(QMainWindow):
         platforms = [
             ("NeteaseCloudMusic", _("platform_NeteaseCloudMusic")),
             ("QQMusic", _("platform_QQMusic")),
+            ("KugouMusic", _("platform_KugouMusic")),
         ]
         for platform_id, platform_name in platforms:
             cmb_platform.addItem(platform_name, platform_id)

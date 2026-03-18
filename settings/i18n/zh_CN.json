@@ -113,6 +113,7 @@
     "confirm_delete_msg": "确定要删除该歌单吗？",
     "platform_NeteaseCloudMusic": "网易云音乐",
     "platform_QQMusic": "QQ音乐",
+    "platform_KugouMusic": "酷狗音乐",
     "platform_Spotify": "Spotify",
     "type_playlist": "歌单",
     "type_album": "专辑",

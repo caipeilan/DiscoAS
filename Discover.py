@@ -16,12 +16,14 @@ from load_playlist_json import Playlist
 from platforms.NeteaseCloudMusic.card import SongCard as NeteaseSongCard
 from platforms.QQMusic.card import SongCard as QQMusicSongCard
 from platforms.Spotify.card import SongCard as SpotifySongCard
+from platforms.KugouMusic.card import SongCard as KugouSongCard
 
 # 平台 SongCard 类映射
 PLATFORM_SONG_CARD_MAP = {
     'NeteaseCloudMusic': NeteaseSongCard,
     'QQMusic': QQMusicSongCard,
     'Spotify': SpotifySongCard,
+    'KugouMusic': KugouSongCard,
 }
 
 

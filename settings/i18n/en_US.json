@@ -113,6 +113,7 @@
     "confirm_delete_msg": "Are you sure you want to delete this playlist?",
     "platform_NeteaseCloudMusic": "NetEase Cloud Music",
     "platform_QQMusic": "QQ Music",
+    "platform_KugouMusic": "Kugou Music",
     "platform_Spotify": "Spotify",
     "type_playlist": "Playlist",
     "type_album": "Album",
