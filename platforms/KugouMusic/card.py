@@ -20,7 +20,7 @@ class SongCard:
     """酷狗音乐歌曲卡片类"""
 
     # 默认神秘歌曲封面
-    DEFAULT_MYSTERY_PIC = ""
+    DEFAULT_MYSTERY_PIC = "https://imgessl.kugou.com/stdmusic/480/20201111/20201111024230620482.jpg"
 
     def __init__(
         self,
@@ -63,18 +63,17 @@ class SongCard:
 
             # filename 格式：歌手1、歌手2 - 歌名
             filename = song_info.get("filename", "")
-            self.song_name = filename
 
-            # 解析艺术家（酷狗多歌手用"、"分隔）
+            # 解析艺术家和歌曲名
             if " - " in filename:
                 parts = filename.split(" - ")
-                if len(parts) >= 2:
-                    artist_part = parts[0].strip()
-                    # 酷狗多歌手用"、"分隔
-                    self.song_artist_names = [a.strip() for a in artist_part.split("、")]
-                else:
-                    self.song_artist_names = ["未知艺术家"]
+                artist_part = parts[0].strip()
+                # 歌曲名是最后一部分
+                self.song_name = " - ".join(parts[1:]).strip()
+                # 酷狗多歌手用"、"分隔
+                self.song_artist_names = [a.strip() for a in artist_part.split("、")]
             else:
+                self.song_name = filename
                 self.song_artist_names = ["未知艺术家"]
 
             # 构建窗口名
