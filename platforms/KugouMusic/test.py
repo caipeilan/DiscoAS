@@ -42,12 +42,13 @@ def generate_kugou_scheme(song):
             {
                 "filename": filename,
                 "hash": song_hash,
-                "size": str(song.get('filesize', song.get('size', '3000000'))),
-                "duration": str(duration_val),
-                "bitrate": str(song.get('bitrate', '128')),
-                "isfilehead": "100", # 固定值
-                "privilege": str(song.get('privilege', '8')), # 权限标识
-                "album_id": album_id
+                # 有且仅有以上参数是必要的
+                # "size": str(song.get('filesize', song.get('size', '3000000'))),
+                # "duration": str(duration_val),
+                # "bitrate": str(song.get('bitrate', '128')),
+                # "isfilehead": "100", # 固定值
+                # "privilege": str(song.get('privilege', '8')), # 权限标识
+                # "album_id": album_id
             }
         ]
     }

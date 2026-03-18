@@ -28,6 +28,6 @@ class ToPlaySong(object):
 
 
 if __name__ == '__main__':
-    # 测试播放
-    test_hash = "4809EE31DEF9945C7751E3FD7BF7C009"
-    song = ToPlaySong(test_hash).to_play()
+    # 测试用歌曲 hash
+    song = ToPlaySong("4809EE31DEF9945C7751E3FD7BF7C009")
+    song.to_play()

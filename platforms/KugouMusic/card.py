@@ -5,6 +5,7 @@
 """
 
 import json
+import base64
 import requests
 from typing import List, Optional
 
@@ -27,27 +28,14 @@ class SongCard:
         mystery_mode: bool = False,
         mystery_pic_url: Optional[str] = None
     ):
-        # song_id 可能是 hash 值（酷狗用 hash 标识歌曲）
+        # song_id 就是 hash
         self.song_id = song_id
-        self.song_hash: str = ""
-        self.song_album_id: str = ""
-
-        # 解析 song_id，提取 hash 和 album_id
-        if "|" in str(song_id):
-            parts = str(song_id).split("|")
-            self.song_hash = parts[0]
-            self.song_album_id = parts[1] if len(parts) > 1 else ""
-        else:
-            # 假设传入的是 hash
-            self.song_hash = str(song_id)
-
+        self.song_hash = song_id
         self.mystery_mode = mystery_mode
         self.mystery_pic_url = mystery_pic_url or self.DEFAULT_MYSTERY_PIC
 
         # 歌曲详情数据
-        self.song_detail_json: Optional[dict] = None
         self.song_name: Optional[str] = None
-        self.song_artists: List[dict] = []
         self.song_artist_names: List[str] = []
         self.window_name: Optional[str] = None
         self.album_pic_url: Optional[str] = None
@@ -68,68 +56,100 @@ class SongCard:
             return
 
         try:
-            session = get_session()
+            # 从 songs_info 中查找对应歌曲的信息
+            song_info = self._find_song_info()
+            if not song_info:
+                raise ValueError("未找到歌曲信息")
 
-            # 使用酷狗音乐获取歌曲信息 API
-            url = "http://m.kugou.com/app/i/getSongInfo.php"
-            params = {
-                "cmd": "playInfo",
-                "hash": self.song_hash
-            }
+            # filename 格式：歌手1、歌手2 - 歌名
+            filename = song_info.get("filename", "")
+            self.song_name = filename
 
-            response = session.get(url, params=params, timeout=10)
-            data = response.json()
-
-            if data:
-                self.song_detail_json = data
-                self.song_name = data.get("songName", data.get("filename", "未知歌曲"))
-
-                # 获取艺术家信息（酷狗的格式）
-                self.song_artists = []
-                singer_name = data.get(" singer_name", "")
-                if singer_name:
-                    self.song_artist_names = [s.strip() for s in singer_name.split(",")]
+            # 解析艺术家（酷狗多歌手用"、"分隔）
+            if " - " in filename:
+                parts = filename.split(" - ")
+                if len(parts) >= 2:
+                    artist_part = parts[0].strip()
+                    # 酷狗多歌手用"、"分隔
+                    self.song_artist_names = [a.strip() for a in artist_part.split("、")]
                 else:
-                    # 从 filename 尝试提取
-                    filename = data.get("filename", "")
-                    if " - " in filename:
-                        parts = filename.split(" - ")
-                        if len(parts) >= 2:
-                            self.song_artist_names = [parts[0].strip()]
-
-                # 构建窗口名
-                self.window_name = self.song_name + " - " + "/".join(self.song_artist_names) if self.song_artist_names else self.song_name
-
-                # 获取封面
-                self.album_pic_url = self._get_cover_url(data)
-
-                self.have_loaded = True
+                    self.song_artist_names = ["未知艺术家"]
             else:
-                raise ValueError("无法获取歌曲信息")
+                self.song_artist_names = ["未知艺术家"]
+
+            # 构建窗口名
+            self.window_name = self.song_name + " - " + "/".join(self.song_artist_names) if self.song_artist_names else self.song_name
+
+            # 获取封面
+            self.album_pic_url = self._get_cover_url(song_info)
+
+            self.have_loaded = True
 
         except Exception as e:
             print(f"加载歌曲详情失败: {e}")
-            raise
+            self._set_error_defaults()
 
-    def _get_cover_url(self, data: dict) -> Optional[str]:
-        """获取封面 URL"""
-        # 尝试从多个字段获取封面
-        cover_url = (
-            data.get("imgUrl") or
-            data.get("pic") or
-            data.get("album_img") or
-            ""
-        )
+    def _find_song_info(self) -> Optional[dict]:
+        """从 songs_info 中查找歌曲信息"""
+        try:
+            from settings.user_data_path import get_playlist_dir
+            # 遍历所有 JSON 文件查找
+            playlist_dir = get_playlist_dir("KugouMusic")
+            if not os.path.exists(playlist_dir):
+                return None
 
-        if cover_url:
-            # 替换尺寸占位符
-            return cover_url.replace("{size}", "400")
+            for filename in os.listdir(playlist_dir):
+                if filename.endswith(".json"):
+                    filepath = os.path.join(playlist_dir, filename)
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    songs_info = data.get("songs_info", [])
+                    for song in songs_info:
+                        if song.get("hash", "").upper() == self.song_hash.upper():
+                            return song
+            return None
+        except Exception as e:
+            print(f"查找歌曲信息失败: {e}")
+            return None
 
-        # 如果没有封面，返回默认或空
-        return self.mystery_pic_url or None
+    def _get_cover_url(self, song_info: dict) -> str:
+        """获取封面 URL - 参考 test.py"""
+        album_id = str(song_info.get("album_id", song_info.get("albumid", "")))
+        session = get_session()
+        headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"}
+
+        # 方法1：通过 album_id 获取封面
+        if album_id and album_id != '0':
+            album_url = f"http://mobilecdn.kugou.com/api/v3/album/info?albumid={album_id}"
+            try:
+                album_res = session.get(album_url, headers=headers, timeout=10).json()
+                if album_res.get('status') == 1 and album_res.get('data'):
+                    raw_cover = album_res['data'].get('sizable_cover') or album_res['data'].get('imgurl', '')
+                    if raw_cover:
+                        return raw_cover.replace('{size}', '400')
+            except Exception: pass
+
+        # 方法2：通过 hash 获取封面
+        fallback_url = f"http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={self.song_hash}"
+        try:
+            fallback_res = session.get(fallback_url, headers=headers, timeout=10).json()
+            raw_cover = fallback_res.get('imgUrl', fallback_res.get('pic', ''))
+            if raw_cover:
+                return raw_cover.replace('{size}', '400')
+        except Exception: pass
+
+        return self.mystery_pic_url or ""
+
+    def _set_error_defaults(self) -> None:
+        """设置错误默认值为未知"""
+        self.song_name = "未知歌曲"
+        self.song_artist_names = ["未知艺术家"]
+        self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        self.album_pic_url = self.mystery_pic_url
+        self.have_loaded = True
 
     def get_id(self) -> str:
-        return f"{self.song_hash}|{self.song_album_id}"
+        return self.song_hash
 
     def get_name(self) -> str:
         return self.song_name or "未知歌曲"
@@ -152,23 +172,18 @@ class SongCard:
         return self.get_album_pic_url()
 
     def get_scheme_url(self) -> str:
-        """生成酷狗音乐scheme URL用于唤起播放"""
-        import json
-        import base64
+        """生成酷狗音乐 scheme URL 用于唤起播放 - 参考 test.py"""
+        # 找到歌曲信息
+        song_info = self._find_song_info()
+        filename = "未知歌曲.mp3"
+        if song_info:
+            orig_filename = song_info.get("filename", "")
+            if orig_filename:
+                filename = orig_filename
+                if not filename.lower().endswith('.mp3'):
+                    filename += ".mp3"
 
-        # 获取歌曲详情
-        if not self.have_loaded:
-            self.load_song_detail()
-
-        # 从 song_detail_json 获取详细信息
-        song_info = self.song_detail_json or {}
-
-        # 构建文件名
-        filename = song_info.get('filename', self.song_name or '未知歌曲')
-        if not filename.lower().endswith('.mp3'):
-            filename += ".mp3"
-
-        # 只需要两个必要参数：filename 和 hash
+        # 只需要 filename 和 hash 两个必要参数
         payload = {
             "Files": [
                 {
@@ -188,11 +203,8 @@ class SongCard:
 
 # 测试代码
 if __name__ == '__main__':
-    import time
-
-    # 测试歌曲（需要有效的 hash）
-    # 示例 hash: 从歌单中获取
-    test_hash = "D7A154A55E80B3FA2CC4E9D80F2B5D7C"
+    # 测试歌曲 hash
+    test_hash = "4809EE31DEF9945C7751E3FD7BF7C009"
 
     song = SongCard(test_hash)
     song.load_song_detail()

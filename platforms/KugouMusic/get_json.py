@@ -38,8 +38,9 @@ class PlaylistAlbumJson:
     """酷狗音乐歌单/专辑 JSON 获取类"""
 
     def __init__(self, playlist_album_id: str, typename: str):
-        self.playlist_album_id = playlist_album_id
+        self.playlist_album_id = playlist_album_id  # 原始分享码
         self.typename = typename
+        self.specialid: str = ""  # 解析后的 specialid
         self.playlist_album_name: str = ""
         self.playlist_album_json: Union[Dict, List] = {}
 
@@ -50,16 +51,18 @@ class PlaylistAlbumJson:
         session = get_session()
 
         if self.typename == "playlist":
-            # 获取歌单详情（通过分享码解析后的 specialid）
-            specialid = self._resolve_share_code(self.playlist_album_id)
-            if not specialid:
-                raise ValueError("无法解析歌单分享码")
+            # 判断是分享码还是 specialid（纯数字为 specialid）
+            if self.playlist_album_id.isdigit():
+                specialid = self.playlist_album_id
+            else:
+                specialid = self._resolve_share_code(self.playlist_album_id)
+                if not specialid:
+                    raise ValueError("无法解析歌单分享码")
 
             # 自动翻页拉取歌单
             all_songs = []
             page = 1
             pagesize = 500
-            first_page = True
 
             while True:
                 url = f"{KUGOU_BASE_URL}/api/v3/special/song"
@@ -76,13 +79,6 @@ class PlaylistAlbumJson:
 
                     if data.get('status') != 1:
                         break
-
-                    # 获取歌名（从第一页的顶层 info 获取）
-                    if first_page:
-                        info_list = data.get('info', [])
-                        if info_list:
-                            self.playlist_album_name = info_list[0].get('specialname', '未知歌单')
-                        first_page = False
 
                     # 收集歌曲（从 data.info 获取）
                     songs_list = data.get('data', {}).get('info', [])
@@ -101,6 +97,10 @@ class PlaylistAlbumJson:
                     "info": all_songs
                 }
             }
+            # 歌单名称用 specialid 代替
+            self.playlist_album_name = specialid
+            # 保存解析后的 specialid
+            self.specialid = specialid
 
         elif self.typename == "album":
             # 获取专辑详情
@@ -191,12 +191,26 @@ class PlaylistAlbumJson:
             path = get_album_dir("KugouMusic")
         ensure_dir(path)
 
-        songs = self.get_songs()
+        # 获取歌曲信息列表
+        all_songs = self.playlist_album_json.get("data", {}).get("info", [])
+        song_ids = [song.get("hash", "") for song in all_songs]
+        # 保存完整信息供 card.py 使用
+        songs_info = [
+            {
+                "hash": song.get("hash", ""),
+                "album_id": song.get("album_id", song.get("albumid", "")),
+                "filename": song.get("filename", "")
+            }
+            for song in all_songs
+        ]
+
         data = {
             "playlist_album_id": self.playlist_album_id,
+            "specialid": self.specialid,
             "playlist_album_name": self.playlist_album_name,
             "playlist_album_type": self.typename,
-            "songs": songs
+            "song_ids": song_ids,
+            "songs_info": songs_info
         }
 
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")
