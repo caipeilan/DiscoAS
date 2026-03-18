@@ -31,6 +31,7 @@
 - [x] 更新 FIRST.md，添加文档更新规范
 - [x] 修复设置界面主色调：将所有交互元素（按钮、复选框、滑块、表格头、导航栏选中）的配色从 `cancel_button.border` 改为 `card.border`
 - [x] 更新默认配色：将 `gui_setting.py` 中的默认颜色改为与用户保存的配置一致
+- [x] 统一设置界面配色规则：悬停用 card_hover，背景用 setting_bg（bg），边框用 card_border
 
 ---
 

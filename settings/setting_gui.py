@@ -1181,8 +1181,8 @@ class SettingsWindow(QMainWindow):
             return hex_color
         
         scroll_bg = bg
-        scroll_handle = hex_to_rgba(btn_bd)
-        scroll_hover = hex_to_rgba(btn_hover)
+        scroll_handle = hex_to_rgba(card_hover)
+        scroll_hover = hex_to_rgba(card_hover)
         
         style = f"""
             QMainWindow, QWidget {{
@@ -1240,7 +1240,7 @@ class SettingsWindow(QMainWindow):
                 background-color: transparent;
             }}
             QHeaderView::section:horizontal {{
-                background-color: {btn_bg};
+                background-color: {bg};
                 color: {btn_fg};
                 padding: 8px 4px;
                 border: none;
@@ -1288,7 +1288,7 @@ class SettingsWindow(QMainWindow):
             /* 现代滑块样式 */
             QSlider::groove:horizontal {{
                 height: 6px;
-                background: {btn_hover};
+                background: {card_hover};
                 border-radius: 3px;
                 margin: 4px 0;
             }}
@@ -1300,17 +1300,17 @@ class SettingsWindow(QMainWindow):
                 border-radius: 9px;
             }}
             QSlider::handle:horizontal:hover {{
-                background: {btn_hover};
+                background: {card_hover};
             }}
             QPushButton {{
-                background-color: {btn_bg};
+                background-color: {bg};
                 color: {btn_fg};
                 border: 1px solid {card_border};
                 border-radius: 6px;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{
-                background-color: {btn_hover};
+                background-color: {card_hover};
             }}
             QPushButton:checked {{
                 background-color: {card_border};
@@ -1351,7 +1351,7 @@ class SettingsWindow(QMainWindow):
                 font-size: {scaled_font_size + 1}px;
             }}
             QPushButton:hover {{
-                background-color: {btn_hover};
+                background-color: {card_hover};
             }}
             QPushButton:checked {{
                 background-color: {card_border};
