@@ -1244,11 +1244,11 @@ class SettingsWindow(QMainWindow):
                 color: {btn_fg};
                 padding: 8px 4px;
                 border: none;
-                border-right: 1px solid {btn_bd};
+                border-right: 1px solid {card_border};
                 font-weight: bold;
             }}
             QHeaderView::section:horizontal:first {{
-                border-left: 1px solid {btn_bd};
+                border-left: 1px solid {card_border};
             }}
             /* 现代滚动条样式 */
             QScrollBar:vertical {{
@@ -1296,7 +1296,7 @@ class SettingsWindow(QMainWindow):
                 width: 18px;
                 height: 18px;
                 margin: -6px 0;
-                background: {btn_bd};
+                background: {card_border};
                 border-radius: 9px;
             }}
             QSlider::handle:horizontal:hover {{
@@ -1305,7 +1305,7 @@ class SettingsWindow(QMainWindow):
             QPushButton {{
                 background-color: {btn_bg};
                 color: {btn_fg};
-                border: 1px solid {btn_bd};
+                border: 1px solid {card_border};
                 border-radius: 6px;
                 padding: 8px 16px;
             }}
@@ -1313,7 +1313,7 @@ class SettingsWindow(QMainWindow):
                 background-color: {btn_hover};
             }}
             QPushButton:checked {{
-                background-color: {btn_bd};
+                background-color: {card_border};
                 color: white;
             }}
             QCheckBox {{
@@ -1324,11 +1324,11 @@ class SettingsWindow(QMainWindow):
                 width: 18px;
                 height: 18px;
                 border-radius: 4px;
-                border: 2px solid {btn_bd};
+                border: 2px solid {card_border};
                 background: {input_bg};
             }}
             QCheckBox::indicator:checked {{
-                background: {btn_bd};
+                background: {card_border};
             }}
             QScrollArea {{
                 border: none;

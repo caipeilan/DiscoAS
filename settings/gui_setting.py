@@ -112,14 +112,14 @@ class GuiSetting:
             "language": "zh_CN",
             "card": {
                 "background": "#FFFFFF",
-                "background_hover": "#d0ebf0",
-                "border": "#76e8fd",
+                "background_hover": "#e3f3f6",
+                "border": "#76d2fd",
                 "font_color": "#000000"
             },
             "cancel_button": {
-                "background": "#FFFFFF",
-                "background_hover": "#d0ebf0",
-                "border": "#76e8fd",
+                "background": "#fecbc1",
+                "background_hover": "#fd8b76",
+                "border": "#fc6044",
                 "font_color": "#000000"
             },
             "setting": {
@@ -130,14 +130,14 @@ class GuiSetting:
             },
             "card_night_mode": {
                 "background": "#565656",
-                "background_hover": "#3dabbf",
-                "border": "#76c6fd",
+                "background_hover": "#3d75bf",
+                "border": "#76d2fd",
                 "font_color": "#ffffff"
             },
             "cancel_button_night_mode": {
-                "background": "#565656",
-                "background_hover": "#3dabbf",
-                "border": "#76c6fd",
+                "background": "#400601",
+                "background_hover": "#bd0316",
+                "border": "#fc6044",
                 "font_color": "#ffffff"
             },
             "setting_night_mode": {

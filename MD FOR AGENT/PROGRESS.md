@@ -29,7 +29,8 @@
 - [x] 异步启动优化：使用 `QTimer.singleShot(0, ...)` 实现启动画面与程序加载并行
 - [x] 修改 `SplashScreen.wait_for_finish()` 使用 `QEventLoop` 替代 `time.sleep`，允许事件循环处理后台任务
 - [x] 更新 FIRST.md，添加文档更新规范
-- [x] 修复设置界面主色调：将左侧导航栏选中状态背景色从 `cancel_button.border` 改为 `card.border`
+- [x] 修复设置界面主色调：将所有交互元素（按钮、复选框、滑块、表格头、导航栏选中）的配色从 `cancel_button.border` 改为 `card.border`
+- [x] 更新默认配色：将 `gui_setting.py` 中的默认颜色改为与用户保存的配置一致
 
 ---
 
