@@ -21,6 +21,8 @@
     "refresh_after_cancel": "Refresh song list after cancel",
     "global_shortcut": "Global Shortcut:",
     "shortcut_placeholder": "e.g.: Alt+D",
+    "set_shortcut": "Set Shortcut",
+    "shortcut_recording": "Press shortcut... (ESC to cancel)",
     "mystery_cover": "Secret Song Cover",
     "mystery_cover_hint": "Leave empty for default cover, supports URL and local image path",
     "cover_source": "Cover Source:",

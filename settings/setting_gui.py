@@ -2,7 +2,7 @@ import sys
 import os
 import importlib
 import datetime
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+from PyQt6.QtWidgets import (QApplication, QColorDialog, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QStackedWidget, QLabel, QSpinBox,
                              QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem,
                              QPushButton, QHeaderView, QGroupBox,
@@ -43,7 +43,7 @@ except ImportError:
     def _(key):
         return key
 from PyQt6.QtGui import QColor, QAction, QFont, QIcon, QPixmap
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QTimer
 
 # 导入你修改后的类
 try:
@@ -55,29 +55,47 @@ except ImportError:
 
 
 class ColorPreviewWidget(QWidget):
-    """用于显示颜色的小方块 (纯展示，无点击事件)"""
+    """用于显示颜色的小方块 (可点击弹出调色盘)"""
+    color_changed = pyqtSignal(str)  # 颜色变更信号
+
     def __init__(self, color_hex, parent=None):
         super().__init__(parent)
         self.setFixedSize(24, 24)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)  # 鼠标悬停时显示手型
         self.color_hex = color_hex if color_hex else "#FFFFFF"
         self.update_style()
-        
+
     def update_style(self):
         if not QColor(self.color_hex).isValid():
             display_color = "#FFFFFF"
         else:
             display_color = self.color_hex
-            
+
         self.setStyleSheet(f"""
-            background-color: {display_color}; 
-            border: 1px solid #888; 
+            background-color: {display_color};
+            border: 1px solid #888;
             border-radius: 3px;
         """)
-    
+
     def set_color(self, color_hex):
         self.color_hex = color_hex
         self.update_style()
+
+    def mousePressEvent(self, event):
+        """点击时弹出颜色选择器"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.open_color_picker()
+        super().mousePressEvent(event)
+
+    def open_color_picker(self):
+        """打开系统颜色选择器"""
+        initial_color = QColor(self.color_hex) if QColor(self.color_hex).isValid() else QColor("#FFFFFF")
+        color = QColorDialog.getColor(initial_color, self, "选择颜色")
+        if color.isValid():
+            self.color_hex = color.name()
+            self.update_style()
+            self.color_changed.emit(self.color_hex)  # 发出颜色变更信号
 
 
 class FloatSlider(QWidget):
@@ -366,10 +384,24 @@ class SettingsWindow(QMainWindow):
         self.chk_refresh.setChecked(self.pa_setting.refreshing_after_cancel)
         form_basic.addRow(self.chk_refresh)
         
+        # 快捷键设置
+        shortcut_container = QWidget()
+        shortcut_layout = QHBoxLayout(shortcut_container)
+        shortcut_layout.setContentsMargins(0, 0, 0, 0)
+
         self.edit_shortcut = QLineEdit()
         self.edit_shortcut.setText(self.pa_setting.shortcut_key)
         self.edit_shortcut.setPlaceholderText(_("shortcut_placeholder"))
-        form_basic.addRow(_("global_shortcut"), self.edit_shortcut)
+        self.edit_shortcut.setMinimumWidth(200)
+        shortcut_layout.addWidget(self.edit_shortcut)
+
+        # 添加快捷键录制按钮
+        self.btn_set_shortcut = QPushButton(_("set_shortcut"))
+        self.btn_set_shortcut.setFixedWidth(150)
+        self.btn_set_shortcut.clicked.connect(self.start_shortcut_recording)
+        shortcut_layout.addWidget(self.btn_set_shortcut)
+
+        form_basic.addRow(_("global_shortcut"), shortcut_container)
         
         v_layout.addWidget(group_basic)
 
@@ -521,15 +553,20 @@ class SettingsWindow(QMainWindow):
             for label, main_key, sub_key in fields:
                 sub_dict = setting_dict.get(main_key, {})
                 current_color = sub_dict.get(sub_key, "#FFFFFF")
-                
+
                 color_input = QLineEdit()
                 color_input.setText(current_color)
                 color_input.setFixedWidth(100)
-                
+
                 color_preview = ColorPreviewWidget(current_color)
-                
+
                 from functools import partial
+
+                # 连接输入框文本变化到预览更新
                 color_input.textChanged.connect(partial(self.update_color_preview, color_preview))
+
+                # 连接预览点击后的颜色变化到输入框更新
+                color_preview.color_changed.connect(color_input.setText)
                 
                 input_container = QWidget()
                 input_layout = QHBoxLayout(input_container)
@@ -687,6 +724,100 @@ class SettingsWindow(QMainWindow):
         except Exception as e:
             print(f"设置开机自启动失败: {e}")
             return False
+
+    def start_shortcut_recording(self):
+        """开始快捷键录制"""
+        # 禁用按钮
+        self.btn_set_shortcut.setEnabled(False)
+        self.edit_shortcut.clear()
+        self.edit_shortcut.setPlaceholderText(_("shortcut_recording"))
+        self.edit_shortcut.setFocus()
+
+        # 安装事件过滤器来捕获按键事件
+        self.edit_shortcut.installEventFilter(self)
+        self._recording_shortcut = True
+
+    def stop_shortcut_recording(self):
+        """停止快捷键录制"""
+        self._recording_shortcut = False
+        self.edit_shortcut.removeEventFilter(self)
+        self.btn_set_shortcut.setEnabled(True)
+        self.edit_shortcut.setPlaceholderText(_("shortcut_placeholder"))
+
+    def eventFilter(self, obj, event):
+        """事件过滤器，用于捕获快捷键输入"""
+        if obj == self.edit_shortcut and getattr(self, '_recording_shortcut', False):
+            if event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+
+                # 按 ESC 取消录制
+                if key == Qt.Key.Key_Escape:
+                    self.stop_shortcut_recording()
+                    self.edit_shortcut.setText(self.pa_setting.shortcut_key)
+                    return True
+
+                # 构建快捷键字符串
+                modifiers = []
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    modifiers.append("Ctrl")
+                if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                    modifiers.append("Alt")
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    modifiers.append("Shift")
+
+                # 获取按键名称
+                key_name = Qt.Key(key)
+                key_text = ""
+
+                # 功能键
+                if key in (Qt.Key.Key_F1, Qt.Key.Key_F2, Qt.Key.Key_F3, Qt.Key.Key_F4,
+                           Qt.Key.Key_F5, Qt.Key.Key_F6, Qt.Key.Key_F7, Qt.Key.Key_F8,
+                           Qt.Key.Key_F9, Qt.Key.Key_F10, Qt.Key.Key_F11, Qt.Key.Key_F12):
+                    key_text = f"F{key - Qt.Key.Key_F1 + 1}"
+                # 特殊键
+                elif key == Qt.Key.Key_Space:
+                    key_text = "Space"
+                elif key == Qt.Key.Key_Tab:
+                    key_text = "Tab"
+                elif key == Qt.Key.Key_Backspace:
+                    key_text = "Backspace"
+                elif key == Qt.Key.Key_Return:
+                    key_text = "Return"
+                elif key == Qt.Key.Key_Enter:
+                    key_text = "Enter"
+                elif key == Qt.Key.Key_Delete:
+                    key_text = "Delete"
+                elif key == Qt.Key.Key_Insert:
+                    key_text = "Insert"
+                elif key == Qt.Key.Key_Home:
+                    key_text = "Home"
+                elif key == Qt.Key.Key_End:
+                    key_text = "End"
+                elif key == Qt.Key.Key_PageUp:
+                    key_text = "PageUp"
+                elif key == Qt.Key.Key_PageDown:
+                    key_text = "PageDown"
+                elif key == Qt.Key.Key_Up:
+                    key_text = "Up"
+                elif key == Qt.Key.Key_Down:
+                    key_text = "Down"
+                elif key == Qt.Key.Key_Left:
+                    key_text = "Left"
+                elif key == Qt.Key.Key_Right:
+                    key_text = "Right"
+                # 单个字符键
+                elif key >= Qt.Key.Key_A and key <= Qt.Key.Key_Z:
+                    key_text = chr(key)
+                elif key >= Qt.Key.Key_0 and key <= Qt.Key.Key_9:
+                    key_text = chr(key)
+
+                if key_text:
+                    shortcut_str = "+".join(modifiers + [key_text])
+                    self.edit_shortcut.setText(shortcut_str)
+                    self.stop_shortcut_recording()
+                    return True
+
+        return super().eventFilter(obj, event)
 
 
     def load_playlist_table(self):
