@@ -29,6 +29,7 @@
 - [x] 异步启动优化：使用 `QTimer.singleShot(0, ...)` 实现启动画面与程序加载并行
 - [x] 修改 `SplashScreen.wait_for_finish()` 使用 `QEventLoop` 替代 `time.sleep`，允许事件循环处理后台任务
 - [x] 更新 FIRST.md，添加文档更新规范
+- [x] 修复设置界面主色调：将左侧导航栏选中状态背景色从 `cancel_button.border` 改为 `card.border`
 
 ---
 
@@ -45,3 +46,4 @@
 |------|---------|
 | 2024-03-18 | 初始化 PROGRESS.md |
 | 2024-03-18 | 更新异步启动优化完成状态，添加文档更新规范到 FIRST.md |
+| 2024-03-18 | 修复设置界面主色调问题 |

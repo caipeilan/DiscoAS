@@ -1354,7 +1354,7 @@ class SettingsWindow(QMainWindow):
                 background-color: {btn_hover};
             }}
             QPushButton:checked {{
-                background-color: {btn_bd};
+                background-color: {card_border};
                 color: white;
                 border-radius: 4px;
             }}
