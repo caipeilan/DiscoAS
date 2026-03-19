@@ -181,7 +181,16 @@ class SettingsWindow(QMainWindow):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(15, 20, 15, 20)
         left_layout.setSpacing(10)
-        
+
+        # Logo
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("src/DiscoAS.png")
+        scaled_pixmap = logo_pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        logo_label.setPixmap(scaled_pixmap)
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(logo_label)
+        left_layout.addSpacing(10)
+
         # 导航按钮
         nav_buttons = [
             (_("about"), 0),
