@@ -32,6 +32,9 @@ from load_playlist_json import Playlist
 sys.path.append(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'settings'))
 
+# 导入统一的路径管理模块
+from settings.user_data_path import get_resource_dir, get_settings_dir
+
 # 导入设置界面模块
 try:
     from settings.setting_gui import SettingsWindow
@@ -44,20 +47,12 @@ try:
     _ = i18n.t
     # 加载保存的语言设置
     try:
-        # 查找用户数据目录
-        settings_dir = None
-        for base in [os.path.dirname(__file__), os.path.join(os.path.dirname(__file__), '..')]:
-            potential = os.path.join(base, 'user_data', 'settings')
-            if os.path.exists(potential):
-                settings_dir = potential
-                break
-        if settings_dir:
-            gui_settings_file = os.path.join(settings_dir, 'gui_settings.json')
-            if os.path.exists(gui_settings_file):
-                with open(gui_settings_file, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-                lang = settings.get('language', 'zh_CN')
-                i18n.set_language(lang)
+        gui_settings_file = os.path.join(get_settings_dir(), 'gui_settings.json')
+        if os.path.exists(gui_settings_file):
+            with open(gui_settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+            lang = settings.get('language', 'zh_CN')
+            i18n.set_language(lang)
     except:
         pass
 except ImportError:
@@ -1084,7 +1079,7 @@ def create_tray_icon(app, discover_app):
     tray = QSystemTrayIcon()
     
     # 尝试加载图标，如果失败使用默认
-    icon_path = os.path.join(os.path.dirname(__file__), "src", "Icon.ico")
+    icon_path = os.path.join(get_resource_dir(), "src", "Icon.ico")
     if os.path.exists(icon_path):
         tray.setIcon(QIcon(icon_path))
     else:

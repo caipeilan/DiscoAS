@@ -184,7 +184,7 @@ class SettingsWindow(QMainWindow):
 
         # Logo
         logo_label = QLabel()
-        logo_pixmap = QPixmap("src/DiscoAS.png")
+        logo_pixmap = QPixmap(os.path.join(_get_src_path(), "DiscoAS.png"))
         scaled_pixmap = logo_pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
