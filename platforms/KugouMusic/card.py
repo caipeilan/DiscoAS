@@ -91,21 +91,34 @@ class SongCard:
     def _find_song_info(self) -> Optional[dict]:
         """从 songs_info 中查找歌曲信息"""
         try:
-            from settings.user_data_path import get_playlist_dir
-            # 遍历所有 JSON 文件查找
-            playlist_dir = get_playlist_dir("KugouMusic")
-            if not os.path.exists(playlist_dir):
-                return None
+            from settings.user_data_path import get_playlist_dir, get_album_dir
 
-            for filename in os.listdir(playlist_dir):
-                if filename.endswith(".json"):
-                    filepath = os.path.join(playlist_dir, filename)
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    songs_info = data.get("songs_info", [])
-                    for song in songs_info:
-                        if song.get("hash", "").upper() == self.song_hash.upper():
-                            return song
+            # 先搜 playlist 目录
+            playlist_dir = get_playlist_dir("KugouMusic")
+            if os.path.exists(playlist_dir):
+                for filename in os.listdir(playlist_dir):
+                    if filename.endswith(".json"):
+                        filepath = os.path.join(playlist_dir, filename)
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        songs_info = data.get("songs_info", [])
+                        for song in songs_info:
+                            if song.get("hash", "").upper() == self.song_hash.upper():
+                                return song
+
+            # 再搜 album 目录
+            album_dir = get_album_dir("KugouMusic")
+            if os.path.exists(album_dir):
+                for filename in os.listdir(album_dir):
+                    if filename.endswith(".json"):
+                        filepath = os.path.join(album_dir, filename)
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        songs_info = data.get("songs_info", [])
+                        for song in songs_info:
+                            if song.get("hash", "").upper() == self.song_hash.upper():
+                                return song
+
             return None
         except Exception as e:
             print(f"查找歌曲信息失败: {e}")

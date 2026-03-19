@@ -103,32 +103,78 @@ class PlaylistAlbumJson:
             self.specialid = specialid
 
         elif self.typename == "album":
-            # 获取专辑详情
-            url = f"{KUGOU_BASE_URL}/api/v3/album/info"
-            params = {
-                "albumid": self.playlist_album_id,
+            # 判断是分享码还是 album_id（纯数字为 album_id）
+            if self.playlist_album_id.isdigit():
+                album_id = self.playlist_album_id
+            else:
+                album_id = self._resolve_album_share_code(self.playlist_album_id)
+                if not album_id:
+                    raise ValueError("无法解析专辑分享码")
+
+            # 获取专辑封面和名称
+            album_info_url = f"{KUGOU_BASE_URL}/api/v3/album/info"
+            album_info_params = {
+                "albumid": album_id,
                 "plat": 2,
                 "version": 8400,
             }
             try:
-                response = session.get(url, params=params, timeout=10)
-                data = response.json()
+                info_response = session.get(album_info_url, params=album_info_params, timeout=10)
+                info_data = info_response.json()
 
-                if data.get('status') == 1:
-                    self.playlist_album_name = data.get('data', {}).get('albumname', '未知专辑')
-                    self.playlist_album_json = data
+                if info_data.get('status') == 1:
+                    self.playlist_album_name = info_data.get('data', {}).get('albumname', '未知专辑')
                 else:
                     raise ValueError("无法获取专辑信息")
             except Exception as e:
                 print(f"获取专辑详情失败: {e}")
                 raise
+
+            # 翻页获取专辑内的所有歌曲
+            all_songs = []
+            page = 1
+            pagesize = 500
+
+            while True:
+                album_songs_url = f"{KUGOU_BASE_URL}/api/v3/album/song"
+                songs_params = {
+                    "albumid": album_id,
+                    "page": page,
+                    "plat": 2,
+                    "pagesize": pagesize,
+                    "version": 8400,
+                }
+                try:
+                    songs_response = session.get(album_songs_url, params=songs_params, timeout=10)
+                    songs_data = songs_response.json()
+
+                    if songs_data.get('status') != 1:
+                        break
+
+                    songs_list = songs_data.get('data', {}).get('info', [])
+                    all_songs.extend(songs_list)
+
+                    if len(songs_list) < pagesize:
+                        break
+                    page += 1
+                except Exception as e:
+                    print(f"翻页拉取专辑歌曲异常: {e}")
+                    break
+
+            # 保存到 playlist_album_json，结构与 playlist 分支对齐
+            self.playlist_album_json = {
+                "data": {
+                    "info": all_songs
+                }
+            }
+            self.specialid = album_id
         else:
             raise ValueError("typename must be 'playlist' or 'album'")
 
         print(f"已获取 {self.typename}: {self.playlist_album_name}")
 
     def _resolve_share_code(self, share_code: str) -> Optional[str]:
-        """解析分享码获取 specialid"""
+        """解析歌单分享码获取 specialid"""
         import re
 
         share_url = f"https://t.kugou.com/song.html?id={share_code}"
@@ -150,6 +196,31 @@ class PlaylistAlbumJson:
             return None
         except Exception as e:
             print(f"解析分享码失败: {e}")
+            return None
+
+    def _resolve_album_share_code(self, share_code: str) -> Optional[str]:
+        """解析专辑分享码获取 album_id"""
+        import re
+
+        share_url = f"https://t.kugou.com/song.html?id={share_code}"
+        try:
+            session = get_session()
+            response = session.get(share_url, allow_redirects=True, timeout=10)
+            response.raise_for_status()
+
+            # 从 URL 中提取 album_id（如 /album/info/12345）
+            url_match = re.search(r'/album/(?:info/)?(\d+)', response.url)
+            if url_match:
+                return url_match.group(1)
+
+            # 从 HTML 中提取 albumid
+            html_match = re.search(r'["\']?album[_]?id["\']?\s*[:=]\s*["\']?(\d+)["\']?', response.text, re.IGNORECASE)
+            if html_match:
+                return html_match.group(1)
+
+            return None
+        except Exception as e:
+            print(f"解析专辑分享码失败: {e}")
             return None
 
     def get_id(self) -> str:
