@@ -704,8 +704,8 @@ class SettingsWindow(QMainWindow):
             )
             
             if enable:
-                # 检测是否是打包后的exe
-                if getattr(sys, 'frozen', False):
+                # 检测是否是打包后的exe - 使用 _MEIPASS 判断更可靠
+                if hasattr(sys, '_MEIPASS'):
                     # 打包后的exe，使用exe本身路径
                     exe_path = os.path.realpath(sys.executable)
                     startup_cmd = f'"{exe_path}"'

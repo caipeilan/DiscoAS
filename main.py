@@ -8,6 +8,16 @@ import traceback
 import pygetwindow as gw
 from typing import Optional
 
+# 单实例检查
+try:
+    import win32event, win32api, pywintypes
+    _SINGLE_INSTANCE_MUTEX = win32event.CreateMutex(None, False, "DiscoAS_SingleInstance_Mutex")
+    if win32api.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        print("DiscoAS 已在运行中，退出。")
+        sys.exit(0)
+except Exception:
+    pass  # 忽略检查失败，继续启动
+
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
 
