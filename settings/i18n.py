@@ -27,8 +27,7 @@ _translations = {}
 def get_i18n_dir():
     """Get the i18n directory path"""
     if getattr(sys, 'frozen', False):
-        from settings.user_data_path import get_resource_dir
-        return os.path.join(get_resource_dir(), "i18n")
+        return os.path.join(sys._MEIPASS, "settings", "i18n")
     else:
         return os.path.join(os.path.dirname(__file__), "i18n")
 
