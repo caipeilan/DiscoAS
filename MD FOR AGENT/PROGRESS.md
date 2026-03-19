@@ -22,6 +22,11 @@
 
 ## 最近完成
 
+### 2024-03-19
+
+- [x] KugouMusic 专辑 JSON 获取支持：在 `get_json.py` 中新增 `_resolve_album_share_code()` 方法解析专辑分享码，重写 album 分支的 `_fetch_data()` 实现翻页拉取专辑歌曲（`/api/v3/album/song`），与 playlist 分支数据结构对齐
+- [x] KugouMusic card.py 修复：`SongCard._find_song_info()` 原只搜索 playlist 目录，新增 album 目录搜索，解决专辑歌曲显示"？？？？？"和封面/播放链接错误的问题
+
 ### 2024-03-18
 
 - [x] 修复开机自启动：使用 `conda run -n DiscoverASong python main.py` 替代直接 python 路径
@@ -49,4 +54,5 @@
 
 | 日期 | 更新内容 |
 |------|---------|
+| 2024-03-19 | 新增 KugouMusic 专辑支持开发记录（get_json.py 专辑翻页、card.py album 目录搜索） |
 

@@ -896,15 +896,20 @@ class DiscoverOverlay(QMainWindow):
             
             card.play_requested.connect(self._on_song_play)
             
+            tag = "[秘密歌曲]" if song.mystery_mode else ""
+            debug_info = song.get_debug_info()
+            print(f"[调试] 展示歌曲 {i+1}: {debug_info} {tag}")
+
             row = i // columns
             col = i % columns
             self.song_layout.addWidget(card, row, col)
-            
+
     def _on_song_play(self, song_card):
         """播放歌曲"""
         # 标记用户播放了歌曲，下次进入需要刷新
         global _user_played_song
         _user_played_song = True
+        print(f"[调试] 用户选择歌曲，窗口名称: {song_card.get_window_name()}")
         print("用户播放了歌曲，标记为已播放")
         
         # 播放

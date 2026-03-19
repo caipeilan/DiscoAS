@@ -325,10 +325,14 @@ class DiscoverApp:
     def _minimize_player_window(self, song_card) -> None:
         """最小化播放器窗口"""
         try:
-            
+
             time.sleep(4)  # 等待窗口出现
-            
-            windows = gw.getWindowsWithTitle(song_card.get_window_name())
+
+            title_prefix = song_card.get_window_name()
+            print(f"[调试] 前缀查找窗口: {title_prefix}")
+            all_windows = gw.getAllWindows()
+            windows = [w for w in all_windows if w.title[:len(title_prefix)].lower() == title_prefix.lower()] if title_prefix else []
+            print(f"[调试] 找到 {len(windows)} 个匹配窗口")
             if windows:
                 window = windows[0]
                 window.minimize()

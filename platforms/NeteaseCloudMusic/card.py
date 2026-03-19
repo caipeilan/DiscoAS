@@ -38,6 +38,7 @@ class SongCard:
         self.song_artists: List[dict] = []
         self.song_artist_names: List[str] = []
         self.window_name: Optional[str] = None
+        self._real_window_name: Optional[str] = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
         self.album_pic_url: Optional[str] = None
         self.have_loaded: bool = False
 
@@ -45,58 +46,52 @@ class SongCard:
         """加载歌曲详情"""
         if self.have_loaded:
             return
-            
-        if self.mystery_mode:
-            # 神秘模式不需要加载详情
-            self.song_name = "??????????"
-            self.song_artist_names = ["??????????"]
-            self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
-            self.album_pic_url = self.mystery_pic_url
-            self.have_loaded = True
-            return
-        
+
         try:
             session = get_session()
-            
+
             # 使用网易云音乐歌曲详情API
             url = "https://music.163.com/api/song/detail/"
             params = {
                 "ids": f"[{self.song_id}]"
             }
-            
+
             response = session.get(url, params=params, timeout=10)
             data = response.json()
-            
+
             if "songs" in data and len(data["songs"]) > 0:
                 song_info = data["songs"][0]
-                
+
                 self.song_detail_json = song_info
                 self.song_name = song_info.get("name", "??????????")
-                
-                # 获取艺术家信息
                 self.song_artists = song_info.get("artists", [])
                 self.song_artist_names = [artist.get("name", "??????????") for artist in self.song_artists]
-                
-                # 构建窗口名
-                self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
-                
-                # 获取专辑信息
                 album = song_info.get("album", {})
                 self.album_pic_url = album.get("blurPicUrl", self.mystery_pic_url)
-                
-                self.have_loaded = True
             else:
                 raise ValueError("无法获取歌曲详情")
-                
         except Exception as e:
             print(f"歌曲详情加载失败: {e}")
             self._set_error_defaults()
+
+        # 神秘模式下覆盖为假数据用于显示，但真实数据已保存在上述属性中
+        if self.mystery_mode:
+            self.song_name = "??????????"
+            self.song_artist_names = ["??????????"]
+            self.album_pic_url = self.mystery_pic_url
+
+        # 始终构建真实窗口名（用于播放器窗口匹配，不受 mystery_mode 影响）
+        self._real_window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        # window_name 用于 UI 显示（mystery_mode 下为假数据）
+        self.window_name = self._real_window_name
+        self.have_loaded = True
 
     def _set_error_defaults(self) -> None:
         """设置错误默认值为未知"""
         self.song_name = "??????????"
         self.song_artist_names = ["??????????"]
         self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        self._real_window_name = self.window_name
         self.album_pic_url = self.mystery_pic_url
         self.have_loaded = False
 
@@ -114,7 +109,7 @@ class SongCard:
         return self.song_artist_names or ["??????????"]
 
     def get_window_name(self) -> str:
-        return self.window_name or ""
+        return self._real_window_name or ""
 
     def get_album_pic_url(self) -> str:
         if self.mystery_mode:
@@ -129,6 +124,14 @@ class SongCard:
         encoded_json = base64.b64encode(json_str.encode('utf-8')).decode('ascii')
         url = prefix + encoded_json
         return url
+
+    def get_debug_info(self) -> str:
+        """返回歌曲真实信息，用于后台调试输出"""
+        if self.song_detail_json:
+            real_name = self.song_detail_json.get("name", "??????????")
+            real_artists = [a.get("name", "?????????") for a in self.song_detail_json.get("artists", [])]
+            return f"{real_name} - {'/'.join(real_artists)}"
+        return self.get_name() + " - " + "/".join(self.get_artist_names())
 
 
 # 测试代码

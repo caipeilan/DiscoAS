@@ -38,21 +38,13 @@ class SongCard:
         self.song_name: Optional[str] = None
         self.song_artist_names: List[str] = []
         self.window_name: Optional[str] = None
+        self._real_window_name: Optional[str] = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
         self.album_pic_url: Optional[str] = None
         self.have_loaded: bool = False
 
     def load_song_detail(self) -> None:
         """加载歌曲详情"""
         if self.have_loaded:
-            return
-
-        if self.mystery_mode:
-            # 神秘模式不需要加载详情
-            self.song_name = "？？？？？"
-            self.song_artist_names = ["？？？？？"]
-            self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
-            self.album_pic_url = self.mystery_pic_url
-            self.have_loaded = True
             return
 
         try:
@@ -64,29 +56,34 @@ class SongCard:
             # filename 格式：歌手1、歌手2 - 歌名
             filename = song_info.get("filename", "")
 
-            # 解析艺术家和歌曲名
             if " - " in filename:
                 parts = filename.split(" - ")
                 artist_part = parts[0].strip()
-                # 歌曲名是最后一部分
                 self.song_name = " - ".join(parts[1:]).strip()
-                # 酷狗多歌手用"、"分隔
                 self.song_artist_names = [a.strip() for a in artist_part.split("、")]
             else:
                 self.song_name = filename
                 self.song_artist_names = ["？？？？？"]
 
-            # 构建窗口名
-            self.window_name = self.song_name + " - " + "/".join(self.song_artist_names) if self.song_artist_names else self.song_name
-
             # 获取封面
             self.album_pic_url = self._get_cover_url(song_info)
-
-            self.have_loaded = True
 
         except Exception as e:
             print(f"加载歌曲详情失败: {e}")
             self._set_error_defaults()
+
+        # 神秘模式下覆盖为假数据用于显示，但真实数据已保存在上述属性中
+        if self.mystery_mode:
+            self.song_name = "？？？？？"
+            self.song_artist_names = ["？？？？？"]
+            self.album_pic_url = self.mystery_pic_url
+
+        # 始终构建真实窗口名（用于播放器窗口匹配，不受 mystery_mode 影响）
+        # 酷狗窗口格式：{歌手1}、{歌手2} - {歌名}
+        self._real_window_name = "、".join(self.song_artist_names) + " - " + self.song_name if self.song_artist_names else self.song_name
+        # window_name 用于 UI 显示（mystery_mode 下为假数据）
+        self.window_name = self._real_window_name
+        self.have_loaded = True
 
     def _find_song_info(self) -> Optional[dict]:
         """从 songs_info 中查找歌曲信息"""
@@ -156,7 +153,8 @@ class SongCard:
         """设置错误默认值为未知"""
         self.song_name = "？？？？？"
         self.song_artist_names = ["？？？？？"]
-        self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
+        self.window_name = "、".join(self.song_artist_names) + " - " + self.song_name
+        self._real_window_name = self.window_name
         self.album_pic_url = self.mystery_pic_url
         self.have_loaded = True
 
@@ -164,13 +162,17 @@ class SongCard:
         return self.song_hash
 
     def get_name(self) -> str:
+        if self.mystery_mode:
+            return "？？？？？"
         return self.song_name or "？？？？？"
 
     def get_artist_names(self) -> List[str]:
+        if self.mystery_mode:
+            return ["？？？？？"]
         return self.song_artist_names or ["？？？？？"]
 
     def get_window_name(self) -> str:
-        return self.window_name or ""
+        return self._real_window_name or ""
 
     def get_album_pic_url(self) -> str:
         if self.mystery_mode:
@@ -211,6 +213,14 @@ class SongCard:
         b64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         # 3. 拼接最终协议
         return f"kugou://play?p={b64_str}"
+
+    def get_debug_info(self) -> str:
+        """返回歌曲真实信息，用于后台调试输出"""
+        song_info = self._find_song_info()
+        if song_info:
+            filename = song_info.get("filename", "")
+            return filename
+        return self.get_name() + " - " + "/".join(self.get_artist_names())
 
 
 # 测试代码
