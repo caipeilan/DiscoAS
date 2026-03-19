@@ -5,14 +5,11 @@ Spotify 歌曲卡片模块
 """
 
 import json
-import os
-import sys
 import requests
 from typing import List, Optional
 
 # 导入共享的 Token 获取函数
-sys.path.append(os.path.dirname(__file__))
-from get_json import get_session
+from platforms.Spotify.get_json import get_session
 
 
 class SongCard:

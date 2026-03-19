@@ -10,10 +10,7 @@ import requests
 from typing import List, Optional
 
 # 导入共享的 Session
-import os
-import sys
-sys.path.append(os.path.dirname(__file__))
-from get_json import get_session
+from platforms.KugouMusic.get_json import get_session
 
 
 class SongCard:
