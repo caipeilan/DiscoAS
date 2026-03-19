@@ -25,6 +25,9 @@
 
 - [x] KugouMusic 专辑 JSON 获取支持：在 `get_json.py` 中新增 `_resolve_album_share_code()` 方法解析专辑分享码，重写 album 分支的 `_fetch_data()` 实现翻页拉取专辑歌曲（`/api/v3/album/song`），与 playlist 分支数据结构对齐
 - [x] KugouMusic card.py 修复：`SongCard._find_song_info()` 原只搜索 playlist 目录，新增 album 目录搜索，解决专辑歌曲显示"？？？？？"和封面/播放链接错误的问题
+- [x] 秘密歌曲调试信息：各平台 SongCard 新增 `get_debug_info()` 方法返回真实歌曲信息；修复 `load_song_detail()` 在 mystery_mode 下不加载真实数据的问题，确保 `_real_window_name` 始终保存真实窗口名用于播放器匹配
+- [x] 播放器窗口匹配修复：将 `gw.getWindowsWithTitle()` 子串匹配改为前缀匹配，解决 QQMusic 窗口标题含注释导致匹配失败的问题
+- [x] 设置界面导航栏添加 Logo：在 `setting_gui.py` 左侧导航栏顶部展示 `src/DiscoAS.png`
 
 - [x] 修复开机自启动：使用 `conda run -n DiscoverASong python main.py` 替代直接 python 路径
 - [x] 在 `Discover_gui.run_gui()` 中添加启动画面支持
@@ -51,5 +54,5 @@
 
 | 日期 | 更新内容 |
 |------|---------|
-| 2026-03-19 | 新增 KugouMusic 专辑支持开发记录（get_json.py 专辑翻页、card.py album 目录搜索） |
+| 2026-03-19 | 新增 KugouMusic 专辑支持；秘密歌曲调试信息；播放器窗口前缀匹配修复；设置界面 Logo；文档同步更新 |
 
