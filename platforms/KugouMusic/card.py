@@ -48,8 +48,8 @@ class SongCard:
 
         if self.mystery_mode:
             # 神秘模式不需要加载详情
-            self.song_name = "神秘歌曲"
-            self.song_artist_names = ["未知艺术家"]
+            self.song_name = "？？？？？"
+            self.song_artist_names = ["？？？？？"]
             self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
             self.album_pic_url = self.mystery_pic_url
             self.have_loaded = True
@@ -74,7 +74,7 @@ class SongCard:
                 self.song_artist_names = [a.strip() for a in artist_part.split("、")]
             else:
                 self.song_name = filename
-                self.song_artist_names = ["未知艺术家"]
+                self.song_artist_names = ["？？？？？"]
 
             # 构建窗口名
             self.window_name = self.song_name + " - " + "/".join(self.song_artist_names) if self.song_artist_names else self.song_name
@@ -141,8 +141,8 @@ class SongCard:
 
     def _set_error_defaults(self) -> None:
         """设置错误默认值为未知"""
-        self.song_name = "未知歌曲"
-        self.song_artist_names = ["未知艺术家"]
+        self.song_name = "？？？？？"
+        self.song_artist_names = ["？？？？？"]
         self.window_name = self.song_name + " - " + "/".join(self.song_artist_names)
         self.album_pic_url = self.mystery_pic_url
         self.have_loaded = True
@@ -151,10 +151,10 @@ class SongCard:
         return self.song_hash
 
     def get_name(self) -> str:
-        return self.song_name or "未知歌曲"
+        return self.song_name or "？？？？？"
 
     def get_artist_names(self) -> List[str]:
-        return self.song_artist_names or ["未知艺术家"]
+        return self.song_artist_names or ["？？？？？"]
 
     def get_window_name(self) -> str:
         return self.window_name or ""
