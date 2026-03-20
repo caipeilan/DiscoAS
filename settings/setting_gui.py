@@ -1225,10 +1225,17 @@ class SettingsWindow(QMainWindow):
     def restart_application(self):
         import subprocess
         import sys
-        
-        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "main.py")
+        import os
+
+        exe_dir = os.path.dirname(sys.executable)
+        exe_path = os.path.join(exe_dir, "DiscoAS.exe")
         self.close()
-        subprocess.Popen([sys.executable, script_path])
+        if os.path.exists(exe_path):
+            subprocess.Popen([exe_path])
+        else:
+            # fallback：开发环境用 python main.py
+            script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "main.py")
+            subprocess.Popen([sys.executable, script_path])
         QApplication.instance().quit()
 
 
