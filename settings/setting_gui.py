@@ -710,24 +710,19 @@ class SettingsWindow(QMainWindow):
             )
 
             if enable:
-                if hasattr(sys, '_MEIPASS'):
-                    # 打包环境：从 python.exe 所在目录找同目录下的 .exe 主程序
-                    exe_dir = os.path.dirname(sys.executable)
-                    import glob
-                    exe_files = glob.glob(os.path.join(exe_dir, "*.exe"))
-                    # 排除 python.exe 和 pythonw.exe，找主程序
-                    exe_path = next((f for f in exe_files if os.path.basename(f).lower() not in ('python.exe', 'pythonw.exe')), None)
-                    if not exe_path:
-                        exe_path = sys.executable  # fallback
+                # 始终优先查找 DiscoAS.exe
+                exe_dir = os.path.dirname(sys.executable)
+                exe_path = os.path.join(exe_dir, "DiscoAS.exe")
+                if os.path.exists(exe_path):
                     startup_cmd = f'"{os.path.realpath(exe_path)}"'
-                    print(f"[_set_auto_start] PACKAGED: exe={startup_cmd}")
+                    print(f"[_set_auto_start] EXE: cmd={startup_cmd}")
                 else:
-                    # 开发环境，使用 Anaconda conda run 运行 main.py
+                    # 找不到 DiscoAS.exe fallback 到 conda run
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     script_path = os.path.join(base_dir, "main.py")
                     conda_path = r"D:\anaconda\Scripts\conda.exe"
                     startup_cmd = f'"{conda_path}" run -n DiscoverASong python "{script_path}"'
-                    print(f"[_set_auto_start] DEV: cmd={startup_cmd}")
+                    print(f"[_set_auto_start] CONDA FALLBACK: cmd={startup_cmd}")
 
                 winreg.SetValueEx(key, "DiscoAS", 0, winreg.REG_SZ, startup_cmd)
             else:
