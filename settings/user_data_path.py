@@ -13,7 +13,7 @@ def get_app_root():
     获取应用根目录
     打包后使用 exe 所在目录，未打包使用脚本所在目录
     """
-    if getattr(sys, 'frozen', False):
+    if hasattr(sys, '_MEIPASS'):
         # 打包后的环境 - 使用 exe 所在目录
         return os.path.dirname(sys.executable)
     else:
@@ -26,7 +26,7 @@ def get_resource_dir():
     获取资源目录（src, settings, platforms, log）
     打包后在 sys._MEIPASS，开发环境在脚本目录
     """
-    if getattr(sys, 'frozen', False):
+    if hasattr(sys, '_MEIPASS'):
         # 打包后的环境 - 资源在 sys._MEIPASS
         return sys._MEIPASS
     else:

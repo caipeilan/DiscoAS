@@ -45,18 +45,27 @@ except ImportError:
 try:
     import i18n
     _ = i18n.t
+    print(f"[Discover_gui] i18n imported OK, lang={i18n.get_language()}")
     # 加载保存的语言设置
     try:
         gui_settings_file = os.path.join(get_settings_dir(), 'gui_settings.json')
+        print(f"[Discover_gui] gui_settings_file={gui_settings_file}, exists={os.path.exists(gui_settings_file)}")
         if os.path.exists(gui_settings_file):
             with open(gui_settings_file, 'r', encoding='utf-8') as f:
                 settings = json.load(f)
             lang = settings.get('language', 'zh_CN')
+            print(f"[Discover_gui] setting lang to {lang}")
             i18n.set_language(lang)
-    except:
+    except Exception as e:
+        print(f"[Discover_gui] i18n lang setting failed: {e}")
         pass
-except ImportError:
+except ImportError as e:
+    print(f"[Discover_gui] i18n ImportError: {e}")
     # 如果导入失败，创建一个简单的翻译函数
+    def _(key):
+        return key
+except Exception as e:
+    print(f"[Discover_gui] i18n Exception: {e}")
     def _(key):
         return key
 

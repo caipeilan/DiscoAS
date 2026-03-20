@@ -10,6 +10,8 @@ import os
 import json
 import sys
 
+print(f"[i18n] module loading... __name__={__name__}, __file__={__file__}, sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
+
 # Language configurations
 LANGUAGES = {
     "zh_CN": "简体中文",
@@ -27,7 +29,7 @@ _translations = {}
 def get_i18n_dir():
     """Get the i18n directory path"""
     exe_name = os.path.basename(sys.executable).lower()
-    is_packaged = exe_name not in ('python.exe', 'pythonw.exe', 'python')
+    is_packaged = hasattr(sys, '_MEIPASS') or exe_name not in ('python.exe', 'pythonw.exe', 'python')
     print(f"[i18n] executable={sys.executable}, is_packaged={is_packaged}")
 
     if is_packaged:
