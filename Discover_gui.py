@@ -925,33 +925,28 @@ class DiscoverOverlay(QMainWindow):
             preload_next_batch(self.discover_app)
         threading.Thread(target=_background, daemon=True).start()
         
-    def _on_close(self):
-        """关闭/退出时触发"""
-        print("关闭窗口被触发")
-        
-        # 声明全局变量
+    def _handle_cancel_state(self):
+        """处理用户取消/关闭时的缓存状态，供 _on_close 和 keyPressEvent 共用"""
         global _cached_song_batches, _need_refresh_songs, _user_played_song
-        
-        # 先处理缓存逻辑（同步执行，在动画前）
-        # 当前这批歌曲已经从缓存 pop(0) 取走了
-        # refreshing_after_cancel=True：清除 Playlist 缓存，下次进入重新加载
-        # refreshing_after_cancel=False 且 用户未选歌：把当前这批插回队头
+
         if self.discover_app.music_setting.refreshing_after_cancel:
             _need_refresh_songs = True
             print("取消选择后刷新=True，下次进入将刷新")
         elif not _user_played_song:
-            # 用户未选歌，把当前这批插回队头
             _cached_song_batches.insert(0, self.songs.copy())
             print("用户未选歌，将当前歌曲插回队头")
         else:
-            # 用户已选歌，当前这批已经被释放（pop走了），其他预加载批次保留
             print("用户已选歌，当前歌曲已释放，保留其他预加载批次")
-        
-        # 播放弹出淡出动画，动画结束后隐藏窗口并启动预加载
+
+    def _on_close(self):
+        """关闭/退出时触发"""
+        print("关闭窗口被触发")
+        self._handle_cancel_state()
+
         def _do_hide():
             self.hide()
             preload_next_batch(self.discover_app)
-        
+
         self.play_close_animation(_do_hide)
         
     def closeEvent(self, event):
@@ -966,30 +961,12 @@ class DiscoverOverlay(QMainWindow):
         # ESC 键不关闭窗口，直接隐藏
         if event.key() == Qt.Key.Key_Escape:
             print("ESC 被按下，隐藏窗口")
-            
-            # 声明全局变量
-            global _cached_song_batches, _need_refresh_songs, _user_played_song
-            
-            # 先处理缓存逻辑（同步执行，在动画前）
-            # 当前这批歌曲已经从缓存 pop(0) 取走了
-            # refreshing_after_cancel=True：清除 Playlist 缓存，下次进入重新加载
-            # refreshing_after_cancel=False 且 用户未选歌：把当前这批插回队头
-            if self.discover_app.music_setting.refreshing_after_cancel:
-                _need_refresh_songs = True
-                print("取消选择后刷新=True，下次进入将刷新")
-            elif not _user_played_song:
-                # 用户未选歌，把当前这批插回队头
-                _cached_song_batches.insert(0, self.songs.copy())
-                print("用户未选歌，将当前歌曲插回队头")
-            else:
-                # 用户已选歌，当前这批已经被释放（pop走了），其他预加载批次保留
-                print("用户已选歌，当前歌曲已释放，保留其他预加载批次")
-            
-            # 播放弹出淡出动画，动画结束后隐藏并预加载
+            self._handle_cancel_state()
+
             def _do_hide():
                 self.hide()
                 preload_next_batch(self.discover_app)
-            
+
             self.play_close_animation(_do_hide)
             return
         super().keyPressEvent(event)
