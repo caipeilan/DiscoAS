@@ -38,7 +38,7 @@ def _get_platforms_path():
 
 # 导入 i18n 模块
 try:
-    import i18n
+    from settings import i18n
     _ = i18n.t
 except ImportError:
     # 如果导入失败，创建一个简单的翻译函数
@@ -153,7 +153,7 @@ class SettingsWindow(QMainWindow):
 
         # 加载保存的语言到 i18n 模块
         try:
-            import i18n
+            from settings import i18n
             i18n.set_language(self.gui_setting.language)
         except ImportError:
             pass
@@ -322,7 +322,7 @@ class SettingsWindow(QMainWindow):
         
         # 获取可用语言
         try:
-            from i18n import LANGUAGES, get_language, set_language as i18n_set_language
+            from settings.i18n import LANGUAGES, get_language, set_language as i18n_set_language
             for code, name in LANGUAGES.items():
                 self.combo_language.addItem(name, code)
             
@@ -1082,7 +1082,7 @@ class SettingsWindow(QMainWindow):
         lang_code = self.combo_language.currentData()
         if lang_code:
             try:
-                import i18n
+                from settings import i18n
                 i18n.set_language(lang_code)
                 self.gui_setting.language = lang_code
                 self.gui_setting.save()
