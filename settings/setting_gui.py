@@ -710,12 +710,13 @@ class SettingsWindow(QMainWindow):
             )
 
             if enable:
-                # 检测是否是打包后的exe - 使用 _MEIPASS 判断更可靠
-                if hasattr(sys, '_MEIPASS'):
-                    # 打包后的exe，使用exe本身路径
+                exe_name = os.path.basename(sys.executable).lower()
+                is_packaged = exe_name not in ('python.exe', 'pythonw.exe', 'python')
+
+                if is_packaged:
                     exe_path = os.path.realpath(sys.executable)
                     startup_cmd = f'"{exe_path}"'
-                    print(f"[_set_auto_start] FROZEN branch: cmd={startup_cmd}")
+                    print(f"[_set_auto_start] PACKAGED: exe={sys.executable}, cmd={startup_cmd}")
                 else:
                     # 开发环境，使用 Anaconda conda run 运行 main.py
                     # 获取项目根目录的绝对路径

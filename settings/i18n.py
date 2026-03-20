@@ -26,15 +26,19 @@ _translations = {}
 
 def get_i18n_dir():
     """Get the i18n directory path"""
-    # 调试：检测是否打包环境
-    print(f"[i18n] sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
-    if hasattr(sys, '_MEIPASS'):
-        path = os.path.join(sys._MEIPASS, "settings", "i18n")
-        print(f"[i18n] frozen path (MEIPASS): {path}, exists={os.path.exists(path)}")
+    exe_name = os.path.basename(sys.executable).lower()
+    is_packaged = exe_name not in ('python.exe', 'pythonw.exe', 'python')
+    print(f"[i18n] executable={sys.executable}, is_packaged={is_packaged}")
+
+    if is_packaged:
+        # 打包环境：从 exe 所在目录找 settings/i18n
+        exe_dir = os.path.dirname(sys.executable)
+        path = os.path.join(exe_dir, "settings", "i18n")
+        print(f"[i18n] packaged path: {path}, exists={os.path.exists(path)}")
         return path
     else:
         path = os.path.join(os.path.dirname(__file__), "i18n")
-        print(f"[i18n] dev path (__file__): {path}, exists={os.path.exists(path)}")
+        print(f"[i18n] dev path: {path}, exists={os.path.exists(path)}")
         return path
 
 

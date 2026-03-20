@@ -9,17 +9,36 @@ import pygetwindow as gw
 from typing import Optional
 
 # 单实例检查
-print(f"[main] sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
-try:
-    import win32event, win32api, pywintypes
-    _SINGLE_INSTANCE_MUTEX = win32event.CreateMutex(None, False, "DiscoAS_SingleInstance_Mutex")
-    last_err = win32api.GetLastError()
-    print(f"[main] mutex created, GetLastError={last_err}")
-    if last_err == 183:  # ERROR_ALREADY_EXISTS
-        print("[main] DiscoAS 已在运行中，退出。")
-        sys.exit(0)
-except Exception as e:
-    print(f"[main] mutex check failed: {e}, continuing anyway...")
+exe_name = os.path.basename(sys.executable).lower()
+is_packaged = exe_name not in ('python.exe', 'pythonw.exe', 'python')
+print(f"[main] executable={sys.executable}, is_packaged={is_packaged}")
+
+if is_packaged:
+    # 打包环境：用文件锁
+    lock_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), "DiscoAS")
+    lock_path = os.path.join(lock_dir, "single_instance.lock")
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+        if os.path.exists(lock_path):
+            print("[main] DiscoAS 已在运行中（锁文件存在），退出。")
+            sys.exit(0)
+        with open(lock_path, 'w') as f:
+            f.write(str(os.getpid()))
+        print(f"[main] 锁文件创建: {lock_path}")
+    except Exception as e:
+        print(f"[main] 锁文件检查失败: {e}，继续启动")
+else:
+    # 开发环境用 pywin32
+    try:
+        import win32event, win32api
+        _SINGLE_INSTANCE_MUTEX = win32event.CreateMutex(None, False, "DiscoAS_SingleInstance_Mutex")
+        last_err = win32api.GetLastError()
+        print(f"[main] mutex created, GetLastError={last_err}")
+        if last_err == 183:
+            print("[main] DiscoAS 已在运行中，退出。")
+            sys.exit(0)
+    except Exception as e:
+        print(f"[main] mutex check failed: {e}，继续启动")
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
