@@ -24,7 +24,7 @@
     "set_shortcut": "Set Shortcut",
     "shortcut_recording": "Press shortcut... (ESC to cancel)",
     "mystery_cover": "Secret Song Cover",
-    "mystery_cover_hint": "Leave empty for default cover, supports URL and local image path",
+    "mystery_cover_hint": "Leave empty for the world's greatest album cover.\nSupports URL and local image paths (square images recommended).",
     "cover_source": "Cover Source:",
     "browse": "Browse...",
     "playlist_management": "Playlist/Album Management",

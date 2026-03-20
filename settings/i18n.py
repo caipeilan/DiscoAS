@@ -15,6 +15,7 @@ print(f"[i18n] module loading... __name__={__name__}, __file__={__file__}, sys.f
 # Language configurations
 LANGUAGES = {
     "zh_CN": "简体中文",
+    "zh_TW": "繁體中文",
     "en_US": "English",
 }
 

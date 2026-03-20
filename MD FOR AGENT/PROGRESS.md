@@ -16,11 +16,22 @@
 
 | 任务 | 描述 | 状态 | 优先级 |
 |------|------|------|--------|
-| 打包测试 | 测试打包后环境是否正常工作 | 🔄 待处理 | P1 |
+| 设置界面 i18n 完善 | 部分模块 i18n 导入仍有遗漏，托盘正常但设置界面部分文字未翻译 | 🔄 待处理 | P1 |
+| Spotify 平台适配 | 暂搁置 | 🔄 待处理 | P2 |
 
 ---
 
-## 最近完成
+## 最近完成（2026-03-20 打包修复）
+
+- [x] **单实例检查** — `main.py` 使用文件锁 + Windows API (ctypes) 检测陈旧锁文件，替代 pywin32，避免打包后 `win32event` 不可用导致所有实例误退出
+- [x] **i18n import 路径** — `settings/i18n.py` 的 `from .gui_setting import`（相对导入）改为 `from settings.gui_setting import`（绝对导入），解决 frozen 环境下 `ValueError: attempted relative import with no known parent package`
+- [x] **自启动注册** — `setting_gui.py` 始终优先查找 `DiscoAS.exe`，不再依赖 `sys.frozen` / `sys._MEIPASS` 判断
+- [x] **重启逻辑** — `restart_application()` 优先用 `DiscoAS.exe` 启动，找不到才 fallback 到 `python main.py`，解决 `[WinError 2]`
+- [x] **KugouMusic card.py** — 添加缺失的 `import os`，解决 `name 'os' is not defined`
+- [x] **Nuitka 依赖识别** — `Discover_gui.py` 的 `import i18n` 改为 `from settings import i18n`，确保 `--include-package=settings` 正确打包
+- [x] **打包后环境基本可用** — i18n、启动画面、托盘、自启动歌单更新、单实例锁均已正常工作
+
+## 最近完成（历史）
 
 
 - [x] KugouMusic 专辑 JSON 获取支持：在 `get_json.py` 中新增 `_resolve_album_share_code()` 方法解析专辑分享码，重写 album 分支的 `_fetch_data()` 实现翻页拉取专辑歌曲（`/api/v3/album/song`），与 playlist 分支数据结构对齐
@@ -46,13 +57,13 @@
 ## 技术债务
 
 - [x] ~~启动画面与程序加载仍是同步的，可以优化为真正异步~~
-- [ ] 打包后环境未完全测试
-- [ ] 只支持scheme url
----
+- [x] ~~打包后环境未完全测试~~
+- [ ] 只支持 scheme url
 
 ## 文档更新日志
 
 | 日期 | 更新内容 |
 |------|---------|
 | 2026-03-19 | 新增 KugouMusic 专辑支持；秘密歌曲调试信息；播放器窗口前缀匹配修复；设置界面 Logo；文档同步更新 |
+| 2026-03-20 | Nuitka 打包修复：单实例锁、i18n 导入路径、自启动注册、重启逻辑、KugouMusic os import、Nuitka 依赖识别 |
 

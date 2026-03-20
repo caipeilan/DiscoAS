@@ -36,7 +36,7 @@ class PASetting(object):
         self.number_of_discovered_songs = 3
         self.have_mystery_song = True
         self.num_of_mystery_song = 1
-        self.mystery_song_cover = ""  # 秘密歌曲封面，空字符串=使用平台默认
+        self.mystery_song_cover = "src/question.png"  # 秘密歌曲封面，留空=彩蛋默认封面
         self.cache_batches = 2  # 缓存批数，0=禁用预加载
         self.refreshing_after_cancel = False
         self.shortcut_key = "Alt+D"
@@ -53,7 +53,7 @@ class PASetting(object):
         self.number_of_discovered_songs = self.settings.get("number_of_discovered_songs", 3)
         self.have_mystery_song = self.settings.get("have_mystery_song", True)
         self.num_of_mystery_song = self.settings.get("num_of_mystery_song", 1)
-        self.mystery_song_cover = self.settings.get("mystery_song_cover", "")
+        self.mystery_song_cover = self.settings.get("mystery_song_cover", "src/question.png")
         self.cache_batches = self.settings.get("cache_batches", 2)
         self.refreshing_after_cancel = self.settings.get("refreshing_after_cancel", False)
         self.shortcut_key = self.settings.get("shortcut_key", "Alt+D")
