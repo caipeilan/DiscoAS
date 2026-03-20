@@ -26,18 +26,28 @@ _translations = {}
 
 def get_i18n_dir():
     """Get the i18n directory path"""
-    if getattr(sys, 'frozen', False):
-        return os.path.join(sys._MEIPASS, "settings", "i18n")
+    # 调试：检测是否打包环境
+    print(f"[i18n] sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
+    if hasattr(sys, '_MEIPASS'):
+        path = os.path.join(sys._MEIPASS, "settings", "i18n")
+        print(f"[i18n] frozen path (MEIPASS): {path}, exists={os.path.exists(path)}")
+        return path
     else:
-        return os.path.join(os.path.dirname(__file__), "i18n")
+        path = os.path.join(os.path.dirname(__file__), "i18n")
+        print(f"[i18n] dev path (__file__): {path}, exists={os.path.exists(path)}")
+        return path
 
 
 def load_translations(lang_code):
     """Load translations for a specific language"""
     lang_file = os.path.join(get_i18n_dir(), f"{lang_code}.json")
+    print(f"[i18n] load_translations({lang_code}): file={lang_file}, exists={os.path.exists(lang_file)}")
     if os.path.exists(lang_file):
         with open(lang_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            print(f"[i18n] loaded {len(data)} keys")
+            return data
+    print(f"[i18n] load_translations FAILED - returning empty dict")
     return {}
 
 
@@ -81,8 +91,10 @@ def t(key, default=None):
     if not _translations:
         # Load translations if not loaded
         set_language(_current_language)
-    
-    return _translations.get(key, default or key)
+
+    result = _translations.get(key, default or key)
+    print(f"[i18n] t('{key}') -> '{result}' (found={key in _translations}, total_keys={len(_translations)})")
+    return result
 
 
 def init_language(lang_code=None):
@@ -99,11 +111,12 @@ def init_language(lang_code=None):
         from .gui_setting import get_global_gui_setting
         gui_setting = get_global_gui_setting()
         saved_lang = getattr(gui_setting, 'language', None)
+        print(f"[i18n] init_language step1: saved_lang={saved_lang}")
         if saved_lang and saved_lang in LANGUAGES:
             set_language(saved_lang)
             return
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[i18n] init_language step1 FAILED: {e}")
     
     # 2. 如果没有保存的语言，使用传入的参数
     if lang_code and lang_code in LANGUAGES:

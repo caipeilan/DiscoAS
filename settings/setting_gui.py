@@ -671,12 +671,15 @@ class SettingsWindow(QMainWindow):
             )
             try:
                 value = winreg.QueryValueEx(key, "DiscoAS")
+                print(f"[_get_auto_start_status] current registry value={value[0]}")
                 winreg.CloseKey(key)
                 return True
             except FileNotFoundError:
+                print(f"[_get_auto_start_status] no registry value found")
                 winreg.CloseKey(key)
                 return False
-        except Exception:
+        except Exception as e:
+            print(f"[_get_auto_start_status] error: {e}")
             return False
 
     def _open_log_folder(self):
@@ -694,7 +697,10 @@ class SettingsWindow(QMainWindow):
         import winreg
         import sys
         import os
-        
+
+        print(f"[_set_auto_start] sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
+        print(f"[_set_auto_start] sys.executable={sys.executable}")
+
         try:
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
@@ -702,13 +708,14 @@ class SettingsWindow(QMainWindow):
                 0,
                 winreg.KEY_WRITE
             )
-            
+
             if enable:
                 # 检测是否是打包后的exe - 使用 _MEIPASS 判断更可靠
                 if hasattr(sys, '_MEIPASS'):
                     # 打包后的exe，使用exe本身路径
                     exe_path = os.path.realpath(sys.executable)
                     startup_cmd = f'"{exe_path}"'
+                    print(f"[_set_auto_start] FROZEN branch: cmd={startup_cmd}")
                 else:
                     # 开发环境，使用 Anaconda conda run 运行 main.py
                     # 获取项目根目录的绝对路径
@@ -720,16 +727,15 @@ class SettingsWindow(QMainWindow):
                     env_name = "DiscoverASong"
                     startup_cmd = f'"{conda_path}" run -n {env_name} python "{script_path}"'
 
-                    # 调试日志
-                    print(f"开机自启动命令: {startup_cmd}")
-                
+                    print(f"[_set_auto_start] DEV branch: cmd={startup_cmd}")
+
                 winreg.SetValueEx(key, "DiscoAS", 0, winreg.REG_SZ, startup_cmd)
             else:
                 try:
                     winreg.DeleteValue(key, "DiscoAS")
                 except FileNotFoundError:
                     pass
-            
+
             winreg.CloseKey(key)
             return True
         except Exception as e:

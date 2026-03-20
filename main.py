@@ -9,14 +9,17 @@ import pygetwindow as gw
 from typing import Optional
 
 # 单实例检查
+print(f"[main] sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
 try:
     import win32event, win32api, pywintypes
     _SINGLE_INSTANCE_MUTEX = win32event.CreateMutex(None, False, "DiscoAS_SingleInstance_Mutex")
-    if win32api.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        print("DiscoAS 已在运行中，退出。")
+    last_err = win32api.GetLastError()
+    print(f"[main] mutex created, GetLastError={last_err}")
+    if last_err == 183:  # ERROR_ALREADY_EXISTS
+        print("[main] DiscoAS 已在运行中，退出。")
         sys.exit(0)
-except Exception:
-    pass  # 忽略检查失败，继续启动
+except Exception as e:
+    print(f"[main] mutex check failed: {e}, continuing anyway...")
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
