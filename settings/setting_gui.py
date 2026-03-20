@@ -710,25 +710,24 @@ class SettingsWindow(QMainWindow):
             )
 
             if enable:
-                exe_name = os.path.basename(sys.executable).lower()
-                is_packaged = exe_name not in ('python.exe', 'pythonw.exe', 'python')
-
-                if is_packaged:
-                    exe_path = os.path.realpath(sys.executable)
-                    startup_cmd = f'"{exe_path}"'
-                    print(f"[_set_auto_start] PACKAGED: exe={sys.executable}, cmd={startup_cmd}")
+                if hasattr(sys, '_MEIPASS'):
+                    # 打包环境：从 python.exe 所在目录找同目录下的 .exe 主程序
+                    exe_dir = os.path.dirname(sys.executable)
+                    import glob
+                    exe_files = glob.glob(os.path.join(exe_dir, "*.exe"))
+                    # 排除 python.exe 和 pythonw.exe，找主程序
+                    exe_path = next((f for f in exe_files if os.path.basename(f).lower() not in ('python.exe', 'pythonw.exe')), None)
+                    if not exe_path:
+                        exe_path = sys.executable  # fallback
+                    startup_cmd = f'"{os.path.realpath(exe_path)}"'
+                    print(f"[_set_auto_start] PACKAGED: exe={startup_cmd}")
                 else:
                     # 开发环境，使用 Anaconda conda run 运行 main.py
-                    # 获取项目根目录的绝对路径
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     script_path = os.path.join(base_dir, "main.py")
-
-                    # 使用 conda run 确保在正确的 Anaconda 环境中启动
                     conda_path = r"D:\anaconda\Scripts\conda.exe"
-                    env_name = "DiscoverASong"
-                    startup_cmd = f'"{conda_path}" run -n {env_name} python "{script_path}"'
-
-                    print(f"[_set_auto_start] DEV branch: cmd={startup_cmd}")
+                    startup_cmd = f'"{conda_path}" run -n DiscoverASong python "{script_path}"'
+                    print(f"[_set_auto_start] DEV: cmd={startup_cmd}")
 
                 winreg.SetValueEx(key, "DiscoAS", 0, winreg.REG_SZ, startup_cmd)
             else:
