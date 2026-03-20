@@ -112,7 +112,7 @@ def init_language(lang_code=None):
     
     # 1. 首先尝试从 gui_setting 读取保存的语言
     try:
-        from .gui_setting import get_global_gui_setting
+        from settings.gui_setting import get_global_gui_setting
         gui_setting = get_global_gui_setting()
         saved_lang = getattr(gui_setting, 'language', None)
         print(f"[i18n] init_language step1: saved_lang={saved_lang}")

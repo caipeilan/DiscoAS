@@ -8,24 +8,6 @@ import traceback
 import pygetwindow as gw
 from typing import Optional
 
-# 单实例检查
-lock_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), "DiscoAS")
-os.makedirs(lock_dir, exist_ok=True)
-lock_path = os.path.join(lock_dir, "single_instance.lock")
-
-try:
-    # 原子创建，如果文件已存在会报 FileExistsError
-    fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    os.write(fd, str(os.getpid()).encode())
-    os.close(fd)
-    print(f"[main] 锁文件创建成功: {lock_path}")
-except FileExistsError:
-    print("[main] DiscoAS 已在运行中（锁文件已存在），退出。")
-    sys.exit(0)
-except Exception as e:
-    print(f"[main] 锁文件检查失败: {e}，继续启动")
-
-# 添加项目根目录到路径
 sys.path.append(os.path.dirname(__file__))
 
 # 导入日志模块（必须在其他模块之前初始化）
@@ -207,18 +189,23 @@ class DiscoverApp:
     """DiscovAS应用主类"""
 
     def __init__(self):
-        # 加载设置
+        print("[DiscoverApp] __init__ start")
         self.music_setting = PASetting()
+        print("[DiscoverApp] PASetting created")
         self.music_setting.load()
-        
+        print("[DiscoverApp] PASetting loaded")
+
         self.gui_setting = GuiSetting()
+        print("[DiscoverApp] GuiSetting created")
         self.gui_setting.load()
-        
-        # 启动时自动更新启用的歌单
+        print("[DiscoverApp] GuiSetting loaded")
+
+        print("[DiscoverApp] calling _update_enabled_playlist")
         self._update_enabled_playlist()
-        
-        # 应用设置
+        print("[DiscoverApp] _update_enabled_playlist done")
+
         self._apply_settings()
+        print("[DiscoverApp] _apply_settings done")
     
     def _update_enabled_playlist(self) -> None:
         """启动时自动更新唯一被启用的歌单"""
@@ -421,8 +408,46 @@ def handle_scheme_url(url: str) -> bool:
         return False
 
 
+def acquire_single_instance_lock():
+    """获取单实例锁。返回 True 表示获得锁并继续启动，False 表示已有实例在运行。"""
+    lock_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), "DiscoAS")
+    os.makedirs(lock_dir, exist_ok=True)
+    lock_path = os.path.join(lock_dir, "single_instance.lock")
+
+    # 清理陈旧锁文件（来自崩溃/强制终止的进程）
+    if os.path.exists(lock_path):
+        stale = True
+        try:
+            with open(lock_path, 'r') as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, 0)  # signal 0 不真正发信号，只检查进程是否存在
+            stale = False  # 进程还活着，锁有效
+        except (ValueError, OSError, ProcessLookupError):
+            pass  # PID 无效或进程已死，锁为陈旧
+        if stale:
+            try:
+                os.remove(lock_path)
+                print(f"[main] 清理陈旧锁文件: {lock_path}")
+            except OSError:
+                pass
+
+    # 创建新锁
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        print(f"[main] 锁文件创建成功: {lock_path}")
+        return True
+    except FileExistsError:
+        print("[main] DiscoAS 已在运行中，退出。")
+        return False
+
+
 def main():
     """主入口函数"""
+    if not acquire_single_instance_lock():
+        return
+
     # 检查是否是scheme URL
     if len(sys.argv) > 1 and sys.argv[1].startswith("discoverasong://"):
         handle_scheme_url(sys.argv[1])
