@@ -43,7 +43,7 @@ except ImportError:
 
 # 导入 i18n 模块
 try:
-    import i18n
+    from settings import i18n
     _ = i18n.t
     print(f"[Discover_gui] i18n imported OK, lang={i18n.get_language()}")
     # 加载保存的语言设置
