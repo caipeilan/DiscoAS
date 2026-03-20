@@ -79,9 +79,9 @@ class SongCard:
                 song_info = tracks[0]
 
                 self.song_detail_json = song_info
-                self.song_name = song_info.get("name", "??????????")
+                self.song_name = song_info.get("name", "???")
                 self.song_artists = song_info.get("singer", [])
-                self.song_artist_names = [artist.get("name", "??????????") for artist in self.song_artists]
+                self.song_artist_names = [artist.get("name", "???") for artist in self.song_artists]
                 album = song_info.get("album", {})
                 self.album_mid = album.get("mid", "")
                 if self.album_mid:
@@ -98,8 +98,8 @@ class SongCard:
 
         # 神秘模式下覆盖为假数据用于显示，但真实数据已保存在上述属性中
         if self.mystery_mode:
-            self.song_name = "??????????"
-            self.song_artist_names = ["??????????"]
+            self.song_name = "???"
+            self.song_artist_names = ["???"]
             self.album_pic_url = self.mystery_pic_url
 
         # 始终构建真实窗口名（用于播放器窗口匹配，不受 mystery_mode 影响）
@@ -111,7 +111,7 @@ class SongCard:
     def _set_default_from_id(self) -> None:
         """根据歌曲ID设置默认值"""
         self.song_name = f"歌曲{self.song_id}"
-        self.song_artist_names = ["??????????"]
+        self.song_artist_names = ["???"]
         self.window_name = "QQ音乐 听我想听"
         self._real_window_name = self.window_name
         self.album_pic_url = self.mystery_pic_url
@@ -120,7 +120,7 @@ class SongCard:
     def _set_error_defaults(self) -> None:
         """设置错误默认值为未知"""
         self.song_name = "未知"
-        self.song_artist_names = ["??????????"]
+        self.song_artist_names = ["???"]
         self.window_name = "QQ音乐 听我想听"
         self._real_window_name = self.window_name
         self.album_pic_url = self.mystery_pic_url
@@ -131,13 +131,13 @@ class SongCard:
 
     def get_name(self) -> str:
         if self.mystery_mode:
-            return "??????????"
-        return self.song_name or "??????????"
+            return "???"
+        return self.song_name or "???"
     
     def get_artist_names(self) -> List[str]:
         if self.mystery_mode:
-            return ["??????????"]
-        return self.song_artist_names or ["??????????"]
+            return ["???"]
+        return self.song_artist_names or ["???"]
 
     def get_window_name(self) -> str:
         return self._real_window_name or ""
@@ -155,8 +155,8 @@ class SongCard:
     def get_debug_info(self) -> str:
         """返回歌曲真实信息，用于后台调试输出"""
         if self.song_detail_json:
-            real_name = self.song_detail_json.get("name", "??????????")
-            real_artists = [a.get("name", "?????????") for a in self.song_detail_json.get("singer", [])]
+            real_name = self.song_detail_json.get("name", "???")
+            real_artists = [a.get("name", "???") for a in self.song_detail_json.get("singer", [])]
             return f"{real_name} - {'/'.join(real_artists)}"
         return self.get_name() + " - " + "/".join(self.get_artist_names())
 

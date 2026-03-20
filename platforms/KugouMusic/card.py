@@ -61,7 +61,7 @@ class SongCard:
                 self.song_artist_names = [a.strip() for a in artist_part.split("、")]
             else:
                 self.song_name = filename
-                self.song_artist_names = ["？？？？？"]
+                self.song_artist_names = ["???"]
 
             # 获取封面
             self.album_pic_url = self._get_cover_url(song_info)
@@ -72,8 +72,8 @@ class SongCard:
 
         # 神秘模式下覆盖为假数据用于显示，但真实数据已保存在上述属性中
         if self.mystery_mode:
-            self.song_name = "？？？？？"
-            self.song_artist_names = ["？？？？？"]
+            self.song_name = "???"
+            self.song_artist_names = ["???"]
             self.album_pic_url = self.mystery_pic_url
 
         # 始终构建真实窗口名（用于播放器窗口匹配，不受 mystery_mode 影响）
@@ -149,8 +149,8 @@ class SongCard:
 
     def _set_error_defaults(self) -> None:
         """设置错误默认值为未知"""
-        self.song_name = "？？？？？"
-        self.song_artist_names = ["？？？？？"]
+        self.song_name = "???"
+        self.song_artist_names = ["???"]
         self.window_name = "、".join(self.song_artist_names) + " - " + self.song_name
         self._real_window_name = self.window_name
         self.album_pic_url = self.mystery_pic_url
@@ -161,13 +161,13 @@ class SongCard:
 
     def get_name(self) -> str:
         if self.mystery_mode:
-            return "？？？？？"
-        return self.song_name or "？？？？？"
+            return "???"
+        return self.song_name or "???"
 
     def get_artist_names(self) -> List[str]:
         if self.mystery_mode:
-            return ["？？？？？"]
-        return self.song_artist_names or ["？？？？？"]
+            return ["???"]
+        return self.song_artist_names or ["???"]
 
     def get_window_name(self) -> str:
         return self._real_window_name or ""
