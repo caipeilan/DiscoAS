@@ -5,8 +5,27 @@ import threading
 import time
 import logging
 import traceback
+import ctypes
 import pygetwindow as gw
 from typing import Optional
+
+STILL_ACTIVE = 259
+
+
+def _is_process_alive(pid: int) -> bool:
+    """用 Windows API 检查进程是否还在运行（不抛异常）"""
+    try:
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        exit_code = ctypes.c_ulong()
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+        kernel32.CloseHandle(handle)
+        return exit_code.value == STILL_ACTIVE
+    except Exception:
+        return False
 
 sys.path.append(os.path.dirname(__file__))
 
@@ -420,8 +439,8 @@ def acquire_single_instance_lock():
         try:
             with open(lock_path, 'r') as f:
                 old_pid = int(f.read().strip())
-            os.kill(old_pid, 0)  # signal 0 不真正发信号，只检查进程是否存在
-            stale = False  # 进程还活着，锁有效
+            if _is_process_alive(old_pid):
+                stale = False  # 进程还活着，锁有效
         except (ValueError, OSError, ProcessLookupError):
             pass  # PID 无效或进程已死，锁为陈旧
         if stale:
