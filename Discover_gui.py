@@ -915,15 +915,15 @@ class DiscoverOverlay(QMainWindow):
         _user_played_song = True
         print(f"[调试] 用户选择歌曲，窗口名称: {song_card.get_window_name()}")
         print("用户播放了歌曲，标记为已播放")
-        
-        # 播放
-        self.discover_app.play_song(song_card)
-        
-        # 播放后立即在后台预加载多批歌曲（含详情+图片）
-        preload_next_batch(self.discover_app)
-        
-        # 延迟隐藏窗口
-        QTimer.singleShot(500, self._on_close)
+
+        # 立即触发关闭动画（不等播放完成）
+        self._on_close()
+
+        # 播放和预加载放到后台线程
+        def _background():
+            self.discover_app.play_song(song_card)
+            preload_next_batch(self.discover_app)
+        threading.Thread(target=_background, daemon=True).start()
         
     def _on_close(self):
         """关闭/退出时触发"""
