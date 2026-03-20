@@ -6,6 +6,7 @@
 
 import json
 import base64
+import os
 import requests
 from typing import List, Optional
 
