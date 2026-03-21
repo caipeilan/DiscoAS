@@ -1,11 +1,11 @@
-import json, os, sys
-from functools import lru_cache
-import datetime
+import json
+import os
 
 # 导入统一的路径管理模块
 from .user_data_path import get_music_setting_path, init_user_data_dirs
 
-class PlaylistAlbum(object):
+
+class PlaylistAlbum:
     def __init__(self, p_a_setting):
         self.name = p_a_setting.get("name", "")
         self.playlist_album_id = p_a_setting.get("playlist_album_id", "")
@@ -24,7 +24,7 @@ class PlaylistAlbum(object):
     def set(self, ParameterName, ParameterValue):
         setattr(self, ParameterName, ParameterValue)
 
-class PASetting(object):
+class PASetting:
     def __init__(self):
         # 初始化用户数据目录
         init_user_data_dirs()
@@ -43,11 +43,11 @@ class PASetting(object):
 
     def load(self):
         if os.path.exists(self.file_path):
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 self.settings = json.load(f)
         else:
             self.settings = {}
-            
+
         # 防止 key missing
         self.playlist_albums = [PlaylistAlbum(p_a_setting) for p_a_setting in self.settings.get("playlist_albums", [])]
         self.number_of_discovered_songs = self.settings.get("number_of_discovered_songs", 3)
@@ -68,7 +68,7 @@ class PASetting(object):
                     p_a_dict["enabled"] = False
                 else:
                     have_a_unique_enabled_playlist_album = True
-        
+
         settings = {
             "number_of_discovered_songs": self.number_of_discovered_songs,
             "have_mystery_song": self.have_mystery_song,
@@ -79,7 +79,7 @@ class PASetting(object):
             "shortcut_key": self.shortcut_key,
             "playlist_albums": playlist_albums_dicts
         }
-        
+
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
             print("保存Music设置成功")
@@ -87,7 +87,7 @@ class PASetting(object):
     def create_default_setting(self):
         # 保持原有的默认创建逻辑
         default_setting = {
-            "number_of_discovered_songs": 3,     
+            "number_of_discovered_songs": 3,
             "have_mystery_song": True,
             "num_of_mystery_song": 1,
             "cache_batches": 2,

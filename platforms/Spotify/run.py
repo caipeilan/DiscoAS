@@ -6,7 +6,6 @@ Spotify 播放模块
 
 import os
 import sys
-import webbrowser
 import time
 
 sys.path.append(os.path.dirname(__file__))
@@ -23,14 +22,14 @@ class ToPlaySong:
         # 预先加载歌曲详情，确保窗口名不是 None
         if not self.song_card.have_loaded:
             self.song_card.load_song_detail()
-        
+
         # 使用 os.startfile 打开 Spotify URI
         scheme_url = self.song_card.get_scheme_url()
         os.startfile(scheme_url)
-        
+
         # 等待 Spotify 客户端启动
         time.sleep(self.sleep_time)
-        
+
         # 尝试最小化 Spotify 窗口
         try:
             import pygetwindow as gw
@@ -38,7 +37,7 @@ class ToPlaySong:
             if windows:
                 window = windows[0]
                 window.minimize()
-        except Exception as e:
+        except Exception:
             # 如果最小化失败，忽略错误（不同版本的 Spotify 窗口名可能不同）
             pass
 

@@ -4,11 +4,11 @@ QQ音乐签名算法
 基于 qqmusic-api-python 库的签名算法实现
 """
 
-import re
 import base64
 import hashlib
-import orjson
+import re
 
+import orjson
 
 # 签名参数
 PART_1_INDEXES = [23, 14, 6, 36, 16, 40, 7, 19]
@@ -22,32 +22,32 @@ PART_1_INDEXES = list(filter(lambda x: x < 40, PART_1_INDEXES))
 def sign(request: dict) -> str:
     """
     QQ音乐 请求签名
-    
+
     Args:
         request: 请求数据字典
-        
+
     Returns:
         签名结果
     """
     # 将字典转换为 JSON 字符串并计算 SHA1 哈希
     json_str = orjson.dumps(request)
     hash_hex = hashlib.sha1(json_str).hexdigest().upper()
-    
+
     # 提取 part1
     part1 = "".join(hash_hex[i] for i in PART_1_INDEXES)
-    
+
     # 提取 part2
     part2 = "".join(hash_hex[i] for i in PART_2_INDEXES)
-    
+
     # 计算 part3
     part3 = bytearray(20)
     for i, v in enumerate(SCRAMBLE_VALUES):
         value = v ^ int(hash_hex[i * 2 : i * 2 + 2], 16)
         part3[i] = value
-    
+
     # Base64 编码并移除特殊字符
     b64_part = re.sub(rb"[\\/+=]", b"", base64.b64encode(part3)).decode("utf-8")
-    
+
     # 组合最终签名
     return f"zzc{part1}{b64_part}{part2}".lower()
 
@@ -87,12 +87,12 @@ DEFAULT_HEADERS = {
 def build_request_data(module: str, method: str, params: dict) -> dict:
     """
     构建请求数据
-    
+
     Args:
         module: API 模块名
         method: API 方法名
         params: 请求参数字典
-        
+
     Returns:
         完整的请求数据字典
     """
@@ -109,35 +109,35 @@ def build_request_data(module: str, method: str, params: dict) -> dict:
 def make_api_request(module: str, method: str, params: dict, use_sign: bool = False) -> dict:
     """
     发起 API 请求
-    
+
     Args:
         module: API 模块名
         method: API 方法名
         params: 请求参数字典
         use_sign: 是否使用签名（默认不使用，QIMEI已足够）
-        
+
     Returns:
         响应数据字典
     """
     import requests
-    
+
     # 构建请求数据（不带签名）
     data = build_request_data_without_sign(module, method, params)
-    
+
     # 选择端点（不使用签名端点）
     endpoint = API_CONFIG["endpoint"]
-    
+
     response = requests.post(
         endpoint,
         json=data,
         headers=DEFAULT_HEADERS,
         timeout=10
     )
-    
+
     # 解析响应
     response.raise_for_status()
     result = response.json()
-    
+
     # 提取数据
     key = f"{module}.{method}"
     if key in result:
@@ -155,12 +155,12 @@ def make_api_request(module: str, method: str, params: dict, use_sign: bool = Fa
 def build_request_data_without_sign(module: str, method: str, params: dict) -> dict:
     """
     构建不带签名的请求数据（使用QIMEI）
-    
+
     Args:
         module: API 模块名（如 music.trackInfo.UniformRuleCtrl）
         method: API 方法名（如 CgiGetTrackInfo）
         params: 请求参数字典
-        
+
     Returns:
         完整的请求数据字典
     """

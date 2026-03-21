@@ -6,9 +6,8 @@ Spotify API 模块 - 匿名 Token 版
 
 import json
 import os
+
 import requests
-from typing import Any, Dict, List, Optional, Union
-from functools import lru_cache
 
 # Spotify API 配置
 SPOTIFY_BASE_URL = "https://api.spotify.com/v1"
@@ -16,7 +15,7 @@ SPOTIFY_TOKEN_URL = "https://open.spotify.com/get_access_token"
 SPOTIFY_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 # 全局变量
-_access_token: Optional[str] = None
+_access_token: str | None = None
 
 
 def get_access_token() -> str:
@@ -25,15 +24,15 @@ def get_access_token() -> str:
     无需登录，无需开发者账号
     """
     global _access_token
-    
+
     if _access_token:
         return _access_token
-    
+
     headers = {
         "User-Agent": SPOTIFY_USER_AGENT,
         "Accept": "application/json"
     }
-    
+
     try:
         response = requests.get(SPOTIFY_TOKEN_URL, headers=headers, timeout=10)
         if response.status_code == 200:
@@ -44,11 +43,11 @@ def get_access_token() -> str:
                 return _access_token
     except Exception as e:
         print(f"获取 Spotify Token 失败: {e}")
-    
+
     raise Exception("无法获取 Spotify 访问令牌")
 
 
-def get_session() -> Dict[str, str]:
+def get_session() -> dict[str, str]:
     """获取带有 Token 的请求头"""
     token = get_access_token()
     return {
@@ -64,14 +63,14 @@ class PlaylistAlbumJson:
         self.playlist_album_id = playlist_album_id
         self.typename = typename  # playlist 或 album
         self.playlist_album_name: str = ""
-        self.playlist_album_json: Union[Dict, List] = {}
-        
+        self.playlist_album_json: dict | list = {}
+
         self._fetch_data()
 
     def _fetch_data(self) -> None:
         """获取歌单/专辑数据"""
         headers = get_session()
-        
+
         if self.typename == "playlist":
             # 获取歌单详情
             url = f"{SPOTIFY_BASE_URL}/playlists/{self.playlist_album_id}"
@@ -83,15 +82,15 @@ class PlaylistAlbumJson:
                 response = requests.get(url, headers=headers, params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-                
+
                 self.playlist_album_name = data.get("name", "")
                 self.playlist_album_json = data
                 print(f"已获取歌单: {self.playlist_album_name}")
-                
+
             except Exception as e:
                 print(f"获取歌单详情失败: {e}")
                 raise
-                
+
         elif self.typename == "album":
             # 获取专辑详情
             url = f"{SPOTIFY_BASE_URL}/albums/{self.playlist_album_id}"
@@ -102,11 +101,11 @@ class PlaylistAlbumJson:
                 response = requests.get(url, headers=headers, params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-                
+
                 self.playlist_album_name = data.get("name", "")
                 self.playlist_album_json = data
                 print(f"已获取专辑: {self.playlist_album_name}")
-                
+
             except Exception as e:
                 print(f"获取专辑详情失败: {e}")
                 raise
@@ -119,33 +118,31 @@ class PlaylistAlbumJson:
     def get_name(self) -> str:
         return self.playlist_album_name
 
-    def get_songs(self) -> List[str]:
+    def get_songs(self) -> list[str]:
         """获取歌曲ID列表"""
-        songs: List[str] = []
-        
+        songs: list[str] = []
+
         try:
             # 递归获取所有分页
             self._collect_tracks(self.playlist_album_json, songs)
         except Exception as e:
             print(f"获取歌曲列表失败: {e}")
-        
+
         return songs
-    
-    def _collect_tracks(self, data: Dict, songs: List[str]) -> None:
+
+    def _collect_tracks(self, data: dict, songs: list[str]) -> None:
         """递归收集所有歌曲ID"""
-        if self.typename == "playlist":
-            tracks_data = data.get("tracks", {})
-        elif self.typename == "album":
+        if self.typename == "playlist" or self.typename == "album":
             tracks_data = data.get("tracks", {})
         else:
             return
-        
+
         # 获取当前页的歌曲
         for item in tracks_data.get("items", []):
             track = item.get("track")
             if track and track.get("id"):
                 songs.append(track["id"])
-        
+
         # 检查下一页
         next_url = tracks_data.get("next")
         if next_url:
@@ -161,12 +158,12 @@ class PlaylistAlbumJson:
     def save(self) -> None:
         """保存到本地JSON文件"""
         path = os.path.join(
-            os.path.dirname(__file__), 
-            "user_data", 
+            os.path.dirname(__file__),
+            "user_data",
             self.typename
         )
         os.makedirs(path, exist_ok=True)
-        
+
         song_ids = self.get_songs()
         data = {
             "playlist_album_id": self.playlist_album_id,
@@ -174,7 +171,7 @@ class PlaylistAlbumJson:
             "playlist_album_type": self.typename,
             "song_ids": song_ids
         }
-        
+
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -191,7 +188,7 @@ if __name__ == '__main__':
         # 默认测试歌单：Today's Top Hits
         playlist_id = "37i9dQZF1DXcBWIGoYBM5M"
         typename = "playlist"
-    
+
     playlist = PlaylistAlbumJson(playlist_id, typename)
     print(f"名称: {playlist.get_name()}")
     print(f"歌曲数量: {len(playlist.get_songs())}")

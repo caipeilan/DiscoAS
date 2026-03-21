@@ -2,11 +2,10 @@
 tests/test_i18n.py
 测试 i18n 模块的翻译加载
 """
-import sys
 
 
 def test_load_zh_cn():
-    from settings.i18n import load_translations, LANGUAGES
+    from settings.i18n import load_translations
 
     data = load_translations("zh_CN")
     assert len(data) > 100

@@ -8,12 +8,12 @@ QQ音乐 API 模块 - 使用签名算法
 import json
 import os
 import sys
+
 import requests
-from typing import Any, Dict, List, Optional, Union
 
 # 添加 settings 目录到路径，导入统一的路径管理模块
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings'))
-from settings.user_data_path import get_playlist_dir, get_album_dir, ensure_dir
+from settings.user_data_path import ensure_dir, get_album_dir, get_playlist_dir
 
 
 class PlaylistAlbumJson:
@@ -23,8 +23,8 @@ class PlaylistAlbumJson:
         self.playlist_album_id = playlist_album_id
         self.typename = typename
         self.playlist_album_name: str = ""
-        self.playlist_album_json: Union[Dict, List] = {}
-        
+        self.playlist_album_json: dict | list = {}
+
         # 尝试从API获取，失败则从本地缓存读取
         try:
             self._fetch_data()
@@ -34,7 +34,7 @@ class PlaylistAlbumJson:
 
     def _fetch_data(self) -> None:
         """获取歌单/专辑数据"""
-        
+
         if self.typename == "playlist":
             # 获取歌单详情 - 使用 qzone-music API（需要 type=1 和 newcp=1 参数）
             url = "https://i.y.qq.com/qzone-music/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg"
@@ -54,15 +54,15 @@ class PlaylistAlbumJson:
                 "type": 1,
                 "newcp": 1
             }
-            
+
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.54",
                 "Referer": "https://y.qq.com/"
             }
-            
+
             response = requests.get(url, params=params, headers=headers, timeout=10)
             data = response.json()
-            
+
             # 解析响应
             cdlist = data.get("cdlist", [])
             if cdlist:
@@ -70,16 +70,16 @@ class PlaylistAlbumJson:
                 self.playlist_album_json = {"songlist": cdlist[0].get("songlist", [])}
             else:
                 raise ValueError("无法获取歌单信息")
-                
+
         elif self.typename == "album":
             # 获取专辑详情 - 使用 v8 API
             url = "https://i.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg"
-            
+
             # 修复：判断是传入了整型 albumid 还是字符串 albummid
             is_digit = self.playlist_album_id.isdigit()
             param_key = "albumid" if is_digit else "albummid"
             param_val = int(self.playlist_album_id) if is_digit else self.playlist_album_id
-            
+
             params = {
                 param_key: param_val, # 动态设置键名
                 "json": 1,
@@ -94,15 +94,15 @@ class PlaylistAlbumJson:
                 "needNewCode": 0
                 # "type" 和 "newcp" 对这个特定的 v8 API 其实不是必需的
             }
-            
+
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.54",
                 "Referer": "https://y.qq.com/"
             }
-            
+
             response = requests.get(url, params=params, headers=headers, timeout=10)
             data = response.json()
-            
+
             # 解析响应
             album_data = data.get("data", {})
             if album_data:
@@ -123,9 +123,9 @@ class PlaylistAlbumJson:
             cache_path = os.path.join(get_playlist_dir("QQMusic"), f"{self.playlist_album_id}.json")
         else:
             cache_path = os.path.join(get_album_dir("QQMusic"), f"{self.playlist_album_id}.json")
-        
+
         if os.path.exists(cache_path):
-            with open(cache_path, "r", encoding="utf-8") as f:
+            with open(cache_path, encoding="utf-8") as f:
                 cache_data = json.load(f)
                 self.playlist_album_name = cache_data.get("playlist_album_name", "")
                 self.playlist_album_json = {"songlist": []}
@@ -142,10 +142,10 @@ class PlaylistAlbumJson:
     def get_name(self) -> str:
         return self.playlist_album_name
 
-    def get_songs(self) -> List[int]:
+    def get_songs(self) -> list[int]:
         """获取歌曲ID列表"""
-        songs: List[int] = []
-        
+        songs: list[int] = []
+
         if self.typename == "playlist":
             # 从歌单中提取歌曲ID (支持 songid 或 id)
             if "songlist" in self.playlist_album_json:
@@ -155,7 +155,7 @@ class PlaylistAlbumJson:
                         songs.append(song["songid"])
                     elif "id" in song:
                         songs.append(song["id"])
-                            
+
         elif self.typename == "album":
             # 从专辑中提取歌曲ID
             if "songlist" in self.playlist_album_json:
@@ -164,18 +164,15 @@ class PlaylistAlbumJson:
                         songs.append(song["songid"])
                     elif "id" in song:
                         songs.append(song["id"])
-                        
+
         return songs
 
     def save(self) -> None:
         """保存到本地JSON文件"""
         # 使用统一的路径管理
-        if self.typename == "playlist":
-            path = get_playlist_dir("QQMusic")
-        else:
-            path = get_album_dir("QQMusic")
+        path = get_playlist_dir("QQMusic") if self.typename == "playlist" else get_album_dir("QQMusic")
         ensure_dir(path)
-        
+
         song_ids = self.get_songs()
         data = {
             "playlist_album_id": self.playlist_album_id,
@@ -183,7 +180,7 @@ class PlaylistAlbumJson:
             "playlist_album_type": self.typename,
             "song_ids": song_ids
         }
-        
+
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -199,7 +196,7 @@ if __name__ == '__main__':
     else:
         playlist_id = "9595891286"
         typename = "playlist"
-    
+
     playlist = PlaylistAlbumJson(playlist_id, typename)
     print(f"名称: {playlist.get_name()}")
     print(f"歌曲数量: {len(playlist.get_songs())}")

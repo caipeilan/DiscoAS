@@ -1,13 +1,14 @@
 import os
 import sys
 import time
+
 import pygetwindow as gw
 
 sys.path.append(os.path.dirname(__file__))
 from card import SongCard
 
 
-class ToPlaySong(object):
+class ToPlaySong:
     def __init__(self, song_id):
         self.song_id = song_id
         self.song_card = SongCard(song_id)

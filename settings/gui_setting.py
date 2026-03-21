@@ -1,5 +1,5 @@
-import json, os, sys
-from functools import lru_cache
+import json
+import os
 
 # 导入统一的路径管理模块
 from .user_data_path import get_gui_setting_path, init_user_data_dirs
@@ -29,21 +29,21 @@ class GuiSetting:
         self.file_path = get_gui_setting_path()
         if not os.path.exists(self.file_path):
             self.create_default_setting()
-        
+
         self.settings = None
         self.night_mode = False
         self.card_size = 1.0
         self.cancel_button_size = 1.0
         self.setting_size = 1.0
-        
+
         # 语言设置
         self.language = "zh_CN"
-        
+
         # 日间模式配置
         self.card = {}
         self.cancel_button = {}
         self.setting = {}
-        
+
         # 夜间模式配置 (原代码缺失部分)
         self.card_night_mode = {}
         self.cancel_button_night_mode = {}
@@ -53,7 +53,7 @@ class GuiSetting:
         # 移除 lru_cache 以便实时重载，或者在保存时手动清除缓存
         # 这里为了简单，直接读取
         if os.path.exists(self.file_path):
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 self.settings = json.load(f)
         else:
             self.settings = {}
@@ -62,14 +62,14 @@ class GuiSetting:
         self.card_size = self.settings.get("card_size", 1.0)
         self.cancel_button_size = self.settings.get("cancel_button_size", 1.0)
         self.setting_size = self.settings.get("setting_size", 1.0)
-        
+
         # 加载语言设置
         self.language = self.settings.get("language", "zh_CN")
-        
+
         self.card = self.settings.get("card", {})
         self.cancel_button = self.settings.get("cancel_button", {})
         self.setting = self.settings.get("setting", {})
-        
+
         # 修复：显式加载夜间模式配置
         self.card_night_mode = self.settings.get("card_night_mode", {})
         self.cancel_button_night_mode = self.settings.get("cancel_button_night_mode", {})

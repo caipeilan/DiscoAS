@@ -1,22 +1,42 @@
-import sys
-import os
-import importlib
 import datetime
-from PyQt6.QtWidgets import (QApplication, QColorDialog, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QStackedWidget, QLabel, QSpinBox,
-                             QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem,
-                             QPushButton, QHeaderView, QGroupBox,
-                             QFormLayout, QScrollArea, QComboBox, QMessageBox,
-                             QDoubleSpinBox, QButtonGroup, QSlider, QFileDialog,QFrame)
+import os
+import sys
 
-# 导入统一的路径管理模块
-from settings.user_data_path import get_app_root, get_resource_dir
+from PyQt6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QSpinBox,
+    QStackedWidget,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from platforms.KugouMusic.get_json import PlaylistAlbumJson as KugouPlaylistAlbumJson
 
 # 静态导入所有平台的 get_json 模块
 from platforms.NeteaseCloudMusic.get_json import PlaylistAlbumJson as NeteasePlaylistAlbumJson
 from platforms.QQMusic.get_json import PlaylistAlbumJson as QQMusicPlaylistAlbumJson
 from platforms.Spotify.get_json import PlaylistAlbumJson as SpotifyPlaylistAlbumJson
-from platforms.KugouMusic.get_json import PlaylistAlbumJson as KugouPlaylistAlbumJson
+
+# 导入统一的路径管理模块
+from settings.user_data_path import get_resource_dir
 
 # 平台 PlaylistAlbumJson 类映射
 PLATFORM_JSON_MAP = {
@@ -44,13 +64,15 @@ except ImportError:
     # 如果导入失败，创建一个简单的翻译函数
     def _(key):
         return key
-from PyQt6.QtGui import QColor, QAction, QFont, QIcon, QPixmap
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QTimer
+import contextlib
+
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QIcon, QPixmap
 
 # 导入你修改后的类
 try:
-    from settings.music_setting import PASetting, PlaylistAlbum
     from settings.gui_setting import GuiSetting
+    from settings.music_setting import PASetting, PlaylistAlbum
 except ImportError:
     print("错误: 无法导入设置类，请确保 music_setting.py 和 gui_setting.py 在同一目录下。")
     sys.exit(1)
@@ -69,10 +91,7 @@ class ColorPreviewWidget(QWidget):
         self.update_style()
 
     def update_style(self):
-        if not QColor(self.color_hex).isValid():
-            display_color = "#FFFFFF"
-        else:
-            display_color = self.color_hex
+        display_color = "#FFFFFF" if not QColor(self.color_hex).isValid() else self.color_hex
 
         self.setStyleSheet(f"""
             background-color: {display_color};
@@ -143,11 +162,11 @@ class FloatSlider(QWidget):
 class SettingsWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        
+
         # 1. 加载后端逻辑
         self.pa_setting = PASetting()
         self.pa_setting.load()
-        
+
         self.gui_setting = GuiSetting()
         self.gui_setting.load()
 
@@ -160,21 +179,21 @@ class SettingsWindow(QMainWindow):
 
         # 2. 初始化界面
         self.setWindowTitle(_("app_name") + " - Settings")
-        
+
         # 设置窗口图标 - 使用 get_app_root() 支持打包后环境
         icon_path = os.path.join(_get_src_path(), "Icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-        
+
         self.resize(1450, 750)
-        
+
         # 中央部件 - 使用水平布局
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
         # ========== 左侧导航栏 ==========
         left_widget = QWidget()
         left_widget.setFixedWidth(200)
@@ -198,10 +217,10 @@ class SettingsWindow(QMainWindow):
             (_("gui_settings"), 2),
             (_("other_settings"), 3),
         ]
-        
+
         self.btn_group = QButtonGroup(self)
         self.nav_buttons = {}
-        
+
         for text, idx in nav_buttons:
             btn = QPushButton(text)
             btn.setCheckable(True)
@@ -209,45 +228,45 @@ class SettingsWindow(QMainWindow):
             self.btn_group.addButton(btn, idx)
             self.nav_buttons[idx] = btn
             left_layout.addWidget(btn)
-        
+
         self.btn_group.buttonClicked.connect(self.switch_page)
-        
+
         left_layout.addStretch()
-        
+
         # 底部按钮
         self.btn_apply = QPushButton(_("apply_and_save"))
         self.btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply.setMinimumHeight(40)
         self.btn_apply.clicked.connect(self.save_all_settings)
-        
+
         self.btn_close = QPushButton(_("close"))
         self.btn_close.setMinimumHeight(40)
         self.btn_close.clicked.connect(self.close)
-        
+
         left_layout.addWidget(self.btn_apply)
         left_layout.addWidget(self.btn_close)
-        
+
         main_layout.addWidget(left_widget)
-        
+
         # 分割线
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
         main_layout.addWidget(line)
-        
+
         # ========== 右侧内容区 ==========
         self.stack = QStackedWidget()
         main_layout.addWidget(self.stack, 1)
-        
+
         # 创建四个页面
         self.init_about_page()
         self.init_music_page()
         self.init_gui_page()
         self.init_other_settings_page()
-        
+
         # 默认显示关于页面
         self.btn_group.button(0).setChecked(True)
         self.stack.setCurrentIndex(0)
-        
+
         # 初始渲染
         self.apply_gui_theme()
 
@@ -263,7 +282,7 @@ class SettingsWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
-        
+
         # 标题
         title = QLabel(_("about_title"))
         title_font = QFont()
@@ -271,9 +290,9 @@ class SettingsWindow(QMainWindow):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
-        
+
         layout.addSpacing(20)
-        
+
         # 简介
         intro = QLabel(_("about_intro"))
         intro.setWordWrap(True)
@@ -281,29 +300,29 @@ class SettingsWindow(QMainWindow):
         intro_font.setPointSize(12)
         intro.setFont(intro_font)
         layout.addWidget(intro)
-        
+
         layout.addSpacing(30)
-        
+
         # 功能列表
         features_title = QLabel(_("features_title"))
         features_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(features_title)
-        
+
         features = QLabel(_("features_list"))
         layout.addWidget(features)
-        
+
         layout.addSpacing(30)
-        
+
         # 使用说明
         usage_title = QLabel(_("usage_title"))
         usage_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(usage_title)
-        
+
         usage = QLabel(_("usage_steps"))
         layout.addWidget(usage)
-        
+
         layout.addSpacing(30)
-        
+
         # 版本信息（可点击超链接）
         version_title = QLabel(f'<a href="https://github.com/caipeilan/DiscoAS">{_("version")}: v1.0.0</a>')
         version_title.setFont(QFont("", weight=QFont.Weight.Bold))
@@ -311,37 +330,38 @@ class SettingsWindow(QMainWindow):
         layout.addWidget(version_title)
 
         layout.addSpacing(20)
-        
+
         # 语言选择
         language_title = QLabel(_("language"))
         language_title.setFont(QFont("", weight=QFont.Weight.Bold))
         layout.addWidget(language_title)
-        
+
         language_row = QHBoxLayout()
         self.combo_language = QComboBox()
-        
+
         # 获取可用语言
         try:
-            from settings.i18n import LANGUAGES, get_language, set_language as i18n_set_language
+            from settings.i18n import LANGUAGES, get_language
+            from settings.i18n import set_language as i18n_set_language
             for code, name in LANGUAGES.items():
                 self.combo_language.addItem(name, code)
-            
+
             current_lang = get_language()
             index = self.combo_language.findData(current_lang)
             if index >= 0:
                 self.combo_language.setCurrentIndex(index)
-            
+
             self.combo_language.currentIndexChanged.connect(self.on_language_changed)
         except ImportError:
             self.combo_language.addItem("简体中文", "zh_CN")
             self.combo_language.addItem("English", "en_US")
-        
+
         language_row.addWidget(self.combo_language)
         language_row.addStretch()
         layout.addLayout(language_row)
-        
+
         layout.addStretch()
-        
+
         self.stack.addWidget(page)
 
 
@@ -350,39 +370,39 @@ class SettingsWindow(QMainWindow):
         self.music_page = QWidget()
         layout = QVBoxLayout(self.music_page)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content_widget = QWidget()
         scroll.setWidget(content_widget)
-        
+
         v_layout = QVBoxLayout(content_widget)
         v_layout.setSpacing(15)
-        
+
         # --- 参数区 ---
         group_basic = QGroupBox(_("basic_params"))
         form_basic = QFormLayout(group_basic)
         form_basic.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
-        
+
         self.spin_discovered = QSpinBox()
         self.spin_discovered.setRange(1, 999)
         self.spin_discovered.setValue(self.pa_setting.number_of_discovered_songs)
         self.spin_discovered.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_discovered.setMinimumWidth(120)
         form_basic.addRow(_("discovered_songs_count"), self.spin_discovered)
-        
+
         self.chk_mystery = QCheckBox(_("mystery_mode"))
         self.chk_mystery.setChecked(self.pa_setting.have_mystery_song)
         form_basic.addRow(self.chk_mystery)
-        
+
         self.spin_mystery_num = QSpinBox()
         self.spin_mystery_num.setRange(0, 50)
         self.spin_mystery_num.setValue(self.pa_setting.num_of_mystery_song)
         self.spin_mystery_num.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_mystery_num.setMinimumWidth(120)
         form_basic.addRow(_("mystery_songs_count"), self.spin_mystery_num)
-        
+
         # 缓存批数设置
         self.spin_cache_batches = QSpinBox()
         self.spin_cache_batches.setRange(0, 10)
@@ -390,11 +410,11 @@ class SettingsWindow(QMainWindow):
         self.spin_cache_batches.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_cache_batches.setMinimumWidth(120)
         form_basic.addRow(_("cache_batches"), self.spin_cache_batches)
-        
+
         self.chk_refresh = QCheckBox(_("refresh_after_cancel"))
         self.chk_refresh.setChecked(self.pa_setting.refreshing_after_cancel)
         form_basic.addRow(self.chk_refresh)
-        
+
         # 快捷键设置
         shortcut_container = QWidget()
         shortcut_layout = QHBoxLayout(shortcut_container)
@@ -413,13 +433,13 @@ class SettingsWindow(QMainWindow):
         shortcut_layout.addWidget(self.btn_set_shortcut)
 
         form_basic.addRow(_("global_shortcut"), shortcut_container)
-        
+
         v_layout.addWidget(group_basic)
 
         # --- 秘密歌曲封面设置 ---
         group_mystery_cover = QGroupBox(_("mystery_cover"))
         form_cover = QFormLayout(group_mystery_cover)
-        
+
         hint_label = QLabel(_("mystery_cover_hint"))
         hint_label.setWordWrap(True)
         form_cover.addRow(hint_label)
@@ -441,15 +461,15 @@ class SettingsWindow(QMainWindow):
         form_cover.addRow(_("cover_source"), cover_input_row)
 
         v_layout.addWidget(group_mystery_cover)
-        
+
         # --- 列表区 ---
         group_list = QGroupBox(_("playlist_management"))
         v_list = QVBoxLayout(group_list)
-        
+
         self.table_pl = QTableWidget()
         self.table_pl.setColumnCount(6)
         self.table_pl.setHorizontalHeaderLabels([
-            _("table_platform"), _("table_id"), _("table_type"), 
+            _("table_platform"), _("table_id"), _("table_type"),
             _("table_name"), _("table_enabled"), _("table_action")
         ])
         self.table_pl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
@@ -462,21 +482,21 @@ class SettingsWindow(QMainWindow):
         self.table_pl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_pl.verticalHeader().setDefaultSectionSize(50)
         v_list.addWidget(self.table_pl)
-        
+
         h_btn = QHBoxLayout()
         btn_add = QPushButton(_("add_playlist"))
         btn_add.clicked.connect(self.add_playlist_row)
         h_btn.addWidget(btn_add)
         h_btn.addStretch()
         v_list.addLayout(h_btn)
-        
+
         v_layout.addWidget(group_list)
-        
+
         layout.addWidget(scroll)
-        
+
         # 加载数据
         self.load_playlist_table()
-        
+
         self.stack.addWidget(self.music_page)
 
 
@@ -485,82 +505,82 @@ class SettingsWindow(QMainWindow):
         self.gui_page = QWidget()
         layout = QVBoxLayout(self.gui_page)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content_widget = QWidget()
         scroll.setWidget(content_widget)
-        
+
         main_layout = QVBoxLayout(content_widget)
         main_layout.setSpacing(15)
-        
+
         # --- 全局 ---
         group_global = QGroupBox(_("global_settings"))
         form_global = QFormLayout(group_global)
-        
+
         self.mode_toggle_layout = QHBoxLayout()
         self.btn_day_mode = QPushButton(_("day_mode"))
         self.btn_night_mode = QPushButton(_("night_mode"))
-        
+
         self.btn_day_mode.setCheckable(True)
         self.btn_night_mode.setCheckable(True)
-        
+
         self.mode_group = QButtonGroup()
         self.mode_group.addButton(self.btn_day_mode, 0)
         self.mode_group.addButton(self.btn_night_mode, 1)
-        
+
         if self.gui_setting.night_mode:
             self.btn_night_mode.setChecked(True)
         else:
             self.btn_day_mode.setChecked(True)
-            
+
         self.btn_day_mode.clicked.connect(self.switch_to_day_mode)
         self.btn_night_mode.clicked.connect(self.switch_to_night_mode)
-        
+
         self.mode_toggle_layout.addWidget(self.btn_day_mode)
         self.mode_toggle_layout.addWidget(self.btn_night_mode)
         form_global.addRow(_("interface_mode"), self.mode_toggle_layout)
-        
+
         # 尺寸设置
         self.slider_card_size = FloatSlider(self.gui_setting.card_size)
         form_global.addRow(_("card_size"), self.slider_card_size)
-        
+
         self.slider_cancel_size = FloatSlider(self.gui_setting.cancel_button_size)
         form_global.addRow(_("cancel_button_size"), self.slider_cancel_size)
-        
+
         self.slider_setting_size = FloatSlider(self.gui_setting.setting_size)
         self.slider_setting_size.valueChanged.connect(self.live_update_setting_size)
         form_global.addRow(_("setting_size"), self.slider_setting_size)
-        
+
         main_layout.addWidget(group_global)
-        
+
         # --- 颜色配置 ---
-        self.color_inputs = {} 
-        self.color_previews = {} 
+        self.color_inputs = {}
+        self.color_previews = {}
 
         def create_color_section(layout, mode_name, setting_dict, prefix):
             box = QGroupBox(mode_name)
             box_layout = QFormLayout(box)
-            
+
             self.color_inputs[prefix] = {}
-            self.color_previews[prefix] = {} 
-            
+            self.color_previews[prefix] = {}
+
             fields = [
                 (_("color_card_background"), "card", "background"),
                 (_("color_card_hover"), "card", "background_hover"),
                 (_("color_card_border"), "card", "border"),
                 (_("color_card_font"), "card", "font_color"),
-                
+
                 (_("color_cancel_background"), "cancel_button", "background"),
                 (_("color_cancel_hover"), "cancel_button", "background_hover"),
                 (_("color_cancel_border"), "cancel_button", "border"),
                 (_("color_cancel_font"), "cancel_button", "font_color"),
-                
+
                 (_("color_setting_background"), "setting", "background"),
                 (_("color_setting_font"), "setting", "font_color"),
             ]
-            
+
             for label, main_key, sub_key in fields:
                 sub_dict = setting_dict.get(main_key, {})
                 current_color = sub_dict.get(sub_key, "#FFFFFF")
@@ -578,19 +598,19 @@ class SettingsWindow(QMainWindow):
 
                 # 连接预览点击后的颜色变化到输入框更新
                 color_preview.color_changed.connect(color_input.setText)
-                
+
                 input_container = QWidget()
                 input_layout = QHBoxLayout(input_container)
                 input_layout.setContentsMargins(0, 0, 0, 0)
                 input_layout.addWidget(color_input)
                 input_layout.addWidget(color_preview)
                 input_layout.addStretch()
-                
+
                 box_layout.addRow(label, input_container)
-                
+
                 self.color_inputs[prefix][f"{main_key}_{sub_key}"] = color_input
                 self.color_previews[prefix][f"{main_key}_{sub_key}"] = color_preview
-                
+
             layout.addWidget(box)
 
         day_data = {
@@ -598,31 +618,31 @@ class SettingsWindow(QMainWindow):
             "cancel_button": self.gui_setting.cancel_button,
             "setting": self.gui_setting.setting
         }
-        
+
         night_data = {
             "card": self.gui_setting.card_night_mode,
             "cancel_button": self.gui_setting.cancel_button_night_mode,
             "setting": self.gui_setting.setting_night_mode
         }
-        
+
         h_colors = QHBoxLayout()
         w_day = QWidget()
         l_day = QVBoxLayout(w_day)
         l_day.setContentsMargins(0,0,0,0)
         create_color_section(l_day, _("day_color_scheme"), day_data, "day")
-        
+
         w_night = QWidget()
         l_night = QVBoxLayout(w_night)
         l_night.setContentsMargins(0,0,0,0)
         create_color_section(l_night, _("night_color_scheme"), night_data, "night")
-        
+
         h_colors.addWidget(w_day)
         h_colors.addWidget(w_night)
-        
+
         main_layout.addLayout(h_colors)
 
         layout.addWidget(scroll)
-        
+
         self.stack.addWidget(self.gui_page)
 
 
@@ -631,16 +651,16 @@ class SettingsWindow(QMainWindow):
         self.other_page = QWidget()
         layout = QVBoxLayout(self.other_page)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content_widget = QWidget()
         scroll.setWidget(content_widget)
-        
+
         main_layout = QVBoxLayout(content_widget)
         main_layout.setSpacing(15)
-        
+
         # --- 开机自启动 ---
         self.chk_auto_start = QCheckBox(_("auto_start"))
         # 读取当前开机自启动状态
@@ -653,9 +673,9 @@ class SettingsWindow(QMainWindow):
         main_layout.addWidget(btn_view_log)
 
         main_layout.addStretch()
-        
+
         layout.addWidget(scroll)
-        
+
         self.stack.addWidget(self.other_page)
 
 
@@ -675,7 +695,7 @@ class SettingsWindow(QMainWindow):
                 winreg.CloseKey(key)
                 return True
             except FileNotFoundError:
-                print(f"[_get_auto_start_status] no registry value found")
+                print("[_get_auto_start_status] no registry value found")
                 winreg.CloseKey(key)
                 return False
         except Exception as e:
@@ -685,6 +705,7 @@ class SettingsWindow(QMainWindow):
     def _open_log_folder(self):
         """打开日志文件夹"""
         import os
+
         from settings.user_data_path import get_resource_dir
         log_dir = os.path.join(get_resource_dir(), "log")
         if os.path.exists(log_dir):
@@ -694,9 +715,9 @@ class SettingsWindow(QMainWindow):
 
     def _set_auto_start(self, enable):
         """设置开机自启动"""
-        import winreg
-        import sys
         import os
+        import sys
+        import winreg
 
         print(f"[_set_auto_start] sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
         print(f"[_set_auto_start] sys.executable={sys.executable}")
@@ -726,10 +747,8 @@ class SettingsWindow(QMainWindow):
 
                 winreg.SetValueEx(key, "DiscoAS", 0, winreg.REG_SZ, startup_cmd)
             else:
-                try:
+                with contextlib.suppress(FileNotFoundError):
                     winreg.DeleteValue(key, "DiscoAS")
-                except FileNotFoundError:
-                    pass
 
             winreg.CloseKey(key)
             return True
@@ -778,7 +797,7 @@ class SettingsWindow(QMainWindow):
                     modifiers.append("Shift")
 
                 # 获取按键名称
-                key_name = Qt.Key(key)
+                Qt.Key(key)
                 key_text = ""
 
                 # 功能键
@@ -818,9 +837,7 @@ class SettingsWindow(QMainWindow):
                 elif key == Qt.Key.Key_Right:
                     key_text = "Right"
                 # 单个字符键
-                elif key >= Qt.Key.Key_A and key <= Qt.Key.Key_Z:
-                    key_text = chr(key)
-                elif key >= Qt.Key.Key_0 and key <= Qt.Key.Key_9:
+                elif key >= Qt.Key.Key_A and key <= Qt.Key.Key_Z or key >= Qt.Key.Key_0 and key <= Qt.Key.Key_9:
                     key_text = chr(key)
 
                 if key_text:
@@ -853,7 +870,7 @@ class SettingsWindow(QMainWindow):
     def add_playlist_row(self, data=None):
         row = self.table_pl.rowCount()
         self.table_pl.insertRow(row)
-        
+
         # 表格中下拉框的样式（使用占位符，稍后由apply_gui_theme更新）
         combo_style_template = """
             QComboBox {
@@ -877,18 +894,18 @@ class SettingsWindow(QMainWindow):
                 margin-right: 4px;
             }
         """
-        
+
         # 保存原始样式模板供后续动态更新
         if not hasattr(self, '_combo_style_template'):
             self._combo_style_template = combo_style_template
-        
+
         # 如果已经有颜色值就直接替换，否则使用默认值
         if hasattr(self, '_current_card_hover') and hasattr(self, '_current_card_border'):
             combo_style = self._combo_style_template.replace('#PLACEHOLDER_BG#', self._current_card_hover).replace('#PLACEHOLDER_BORDER#', self._current_card_border)
         else:
             # 使用默认日间模式颜色
             combo_style = self._combo_style_template.replace('#PLACEHOLDER_BG#', '#d0ebf0').replace('#PLACEHOLDER_BORDER#', '#76e8fd')
-        
+
         # 1. Platform
         cmb_platform = QComboBox()
         cmb_platform.setStyleSheet(combo_style)
@@ -899,18 +916,18 @@ class SettingsWindow(QMainWindow):
         ]
         for platform_id, platform_name in platforms:
             cmb_platform.addItem(platform_name, platform_id)
-        if data: 
+        if data:
             # 找到对应的索引
             index = cmb_platform.findData(data.name)
             if index >= 0:
                 cmb_platform.setCurrentIndex(index)
         self.table_pl.setCellWidget(row, 0, cmb_platform)
-        
+
         # 2. ID
         edit_id = QLineEdit()
         if data: edit_id.setText(str(data.playlist_album_id))
         self.table_pl.setCellWidget(row, 1, edit_id)
-        
+
         # 3. Type
         cmb_type = QComboBox()
         cmb_type.setStyleSheet(combo_style)
@@ -920,12 +937,12 @@ class SettingsWindow(QMainWindow):
         ]
         for type_id, type_name in types:
             cmb_type.addItem(type_name, type_id)
-        if data: 
+        if data:
             index = cmb_type.findData(data.typename)
             if index >= 0:
                 cmb_type.setCurrentIndex(index)
         self.table_pl.setCellWidget(row, 2, cmb_type)
-        
+
         # 4. Name (只读，从JSON读取)
         label_name = QLabel()
         label_name.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
@@ -936,7 +953,7 @@ class SettingsWindow(QMainWindow):
                 name = data.playlist_album_name or "未加载"
             label_name.setText(name)
         self.table_pl.setCellWidget(row, 3, label_name)
-        
+
         # 5. Enabled
         chk_widget = QWidget()
         chk_layout = QHBoxLayout(chk_widget)
@@ -947,10 +964,10 @@ class SettingsWindow(QMainWindow):
             chk_enabled.setChecked(True)
         chk_layout.addWidget(chk_enabled)
         self.table_pl.setCellWidget(row, 4, chk_widget)
-        chk_enabled.setObjectName("chk_enabled") 
-        
+        chk_enabled.setObjectName("chk_enabled")
+
         chk_enabled.toggled.connect(self.handle_enabled_checkbox_toggled)
-        
+
         # 6. Delete & Load
         btn_load = QPushButton(_("load"))
         btn_load.setStyleSheet("color: white; background-color: #3e8ed6; border: none; border-radius: 3px; padding: 0px;")
@@ -961,7 +978,7 @@ class SettingsWindow(QMainWindow):
         btn_del.setStyleSheet("color: white; background-color: #d6533e; border: none; border-radius: 3px; padding: 0px;")
         btn_del.setFixedSize(60, 32)
         btn_del.clicked.connect(self.delete_current_row)
-        
+
         cell_widget_del = QWidget()
         layout_del = QHBoxLayout(cell_widget_del)
         layout_del.setContentsMargins(2,0,2,0)
@@ -969,7 +986,7 @@ class SettingsWindow(QMainWindow):
         layout_del.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_del.addWidget(btn_del)
         layout_del.addWidget(btn_load)
-        
+
         self.table_pl.setCellWidget(row, 5, cell_widget_del)
 
 
@@ -978,11 +995,11 @@ class SettingsWindow(QMainWindow):
         platform = self.table_pl.cellWidget(row, 0).currentData()
         playlist_id = self.table_pl.cellWidget(row, 1).text()
         typename = self.table_pl.cellWidget(row, 2).currentData()
-        
+
         if not playlist_id:
             QMessageBox.warning(self, _("load_failed"), _("enter_id_first"))
             return
-            
+
         try:
             # 使用静态导入的 PlaylistAlbumJson 类
             PlaylistAlbumJson = PLATFORM_JSON_MAP.get(platform)
@@ -992,11 +1009,11 @@ class SettingsWindow(QMainWindow):
 
             playlist_album = PlaylistAlbumJson(playlist_id, typename)
             playlist_album.save()
-            
+
             remark_widget = self.table_pl.cellWidget(row, 3)
             if remark_widget.text() == "":
                 remark_widget.setText(playlist_album.get_name())
-            
+
             QMessageBox.information(self, _("load_success"), _("loaded_successfully").format(name=playlist_album.get_name()))
         except Exception as e:
             QMessageBox.critical(self, _("load_failed"), _("load_error").format(error=str(e)))
@@ -1017,7 +1034,7 @@ class SettingsWindow(QMainWindow):
                 chk = chk_widget.findChild(QCheckBox, "chk_enabled")
                 if chk and chk.isChecked():
                     enabled_count += 1
-            
+
             if enabled_count == 0:
                 sender.setChecked(True)
                 QMessageBox.warning(self, _("must_enable_one"), _("must_enable_one_msg"))
@@ -1035,16 +1052,16 @@ class SettingsWindow(QMainWindow):
                     if chk and chk.isChecked():
                         QMessageBox.warning(self, _("cannot_delete_enabled"), _("cannot_delete_enabled_msg"))
                         return
-                    
+
                     # 未启用歌单，询问确认
                     reply = QMessageBox.question(
-                        self, 
-                        _("confirm_delete_title"), 
+                        self,
+                        _("confirm_delete_title"),
                         _("confirm_delete_msg"),
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         QMessageBox.StandardButton.No
                     )
-                    
+
                     if reply == QMessageBox.StandardButton.Yes:
                         self.table_pl.removeRow(r)
                     return
@@ -1082,8 +1099,8 @@ class SettingsWindow(QMainWindow):
                 self.gui_setting.save()
                 # 语言切换后先提示再重启
                 reply = QMessageBox.question(
-                    self, 
-                    _("language_change"), 
+                    self,
+                    _("language_change"),
                     _("restart_to_apply"),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No
@@ -1134,7 +1151,7 @@ class SettingsWindow(QMainWindow):
         self.pa_setting.cache_batches = self.spin_cache_batches.value()
         self.pa_setting.refreshing_after_cancel = self.chk_refresh.isChecked()
         self.pa_setting.shortcut_key = self.edit_shortcut.text()
-        
+
         new_playlists = []
         new_enabled_platform = None
         new_enabled_playlist = None
@@ -1145,15 +1162,15 @@ class SettingsWindow(QMainWindow):
             # 名称从 JSON 读取，不再保存 remark
             name_label = self.table_pl.cellWidget(row, 3)
             playlist_name = name_label.text() if name_label else ""
-            
+
             chk_widget = self.table_pl.cellWidget(row, 4)
             chk = chk_widget.findChild(QCheckBox, "chk_enabled")
             enabled = chk.isChecked() if chk else False
-            
+
             if enabled:
                 new_enabled_platform = name
                 new_enabled_playlist = pid
-            
+
             p_data = {
                 "name": name,
                 "playlist_album_id": pid,
@@ -1164,19 +1181,19 @@ class SettingsWindow(QMainWindow):
                 "enabled": enabled
             }
             new_playlists.append(PlaylistAlbum(p_data))
-            
+
         self.pa_setting.playlist_albums = new_playlists
         self.pa_setting.save()
-        
+
         # 2. 保存 GUI Setting
         self.gui_setting.night_mode = self.btn_night_mode.isChecked()
         self.gui_setting.card_size = self.slider_card_size.value()
         self.gui_setting.cancel_button_size = self.slider_cancel_size.value()
         self.gui_setting.setting_size = self.slider_setting_size.value()
-        
+
         # 3. 保存开机自启动设置
         self._set_auto_start(self.chk_auto_start.isChecked())
-        
+
         # 更新 Day Colors
         for main_key in ["card", "cancel_button", "setting"]:
             target_dict = getattr(self.gui_setting, main_key)
@@ -1184,23 +1201,23 @@ class SettingsWindow(QMainWindow):
                 lookup_key = f"{main_key}_{sub_key}"
                 if lookup_key in self.color_inputs["day"]:
                     target_dict[sub_key] = self.get_input_color("day", main_key, sub_key)
-        
+
         # 更新 Night Colors
         map_keys = {
             "card": "card_night_mode",
-            "cancel_button": "cancel_button_night_mode", 
+            "cancel_button": "cancel_button_night_mode",
             "setting": "setting_night_mode"
         }
-        
+
         for main_key, attr_name in map_keys.items():
             target_dict = getattr(self.gui_setting, attr_name)
             for sub_key in ["background", "background_hover", "border", "font_color"]:
                 lookup_key = f"{main_key}_{sub_key}"
                 if lookup_key in self.color_inputs["night"]:
                     target_dict[sub_key] = self.get_input_color("night", main_key, sub_key)
-        
+
         self.gui_setting.save()
-        
+
         # 3. 检测变化
         platform_changed = (old_enabled_platform != new_enabled_platform)
         playlist_changed = (new_enabled_playlist != old_enabled_playlist)
@@ -1210,7 +1227,7 @@ class SettingsWindow(QMainWindow):
         self.pa_setting.load()
         self.load_playlist_table()
         self.apply_gui_theme()
-        
+
         if platform_changed or playlist_changed:
             QMessageBox.information(self, _("playlist_switched"), _("playlist_switched_restart"))
             self.restart_application()
@@ -1220,12 +1237,12 @@ class SettingsWindow(QMainWindow):
         else:
             self.notify_settings_changed()
             QMessageBox.information(self, _("save_success"), _("all_settings_saved"))
-    
+
 
     def restart_application(self):
+        import os
         import subprocess
         import sys
-        import os
 
         exe_dir = os.path.dirname(sys.executable)
         exe_path = os.path.join(exe_dir, "DiscoAS.exe")
@@ -1246,22 +1263,22 @@ class SettingsWindow(QMainWindow):
             print("已通知 GUI 设置已更新")
         except Exception as e:
             print(f"通知设置更新失败: {e}")
-        
+
         try:
-            import sys
             import os
+            import sys
             sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
             import Discover_gui
-            
+
             if Discover_gui._main_window is not None and Discover_gui._main_window.isVisible():
                 if Discover_gui._global_discover_app:
                     Discover_gui._global_discover_app.gui_setting.load()
                 print("Discover 浮窗已刷新")
-            
+
             if Discover_gui._global_app and Discover_gui._global_discover_app:
                 Discover_gui.reregister_shortcut(Discover_gui._global_app, Discover_gui._global_discover_app)
                 print("快捷键已重新注册")
-            
+
             if Discover_gui._global_discover_app:
                 Discover_gui._global_discover_app.music_setting.load()
                 Discover_gui._global_discover_app._apply_settings()
@@ -1281,32 +1298,32 @@ class SettingsWindow(QMainWindow):
 
     def apply_gui_theme(self):
         is_night = self.gui_setting.night_mode or self.btn_night_mode.isChecked()
-        
+
         if is_night:
             s_conf = self.gui_setting.setting_night_mode
             btn_conf = self.gui_setting.cancel_button_night_mode
-            input_conf = self.gui_setting.card_night_mode 
+            input_conf = self.gui_setting.card_night_mode
         else:
             s_conf = self.gui_setting.setting
             btn_conf = self.gui_setting.cancel_button
-            input_conf = self.gui_setting.card 
+            input_conf = self.gui_setting.card
 
         bg = s_conf.get("background", "#F0F0F0")
         fg = s_conf.get("font_color", "#000000")
-        
-        btn_bg = btn_conf.get("background", "#E0E0E0")
+
+        btn_conf.get("background", "#E0E0E0")
         btn_fg = btn_conf.get("font_color", "#000000")
-        btn_bd = btn_conf.get("border", "#888888")
-        btn_hover = btn_conf.get("background_hover", "#CCCCCC")
+        btn_conf.get("border", "#888888")
+        btn_conf.get("background_hover", "#CCCCCC")
 
         input_bg = input_conf.get("background", "#FFFFFF")
         input_bd = input_conf.get("border", "#AAAAAA")
         input_fg = input_conf.get("font_color", "#000000")
-        
+
         # 卡片悬停色和边框色（用于表格下拉框）
         card_hover = input_conf.get("background_hover", "#d0ebf0")
         card_border = input_conf.get("border", "#76e8fd")
-        
+
         # 保存当前颜色值供新增行时使用
         self._current_card_hover = card_hover
         self._current_card_border = card_border
@@ -1330,11 +1347,10 @@ class SettingsWindow(QMainWindow):
                 b = hex_color[5:7]
                 return f"rgba({int(r,16)}, {int(g,16)}, {int(b,16)}, 0.5)"
             return hex_color
-        
-        scroll_bg = bg
+
         scroll_handle = hex_to_rgba(card_hover)
         scroll_hover = hex_to_rgba(card_hover)
-        
+
         style = f"""
             QMainWindow, QWidget {{
                 background-color: {bg};
@@ -1487,7 +1503,7 @@ class SettingsWindow(QMainWindow):
             }}
         """
         self.setStyleSheet(style)
-        
+
         # 设置左侧导航栏特殊样式
         self.centralWidget().layout().itemAt(0).widget().setStyleSheet(f"""
             QWidget {{
@@ -1510,7 +1526,7 @@ class SettingsWindow(QMainWindow):
                 border-radius: 4px;
             }}
         """)
-        
+
         # 更新表格下拉框样式（使用card的悬停色和边框色）
         if hasattr(self, '_combo_style_template'):
             combo_style = self._combo_style_template.replace('#PLACEHOLDER_BG#', card_hover).replace('#PLACEHOLDER_BORDER#', card_border)

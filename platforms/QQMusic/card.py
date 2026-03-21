@@ -4,20 +4,16 @@ QQ音乐歌曲卡片模块 - 使用签名算法
 基于 qqmusic-api-python 库的签名算法实现
 """
 
-import webbrowser
-import requests
-from typing import List, Optional
 
 # 延迟导入签名模块
 def _get_make_api_request():
     import sys
-    import importlib
-    
+
     # 清除已缓存的qq_sign模块
-    mods_to_remove = [k for k in sys.modules.keys() if 'qq_sign' in k]
+    mods_to_remove = [k for k in sys.modules if 'qq_sign' in k]
     for mod in mods_to_remove:
         del sys.modules[mod]
-    
+
     # 重新导入
     import platforms.QQMusic.qq_sign as qq_sign_module
     return qq_sign_module.make_api_request
@@ -30,24 +26,24 @@ class SongCard:
     DEFAULT_MYSTERY_PIC = "https://y.qq.com/music/photo_new/T002R300x300M000004RT1Bi1Ee6r5_1.jpg"
 
     def __init__(
-        self, 
+        self,
         song_id: int,
         mystery_mode: bool = False,
-        mystery_pic_url: Optional[str] = None
+        mystery_pic_url: str | None = None
     ):
         self.song_id = song_id
         self.mystery_mode = mystery_mode
         self.mystery_pic_url = mystery_pic_url or self.DEFAULT_MYSTERY_PIC
-        
+
         # 歌曲详情数据
-        self.song_detail_json: Optional[dict] = None
-        self.song_name: Optional[str] = None
-        self.song_artists: List[dict] = []
-        self.song_artist_names: List[str] = []
-        self.window_name: Optional[str] = None
-        self._real_window_name: Optional[str] = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
-        self.album_mid: Optional[str] = None
-        self.album_pic_url: Optional[str] = None
+        self.song_detail_json: dict | None = None
+        self.song_name: str | None = None
+        self.song_artists: list[dict] = []
+        self.song_artist_names: list[str] = []
+        self.window_name: str | None = None
+        self._real_window_name: str | None = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
+        self.album_mid: str | None = None
+        self.album_pic_url: str | None = None
         self.have_loaded: bool = False
 
     def load_song_detail(self) -> None:
@@ -107,7 +103,7 @@ class SongCard:
         # window_name 用于 UI 显示（mystery_mode 下为假数据）
         self.window_name = self._real_window_name
         self.have_loaded = True
-    
+
     def _set_default_from_id(self) -> None:
         """根据歌曲ID设置默认值"""
         self.song_name = f"歌曲{self.song_id}"
@@ -133,8 +129,8 @@ class SongCard:
         if self.mystery_mode:
             return "???"
         return self.song_name or "???"
-    
-    def get_artist_names(self) -> List[str]:
+
+    def get_artist_names(self) -> list[str]:
         if self.mystery_mode:
             return ["???"]
         return self.song_artist_names or ["???"]
@@ -163,13 +159,11 @@ class SongCard:
 
 # 测试代码
 if __name__ == '__main__':
-    import time
-    import pygetwindow as gw
-    
+
     # song = SongCard(284218927)
     song = SongCard(127570997)
     song.load_song_detail()
-    
+
     print(f"歌曲ID: {song.get_id()}")
     print(f"歌曲名: {song.get_name()}")
     print(f"艺术家: {song.get_artist_names()}")

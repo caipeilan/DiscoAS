@@ -4,11 +4,9 @@
 用于获取歌曲信息和封面
 """
 
-import json
 import base64
+import json
 import os
-import requests
-from typing import List, Optional
 
 # 导入共享的 Session
 from platforms.KugouMusic.get_json import get_session
@@ -24,7 +22,7 @@ class SongCard:
         self,
         song_id: str,
         mystery_mode: bool = False,
-        mystery_pic_url: Optional[str] = None
+        mystery_pic_url: str | None = None
     ):
         # song_id 就是 hash
         self.song_id = song_id
@@ -33,11 +31,11 @@ class SongCard:
         self.mystery_pic_url = mystery_pic_url or self.DEFAULT_MYSTERY_PIC
 
         # 歌曲详情数据
-        self.song_name: Optional[str] = None
-        self.song_artist_names: List[str] = []
-        self.window_name: Optional[str] = None
-        self._real_window_name: Optional[str] = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
-        self.album_pic_url: Optional[str] = None
+        self.song_name: str | None = None
+        self.song_artist_names: list[str] = []
+        self.window_name: str | None = None
+        self._real_window_name: str | None = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
+        self.album_pic_url: str | None = None
         self.have_loaded: bool = False
 
     def load_song_detail(self) -> None:
@@ -83,10 +81,10 @@ class SongCard:
         self.window_name = self._real_window_name
         self.have_loaded = True
 
-    def _find_song_info(self) -> Optional[dict]:
+    def _find_song_info(self) -> dict | None:
         """从 songs_info 中查找歌曲信息"""
         try:
-            from settings.user_data_path import get_playlist_dir, get_album_dir
+            from settings.user_data_path import get_album_dir, get_playlist_dir
 
             # 先搜 playlist 目录
             playlist_dir = get_playlist_dir("KugouMusic")
@@ -94,7 +92,7 @@ class SongCard:
                 for filename in os.listdir(playlist_dir):
                     if filename.endswith(".json"):
                         filepath = os.path.join(playlist_dir, filename)
-                        with open(filepath, "r", encoding="utf-8") as f:
+                        with open(filepath, encoding="utf-8") as f:
                             data = json.load(f)
                         songs_info = data.get("songs_info", [])
                         for song in songs_info:
@@ -107,7 +105,7 @@ class SongCard:
                 for filename in os.listdir(album_dir):
                     if filename.endswith(".json"):
                         filepath = os.path.join(album_dir, filename)
-                        with open(filepath, "r", encoding="utf-8") as f:
+                        with open(filepath, encoding="utf-8") as f:
                             data = json.load(f)
                         songs_info = data.get("songs_info", [])
                         for song in songs_info:
@@ -164,7 +162,7 @@ class SongCard:
             return "???"
         return self.song_name or "???"
 
-    def get_artist_names(self) -> List[str]:
+    def get_artist_names(self) -> list[str]:
         if self.mystery_mode:
             return ["???"]
         return self.song_artist_names or ["???"]

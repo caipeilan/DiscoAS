@@ -49,10 +49,10 @@ def get_settings_dir():
 def get_platform_dir(platform_name):
     """
     获取指定平台的数据目录
-    
+
     Args:
         platform_name: 平台名称 (NeteaseCloudMusic, QQMusic, Spotify)
-    
+
     Returns:
         平台数据目录路径
     """
@@ -72,7 +72,7 @@ def get_album_dir(platform_name):
 def ensure_dir(path):
     """
     确保目录存在，不存在则创建
-    
+
     Args:
         path: 目录路径
     """

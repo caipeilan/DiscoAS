@@ -1,9 +1,15 @@
-import os,sys,webbrowser,time,pygetwindow as gw,json,base64
+import os
+import sys
+import time
+import webbrowser
+
+import pygetwindow as gw
 
 sys.path.append(os.path.dirname(__file__))
 from card import SongCard
 
-class ToPlaySong(object):
+
+class ToPlaySong:
     def __init__(self, song_id):
         self.song_id = song_id
         self.song_card = SongCard(song_id)
@@ -21,7 +27,7 @@ class ToPlaySong(object):
             window = windows[0]
             window.minimize()
 
-        
+
 
 
 if __name__ == '__main__':

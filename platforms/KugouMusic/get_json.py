@@ -7,20 +7,19 @@
 import json
 import os
 import sys
+
 import requests
-from typing import Any, Dict, List, Optional, Union
-from functools import lru_cache
 
 # 添加 settings 目录到路径，导入统一的路径管理模块
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings'))
-from settings.user_data_path import get_playlist_dir, get_album_dir, ensure_dir
+from settings.user_data_path import ensure_dir, get_album_dir, get_playlist_dir
 
 # 酷狗音乐 API 配置
 KUGOU_BASE_URL = "http://mobilecdn.kugou.com"
 KUGOU_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
 
 # 创建全局 Session 用于连接复用
-_session: Optional[requests.Session] = None
+_session: requests.Session | None = None
 
 
 def get_session() -> requests.Session:
@@ -42,7 +41,7 @@ class PlaylistAlbumJson:
         self.typename = typename
         self.specialid: str = ""  # 解析后的 specialid
         self.playlist_album_name: str = ""
-        self.playlist_album_json: Union[Dict, List] = {}
+        self.playlist_album_json: dict | list = {}
 
         self._fetch_data()
 
@@ -173,7 +172,7 @@ class PlaylistAlbumJson:
 
         print(f"已获取 {self.typename}: {self.playlist_album_name}")
 
-    def _resolve_share_code(self, share_code: str) -> Optional[str]:
+    def _resolve_share_code(self, share_code: str) -> str | None:
         """解析歌单分享码获取 specialid"""
         import re
 
@@ -198,7 +197,7 @@ class PlaylistAlbumJson:
             print(f"解析分享码失败: {e}")
             return None
 
-    def _resolve_album_share_code(self, share_code: str) -> Optional[str]:
+    def _resolve_album_share_code(self, share_code: str) -> str | None:
         """解析专辑分享码获取 album_id"""
         import re
 
@@ -229,7 +228,7 @@ class PlaylistAlbumJson:
     def get_name(self) -> str:
         return self.playlist_album_name
 
-    def get_songs(self) -> List[Dict]:
+    def get_songs(self) -> list[dict]:
         """获取歌曲信息列表（包含 hash 和 album_id）"""
         songs = []
 
@@ -242,24 +241,20 @@ class PlaylistAlbumJson:
                     "name": song.get("filename", song.get("name", "")),
                 })
 
-        elif self.typename == "album":
-            if "data" in self.playlist_album_json:
-                for song in self.playlist_album_json.get("data", {}).get("info", []):
-                    songs.append({
-                        "hash": song.get("hash", ""),
-                        "album_id": song.get("album_id", song.get("albumid", "")),
-                        "name": song.get("filename", song.get("name", "")),
-                    })
+        elif self.typename == "album" and "data" in self.playlist_album_json:
+            for song in self.playlist_album_json.get("data", {}).get("info", []):
+                songs.append({
+                    "hash": song.get("hash", ""),
+                    "album_id": song.get("album_id", song.get("albumid", "")),
+                    "name": song.get("filename", song.get("name", "")),
+                })
 
         return songs
 
     def save(self) -> None:
         """保存到本地 JSON 文件"""
         # 使用统一的路径管理
-        if self.typename == "playlist":
-            path = get_playlist_dir("KugouMusic")
-        else:
-            path = get_album_dir("KugouMusic")
+        path = get_playlist_dir("KugouMusic") if self.typename == "playlist" else get_album_dir("KugouMusic")
         ensure_dir(path)
 
         # 获取歌曲信息列表

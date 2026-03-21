@@ -4,10 +4,8 @@
 使用requests.Session复用连接，提升响应速度
 """
 
-import json
 import base64
-import requests
-from typing import List, Optional
+import json
 
 # 导入共享的Session
 from platforms.NeteaseCloudMusic.get_json import get_session
@@ -20,23 +18,23 @@ class SongCard:
     DEFAULT_MYSTERY_PIC = "https://p1.music.126.net/sFzdxi9EMPV0q4IuWEy-og==/17792297160856759.jpg"
 
     def __init__(
-        self, 
+        self,
         song_id: int,
         mystery_mode: bool = False,
-        mystery_pic_url: Optional[str] = None
+        mystery_pic_url: str | None = None
     ):
         self.song_id = song_id
         self.mystery_mode = mystery_mode
         self.mystery_pic_url = mystery_pic_url or self.DEFAULT_MYSTERY_PIC
-        
+
         # 歌曲详情数据
-        self.song_detail_json: Optional[dict] = None
-        self.song_name: Optional[str] = None
-        self.song_artists: List[dict] = []
-        self.song_artist_names: List[str] = []
-        self.window_name: Optional[str] = None
-        self._real_window_name: Optional[str] = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
-        self.album_pic_url: Optional[str] = None
+        self.song_detail_json: dict | None = None
+        self.song_name: str | None = None
+        self.song_artists: list[dict] = []
+        self.song_artist_names: list[str] = []
+        self.window_name: str | None = None
+        self._real_window_name: str | None = ""  # 用于播放器窗口匹配，初始为空字符串防止未初始化
+        self.album_pic_url: str | None = None
         self.have_loaded: bool = False
 
     def load_song_detail(self) -> None:
@@ -99,8 +97,8 @@ class SongCard:
         if self.mystery_mode:
             return "???"
         return self.song_name or "???"
-    
-    def get_artist_names(self) -> List[str]:
+
+    def get_artist_names(self) -> list[str]:
         if self.mystery_mode:
             return ["???"]
         return self.song_artist_names or ["???"]
@@ -133,12 +131,10 @@ class SongCard:
 
 # 测试代码
 if __name__ == '__main__':
-    import time
-    import pygetwindow as gw
-    
+
     song = SongCard(2121980421)
     song.load_song_detail()
-    
+
     print(f"歌曲ID: {song.get_id()}")
     print(f"歌曲名: {song.get_name()}")
     print(f"艺术家: {song.get_artist_names()}")

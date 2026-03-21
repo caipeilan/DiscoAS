@@ -1,6 +1,5 @@
-import shutil
 import glob
-import os
+import shutil
 
 base = r'd:\Caipeilan\DiscoASong'
 for d in glob.glob(base + '/**/__pycache__', recursive=True):

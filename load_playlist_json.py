@@ -6,14 +6,13 @@
 
 import json
 import os
-import sys
 import random
+import sys
 from functools import lru_cache
-from typing import List, Optional
 
 # 导入统一的路径管理模块
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'settings'))
-from settings.user_data_path import get_playlist_dir, get_album_dir
+from settings.user_data_path import get_album_dir, get_playlist_dir
 
 
 class Playlist:
@@ -33,33 +32,30 @@ class Playlist:
         self.playlist_id = playlist_id
         self.json_file = self._get_json_file_path()
         self.playlist: dict = self._load_playlist_data()
-        self.songs: List[int] = self.playlist.get("song_ids", [])
+        self.songs: list[int] = self.playlist.get("song_ids", [])
         self.song_count: int = len(self.songs)
-        
+
     def _get_json_file_path(self) -> str:
         """获取JSON文件路径"""
         # 使用统一的路径管理
-        if self.playlist_type == "playlist":
-            base_dir = get_playlist_dir(self.platform)
-        else:
-            base_dir = get_album_dir(self.platform)
+        base_dir = get_playlist_dir(self.platform) if self.playlist_type == "playlist" else get_album_dir(self.platform)
         return os.path.join(base_dir, f"{self.playlist_id}.json")
-    
+
     @lru_cache(maxsize=32)
     def _load_playlist_data(self) -> dict:
         """
         加载播放列表数据并缓存
-        
+
         Returns:
             包含歌曲ID列表的字典
         """
         if not os.path.exists(self.json_file):
             raise FileNotFoundError(f"播放列表文件不存在: {self.json_file}")
-        
-        with open(self.json_file, "r", encoding="utf-8") as f:
+
+        with open(self.json_file, encoding="utf-8") as f:
             return json.load(f)
 
-    def get_random_song(self, number: int) -> tuple[List[int], int]:
+    def get_random_song(self, number: int) -> tuple[list[int], int]:
         """
         获取随机不重复的歌曲ID列表
 
@@ -71,16 +67,16 @@ class Playlist:
         """
         if number > self.song_count:
             number = self.song_count
-        
+
         if number <= 0:
             return [], 0
-            
+
         return random.sample(self.songs, number), number
-    
+
     def get_playlist_name(self) -> str:
         """获取播放列表名称"""
         return self.playlist.get("playlist_album_name", "")
-    
+
     @classmethod
     def clear_cache(cls) -> None:
         """清除Playlist类的所有缓存"""

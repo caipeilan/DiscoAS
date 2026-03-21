@@ -6,8 +6,8 @@ Supports:
 - en_US (English)
 """
 
-import os
 import json
+import os
 import sys
 
 print(f"[i18n] module loading... __name__={__name__}, __file__={__file__}, sys.frozen={getattr(sys, 'frozen', None)}, hasattr(_MEIPASS)={hasattr(sys, '_MEIPASS')}")
@@ -50,18 +50,18 @@ def load_translations(lang_code):
     lang_file = os.path.join(get_i18n_dir(), f"{lang_code}.json")
     print(f"[i18n] load_translations({lang_code}): file={lang_file}, exists={os.path.exists(lang_file)}")
     if os.path.exists(lang_file):
-        with open(lang_file, "r", encoding="utf-8") as f:
+        with open(lang_file, encoding="utf-8") as f:
             data = json.load(f)
             print(f"[i18n] loaded {len(data)} keys")
             return data
-    print(f"[i18n] load_translations FAILED - returning empty dict")
+    print("[i18n] load_translations FAILED - returning empty dict")
     return {}
 
 
 def set_language(lang_code):
     """Set the current language"""
     global _current_language, _translations
-    
+
     if lang_code in LANGUAGES:
         _current_language = lang_code
         _translations = load_translations(lang_code)
@@ -87,11 +87,11 @@ def get_available_languages():
 def t(key, default=None):
     """
     Translate a key to the current language
-    
+
     Args:
         key: The translation key
         default: Default value if key not found
-    
+
     Returns:
         Translated string
     """
@@ -107,12 +107,12 @@ def t(key, default=None):
 def init_language(lang_code=None):
     """
     Initialize language from config or system default
-    
+
     Args:
         lang_code: Language code to use (optional)
     """
     global _current_language
-    
+
     # 1. 首先尝试从 gui_setting 读取保存的语言
     try:
         from settings.gui_setting import get_global_gui_setting
@@ -124,7 +124,7 @@ def init_language(lang_code=None):
             return
     except Exception as e:
         print(f"[i18n] init_language step1 FAILED: {e}")
-    
+
     # 2. 如果没有保存的语言，使用传入的参数
     if lang_code and lang_code in LANGUAGES:
         set_language(lang_code)
