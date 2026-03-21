@@ -49,3 +49,6 @@ user_data/
 main.dist/
 main.build/
 .claude/settings.local.json
+
+# Ruff
+.ruff_cache/
