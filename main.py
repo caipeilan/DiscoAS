@@ -375,58 +375,6 @@ class DiscoverApp:
         run_gui()
 
 
-def handle_scheme_url(url: str) -> bool:
-    """
-    处理Scheme URL调用
-    
-    Args:
-        url: scheme URL
-        
-    Returns:
-        是否成功处理
-    """
-    # 解析URL参数
-    try:
-        from urllib.parse import urlparse, parse_qs
-        
-        parsed = urlparse(url)
-        
-        # 检查是否是DiscoverASong的scheme
-        if parsed.scheme == "discoverasong":
-            params = parse_qs(parsed.query)
-            
-            # 创建应用实例
-            app = DiscoverApp()
-            
-            if "action" in params:
-                action = params["action"][0]
-                
-                if action == "discover":
-                    # 发现歌曲
-                    number = int(params.get("count", [3])[0])
-                    songs = app.discover_songs(number)
-                    
-                    print(f"发现 {len(songs)} 首歌曲:")
-                    for i, song in enumerate(songs):
-                        song.load_song_detail()
-                        print(f"  {i+1}. {song.get_name()} - {'/'.join(song.get_artist_names())}")
-                    return True
-                    
-                elif action == "play":
-                    # 直接播放指定歌曲
-                    song_index = int(params.get("song", [0])[0])
-                    songs = app.discover_songs()
-                    if 0 <= song_index < len(songs):
-                        app.play_song(songs[song_index])
-                        return True
-                        
-        return False
-        
-    except Exception as e:
-        print(f"处理URL失败: {e}")
-        return False
-
-
 def acquire_single_instance_lock():
     """获取单实例锁。返回 True 表示获得锁并继续启动，False 表示已有实例在运行。"""
     lock_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), "DiscoAS")
@@ -465,11 +413,6 @@ def acquire_single_instance_lock():
 def main():
     """主入口函数"""
     if not acquire_single_instance_lock():
-        return
-
-    # 检查是否是scheme URL
-    if len(sys.argv) > 1 and sys.argv[1].startswith("discoverasong://"):
-        handle_scheme_url(sys.argv[1])
         return
 
     # 默认启动GUI模式
