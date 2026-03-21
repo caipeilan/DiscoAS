@@ -11,7 +11,7 @@
 ---
 ## 所以，怎么用？
 
-![演示](.\src\Cap_showhow.gif)
+<img src=".\src\Cap_showhow.gif" width="100%">
 
 - 按下快捷键 *（或着通过系统托盘）*，**发现**一首歌！
 - 选择一首歌
