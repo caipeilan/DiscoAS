@@ -2,6 +2,9 @@
 name = "DiscoAS"
 version = "1.0.0"
 
+[project.scripts]
+discoas = "main:main"
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
