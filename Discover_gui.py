@@ -593,23 +593,19 @@ class DiscoverOverlay(QMainWindow):
         central.setStyleSheet("background: transparent;")
         self.setCentralWidget(central)
         
-        # 主布局 - 全屏铺满
-        main_layout = QVBoxLayout(central)
+        # 主布局 - 使用 QGridLayout 让按钮和卡片区域独立定位
+        main_layout = QGridLayout(central)
         main_layout.setContentsMargins(50, 50, 50, 50)
-        
+        main_layout.setRowStretch(0, 0)   # 按钮行不拉伸
+        main_layout.setRowStretch(1, 1)   # 卡片行占满剩余空间
+        main_layout.setColumnStretch(0, 1)  # 列全拉伸
+
         # 右上角关闭按钮 - 应用 cancel_button_size 配置
         close_btn_size = int(50 * (self.gui_setting.cancel_button_size if self.gui_setting else 1.0))
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(close_btn_size, close_btn_size)
         close_btn.setStyleSheet(self._get_close_button_style())
         close_btn.clicked.connect(self._on_close)
-        
-        # 关闭按钮位置 - 使用QHBoxLayout
-        btn_container = QWidget()
-        btn_layout = QHBoxLayout(btn_container)
-        btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.addStretch()
-        btn_layout.addWidget(close_btn)
         
         # 歌曲卡片区域 - 可滚动 - 完全透明
         scroll = QScrollArea()
@@ -642,10 +638,10 @@ class DiscoverOverlay(QMainWindow):
         self.song_layout.setSpacing(45)
         
         scroll.setWidget(self.song_container)
-        
-        # 垂直布局：关闭按钮在上，歌曲卡片在下面
-        main_layout.addWidget(btn_container)
-        main_layout.addWidget(scroll)
+
+        # Grid 布局：按钮在右上角(0,1)，卡片在下方占满(1,0)-(1,1)
+        main_layout.addWidget(close_btn, 0, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        main_layout.addWidget(scroll, 1, 0, 1, 2)
         
     def paintEvent(self, event):
         """完全透明背景"""
@@ -1243,6 +1239,38 @@ _keyboard_handle = None
 _current_shortcut = "alt+d"
 
 
+_keyboard_hook_check_timer = None
+
+
+def _start_keyboard_hook_monitor(app, discover_app):
+    """启动键盘钩子健康检查定时器，每 30 秒检测一次"""
+    global _keyboard_hook_check_timer
+
+    if _keyboard_hook_check_timer is not None:
+        _keyboard_hook_check_timer.stop()
+
+    def check_and_reregister():
+        global _keyboard_handle, _shortcut_callback, _current_shortcut
+        try:
+            # 尝试读取 Alt 键状态，如果键盘钩子失效会抛异常
+            keyboard.is_pressed('alt')
+        except Exception:
+            print("[快捷键] 钩子失效，重新注册")
+            try:
+                keyboard.remove_hotkey(_keyboard_handle)
+            except Exception:
+                pass
+            try:
+                _keyboard_handle = keyboard.add_hotkey(_current_shortcut, _shortcut_callback)
+                print("[快捷键] 重新注册成功")
+            except Exception as e:
+                print(f"[快捷键] 重新注册失败: {e}")
+
+    _keyboard_hook_check_timer = QTimer()
+    _keyboard_hook_check_timer.timeout.connect(check_and_reregister)
+    _keyboard_hook_check_timer.start(30000)  # 每 30 秒检查一次
+
+
 def register_global_shortcut(app, discover_app, shortcut="alt+d"):
     """注册全局快捷键 - 使用keyboard库"""
     global _shortcut_enabled, _global_app_ref, _global_discover_app_ref, _shortcut_emitter, _shortcut_parent, _shortcut_widget
@@ -1266,6 +1294,12 @@ def register_global_shortcut(app, discover_app, shortcut="alt+d"):
         
         def on_shortcut():
             if _shortcut_enabled:
+                # 检查修饰键是否实际按下（防止单独按字母键时误触发）
+                try:
+                    if not keyboard.is_pressed('alt'):
+                        return
+                except Exception:
+                    pass  # is_pressed 失败时继续执行
                 print(f"快捷键 {shortcut} 被触发")
                 # 通过信号机制在主线程中调用
                 # PyQt 信号发射是线程安全的
@@ -1275,6 +1309,9 @@ def register_global_shortcut(app, discover_app, shortcut="alt+d"):
         # 注册全局快捷键
         _keyboard_handle = keyboard.add_hotkey(shortcut, on_shortcut)
         print(f"全局快捷键已注册: {shortcut}")
+
+        # 启动键盘钩子健康检查（每 30 秒检测一次）
+        _start_keyboard_hook_monitor(app, discover_app)
     except Exception as e:
         print(f"注册全局快捷键失败: {e}")
         print("将使用PyQt快捷键作为后备方案")
