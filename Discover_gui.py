@@ -414,6 +414,13 @@ class SongCardWidget(QFrame):
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
+        # 添加整卡片阴影（与封面阴影样式一致）
+        card_shadow = QGraphicsDropShadowEffect()
+        card_shadow.setBlurRadius(int(30 * self.card_size))
+        card_shadow.setOffset(int(10 * self.card_size), int(10 * self.card_size))
+        card_shadow.setColor(QColor(0, 0, 0, 80))  # 半透明黑色
+        self.setGraphicsEffect(card_shadow)
+
     @staticmethod
     def _make_rounded_pixmap(pixmap: QPixmap, size: int, radius: int) -> QPixmap:
         """
