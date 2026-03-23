@@ -1121,6 +1121,13 @@ def create_tray_icon(app, discover_app):
 
     menu.addSeparator()
 
+    # 重启
+    restart_action = QAction(_("restart"), menu)
+    restart_action.triggered.connect(restart_from_tray)
+    menu.addAction(restart_action)
+
+    menu.addSeparator()
+
     # 退出
     quit_action = QAction(_("quit"), menu)
     quit_action.triggered.connect(app.quit)
@@ -1222,6 +1229,23 @@ def open_settings():
         settings_window.show()
     except Exception as e:
         print(f"打开设置窗口失败: {e}")
+
+
+def restart_from_tray() -> None:
+    """从托盘菜单重启应用，复用 SettingsWindow.restart_application 逻辑"""
+    import os
+    import subprocess
+    import sys
+
+    exe_dir = os.path.dirname(sys.executable)
+    exe_path = os.path.join(exe_dir, "DiscoAS.exe")
+    if os.path.exists(exe_path):
+        subprocess.Popen([exe_path])
+    else:
+        # fallback：开发环境用 python main.py
+        script_path = os.path.join(os.path.dirname(__file__), "main.py")
+        subprocess.Popen([sys.executable, script_path])
+    QApplication.instance().quit()
 
 
 # 全局变量用于跨线程调用

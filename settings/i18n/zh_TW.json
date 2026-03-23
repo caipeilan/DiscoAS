@@ -76,6 +76,7 @@
     "pause_shortcut": "⏸️ 暫停快捷鍵",
     "enable_shortcut": "▶️ 啟用快捷鍵",
     "quit": "退出(´;ω;`)",
+    "restart": "重啟",
     "language_change": "語言切換",
     "restart_to_apply": "語言切換後需要重啟應用以生效，是否現在重啟？",
     "cannot_delete_only_enabled": "操作阻止",
