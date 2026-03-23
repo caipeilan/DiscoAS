@@ -913,6 +913,7 @@ class SettingsWindow(QMainWindow):
             ("NeteaseCloudMusic", _("platform_NeteaseCloudMusic")),
             ("QQMusic", _("platform_QQMusic")),
             ("KugouMusic", _("platform_KugouMusic")),
+            ("Spotify", _("platform_Spotify")),
         ]
         for platform_id, platform_name in platforms:
             cmb_platform.addItem(platform_name, platform_id)

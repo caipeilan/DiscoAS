@@ -1,116 +1,90 @@
 """
-Spotify API 模块 - 匿名 Token 版
+Spotify API 模块 - 使用 Embed 页面抓取 Entity 数据
 
-使用 Spotify 网页端的匿名 Token，无需开发者账号
+无需开发者 token，通过 Spotify Embed 页面的 __NEXT_DATA__ 提取歌单/专辑/歌曲信息
 """
 
 import json
 import os
+import re
+import sys
 
 import requests
 
-# Spotify API 配置
-SPOTIFY_BASE_URL = "https://api.spotify.com/v1"
-SPOTIFY_TOKEN_URL = "https://open.spotify.com/get_access_token"
-SPOTIFY_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+# 添加 settings 目录到路径，导入统一的路径管理模块
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings'))
+from settings.user_data_path import ensure_dir, get_album_dir, get_playlist_dir
 
-# 全局变量
-_access_token: str | None = None
+# Spotify 配置
+SPOTIFY_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-
-def get_access_token() -> str:
-    """
-    获取 Spotify 匿名 Token
-    无需登录，无需开发者账号
-    """
-    global _access_token
-
-    if _access_token:
-        return _access_token
-
-    headers = {
-        "User-Agent": SPOTIFY_USER_AGENT,
-        "Accept": "application/json"
-    }
-
-    try:
-        response = requests.get(SPOTIFY_TOKEN_URL, headers=headers, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            _access_token = data.get("accessToken")
-            if _access_token:
-                print("成功获取 Spotify 匿名 Token")
-                return _access_token
-    except Exception as e:
-        print(f"获取 Spotify Token 失败: {e}")
-
-    raise Exception("无法获取 Spotify 访问令牌")
+# 创建全局 Session 用于连接复用
+_session: requests.Session | None = None
 
 
-def get_session() -> dict[str, str]:
-    """获取带有 Token 的请求头"""
-    token = get_access_token()
-    return {
-        "Authorization": f"Bearer {token}",
-        "User-Agent": SPOTIFY_USER_AGENT
-    }
+def get_session() -> requests.Session:
+    """获取全局 Session，复用 TCP 连接"""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            "User-Agent": SPOTIFY_USER_AGENT,
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        })
+    return _session
 
 
 class PlaylistAlbumJson:
-    """Spotify 歌单 JSON 获取类"""
+    """Spotify 歌单/专辑 JSON 获取类"""
 
     def __init__(self, playlist_album_id: str, typename: str):
         self.playlist_album_id = playlist_album_id
-        self.typename = typename  # playlist 或 album
+        self.typename = typename  # "playlist" | "album"
         self.playlist_album_name: str = ""
-        self.playlist_album_json: dict | list = {}
+        self.playlist_album_json: dict = {}
 
         self._fetch_data()
 
     def _fetch_data(self) -> None:
-        """获取歌单/专辑数据"""
-        headers = get_session()
-
-        if self.typename == "playlist":
-            # 获取歌单详情
-            url = f"{SPOTIFY_BASE_URL}/playlists/{self.playlist_album_id}"
-            # 只获取必要的字段，减少返回数据量
-            params = {
-                "fields": "name,tracks.items(track(id)),tracks.next"
-            }
-            try:
-                response = requests.get(url, headers=headers, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-
-                self.playlist_album_name = data.get("name", "")
-                self.playlist_album_json = data
-                print(f"已获取歌单: {self.playlist_album_name}")
-
-            except Exception as e:
-                print(f"获取歌单详情失败: {e}")
-                raise
-
-        elif self.typename == "album":
-            # 获取专辑详情
-            url = f"{SPOTIFY_BASE_URL}/albums/{self.playlist_album_id}"
-            params = {
-                "fields": "name,tracks.items(track(id)),tracks.next"
-            }
-            try:
-                response = requests.get(url, headers=headers, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-
-                self.playlist_album_name = data.get("name", "")
-                self.playlist_album_json = data
-                print(f"已获取专辑: {self.playlist_album_name}")
-
-            except Exception as e:
-                print(f"获取专辑详情失败: {e}")
-                raise
-        else:
+        """从 Spotify Embed 页面抓取 Entity 数据"""
+        if self.typename not in ("playlist", "album"):
             raise ValueError("typename must be 'playlist' or 'album'")
+
+        session = get_session()
+        embed_url = f"https://open.spotify.com/embed/{self.typename}/{self.playlist_album_id}"
+
+        try:
+            response = session.get(embed_url, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"网络请求失败，请检查网络环境或代理设置！具体报错: {e}")
+
+        # 从 HTML 中提取 __NEXT_DATA__ JSON
+        match = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+            response.text
+        )
+        if not match:
+            raise RuntimeError(
+                f"无法在页面源码中找到 __NEXT_DATA__ 节点，Spotify 可能更改了网页结构。\n"
+                f"请求的URL: {embed_url}"
+            )
+
+        try:
+            data = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            raise RuntimeError("解析内部 JSON 失败。")
+
+        # 提取 entity
+        try:
+            entity = data["props"]["pageProps"]["state"]["data"]["entity"]
+        except KeyError:
+            raise RuntimeError("JSON 结构有变，无法找到 entity 数据。")
+
+        self.playlist_album_json = entity
+        self.playlist_album_name = entity.get("name", "")
+
+        print(f"已获取 {self.typename}: {self.playlist_album_name}")
 
     def get_id(self) -> str:
         return self.playlist_album_id
@@ -119,74 +93,62 @@ class PlaylistAlbumJson:
         return self.playlist_album_name
 
     def get_songs(self) -> list[str]:
-        """获取歌曲ID列表"""
+        """获取歌曲 ID 列表（纯 track ID，不带 spotify:track: 前缀）"""
         songs: list[str] = []
 
-        try:
-            # 递归获取所有分页
-            self._collect_tracks(self.playlist_album_json, songs)
-        except Exception as e:
-            print(f"获取歌曲列表失败: {e}")
+        track_list = self.playlist_album_json.get("trackList", [])
+        for track in track_list:
+            uri = track.get("uri", "")
+            # URI 格式: spotify:track:3T0UCGe1Vrfh57fM1B0Mgi
+            if uri.startswith("spotify:track:"):
+                track_id = uri.replace("spotify:track:", "")
+                songs.append(track_id)
 
         return songs
 
-    def _collect_tracks(self, data: dict, songs: list[str]) -> None:
-        """递归收集所有歌曲ID"""
-        if self.typename == "playlist" or self.typename == "album":
-            tracks_data = data.get("tracks", {})
-        else:
-            return
-
-        # 获取当前页的歌曲
-        for item in tracks_data.get("items", []):
-            track = item.get("track")
-            if track and track.get("id"):
-                songs.append(track["id"])
-
-        # 检查下一页
-        next_url = tracks_data.get("next")
-        if next_url:
-            headers = get_session()
-            try:
-                response = requests.get(next_url, headers=headers, timeout=10)
-                response.raise_for_status()
-                next_data = response.json()
-                self._collect_tracks(next_data, songs)
-            except Exception as e:
-                print(f"获取下一页失败: {e}")
-
     def save(self) -> None:
-        """保存到本地JSON文件"""
-        path = os.path.join(
-            os.path.dirname(__file__),
-            "user_data",
-            self.typename
-        )
-        os.makedirs(path, exist_ok=True)
+        """保存到本地 JSON 文件"""
+        if self.typename == "playlist":
+            path = get_playlist_dir("Spotify")
+        else:
+            path = get_album_dir("Spotify")
+        ensure_dir(path)
 
         song_ids = self.get_songs()
+
+        track_list = self.playlist_album_json.get("trackList", [])
+        tracks_info = []
+        for track in track_list:
+            uri = track.get("uri", "")
+            track_id = uri.replace("spotify:track:", "") if uri.startswith("spotify:track:") else uri
+            tracks_info.append({
+                "id": track_id,
+                "title": track.get("title", ""),
+                "subtitle": track.get("subtitle", ""),
+                "duration": track.get("duration", 0),
+            })
+
         data = {
             "playlist_album_id": self.playlist_album_id,
             "playlist_album_name": self.playlist_album_name,
             "playlist_album_type": self.typename,
-            "song_ids": song_ids
+            "song_ids": song_ids,
+            "tracks_info": tracks_info,
         }
 
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-            print(f"已保存{self.typename} {self.playlist_album_id} {self.playlist_album_name} 到 {path}")
+            print(f"已保存 {self.typename} {self.playlist_album_id} {self.playlist_album_name} 到 {path}")
 
 
 if __name__ == '__main__':
     # 测试代码
-    import sys
     if len(sys.argv) > 2:
         playlist_id = sys.argv[1]
         typename = sys.argv[2]
     else:
-        # 默认测试歌单：Today's Top Hits
-        playlist_id = "37i9dQZF1DXcBWIGoYBM5M"
+        playlist_id = "37i9dQZF1EIZ9u9vIT9NHT"
         typename = "playlist"
 
     playlist = PlaylistAlbumJson(playlist_id, typename)
