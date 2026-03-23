@@ -118,6 +118,22 @@
 - 背景色过渡到悬停色
 - 过渡时长：约 200ms
 
+### 4.3 发现界面打开/关闭动画 (DiscoverOverlay)
+
+| 阶段 | 效果 | 时长 | 缓动曲线 |
+|------|------|------|----------|
+| 打开-位置 | y+40 → y | 380ms | OutBack |
+| 打开-透明度 | 0 → 1 | 320ms | OutCubic |
+| 关闭-位置 | y → y+20 | 220ms | InCubic |
+| 关闭-透明度 | 1 → 0 | 220ms | InCubic |
+
+- 窗口属性：无边框 (`FramelessWindowHint`)、置顶 (`WindowStaysOnTopHint`)、透明背景 (`WA_TranslucentBackground`)
+
+### 4.4 Mask 遮罩动画（方案待定）
+
+- `src/dark_mask.png` 带透明通道，用于视觉上突出卡片区域
+- 动画方案：作为 DiscoverOverlay 的 child widget，透明度独立动画（打开时 fade_in，关闭时 fade_out）
+
 ---
 
 ## 5. 布局规范
@@ -153,6 +169,7 @@
 |------|------|------|
 | 应用图标 | `src/Icon.ico` | 系统托盘 |
 | 启动画面 | `src/DiscoAS.png` | 启动动画 |
+| 遮罩图 | `src/dark_mask.png` | 卡片区域视觉突出（带透明通道） |
 
 ---
 

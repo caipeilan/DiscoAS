@@ -14,6 +14,7 @@ DiscoAS 采用 **托盘应用** 架构，主界面为全屏透明浮窗，通过
 │              - 发现歌曲                      │
 │              - 设置                         │
 │              - 暂停/启用快捷键               │
+│              - 重启                          │
 │              - 退出                          │
 └─────────────────────────────────────────────┘
                           │
@@ -83,7 +84,8 @@ main.py
 | `DiscoverOverlay` | Discover_gui.py | 主浮窗界面，全屏透明显示歌曲卡片 |
 | `SongCardWidget` | Discover_gui.py | 歌曲卡片组件，展示歌曲信息 |
 | `SettingsWindow` | settings/setting_gui.py | 设置窗口，模态对话框 |
-| 托盘菜单 | Discover_gui.py | 系统托盘右键菜单 |
+| 托盘菜单 | Discover_gui.py | 系统托盘右键菜单（发现/设置/快捷键/重启/退出） |
+| 各平台 run.py | platforms/{Platform}/run.py | 各平台播放函数（scheme URL 唤起 + 窗口最小化） |
 
 ### 2.3 页面跳转
 
@@ -104,10 +106,11 @@ main.py
 
 1. 用户点击托盘图标或按快捷键
 2. 显示 `DiscoverOverlay` 全屏浮窗
-3. 加载已启用歌单中的歌曲
+3. 加载已启用歌单中的歌曲（支持网易云/QQ音乐/酷狗音乐/Spotify）
 4. 以卡片形式展示（每行 5 张卡片）
-5. 用户点击歌曲卡片 → 播放歌曲
+5. 用户点击歌曲卡片 → 调用平台对应 run.py 播放歌曲
 6. 用户点击关闭按钮 → 隐藏浮窗
+7. 预加载下一批歌曲到缓存
 
 ### 3.2 设置修改流程
 
@@ -131,4 +134,10 @@ settings/music_setting.py / settings/gui_setting.py
     │
     ▼
 user_data/settings/*.json (持久化)
+
+platforms/ 各平台歌单/卡片/播放
+    ├── NeteaseCloudMusic/
+    ├── QQMusic/
+    ├── KugouMusic/
+    └── Spotify/
 ```

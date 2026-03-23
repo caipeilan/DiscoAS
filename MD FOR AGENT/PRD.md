@@ -26,7 +26,7 @@ DiscoAS (Discover A Song)
 |------|------|--------|
 | 歌曲发现 | 随机从已配置的歌单中抽取歌曲展示 | P0 |
 | 歌曲播放 | 点击歌曲卡片即可播放音乐 | P0 |
-| 多平台支持 | 支持网易云音乐、QQ音乐、酷狗音乐；Spotify 暂不可用（需开发者 Token） | P0 |
+| 多平台支持 | 支持网易云音乐、QQ音乐、酷狗音乐、Spotify（Spotify 通过 Embed 页面抓取，无需开发者 Token） | P0 |
 | 系统托盘 | 常驻系统托盘，后台运行 | P0 |
 | 全局快捷键 | 支持自定义快捷键唤出浮窗（默认 Alt+D） | P0 |
 | 开机自启动 | 支持 Windows 注册表方式开机自启动 | P1 |
@@ -76,17 +76,31 @@ DiscoAS/
 │   └── i18n.py          # 国际化
 ├── platforms/          # 音乐平台
 │   ├── NeteaseCloudMusic/
+│   │   ├── get_json.py  # 歌单 JSON 获取
+│   │   ├── card.py      # 歌曲卡片
+│   │   └── run.py       # 播放函数
 │   ├── QQMusic/
+│   │   ├── get_json.py
+│   │   ├── card.py
+│   │   └── run.py
 │   ├── KugouMusic/
-│   └── Spotify/        # 暂不可用
+│   │   ├── get_json.py
+│   │   ├── card.py
+│   │   └── run.py
+│   └── Spotify/
+│       ├── get_json.py  # Embed 页面抓取
+│       ├── card.py      # 封面延迟加载
+│       └── run.py       # 媒体键暂停 scheme
 ├── src/                 # 资源文件
 │   ├── Icon.ico
-│   └── DiscoAS.png
+│   ├── DiscoAS.png
+│   └── dark_mask.png   # 遮罩图
 └── user_data/          # 用户数据
     ├── settings/
     ├── NeteaseCloudMusic/
     ├── QQMusic/
-    └── KugouMusic/
+    ├── KugouMusic/
+    └── Spotify/
 ```
 
 ---
@@ -94,12 +108,12 @@ DiscoAS/
 ## 4. 已知限制
 
 1. **系统限制**：仅支持 Windows 系统
-2. **平台依赖**：网易云音乐、QQ音乐、酷狗音乐可正常使用；Spotify 需要开发者 Token，当前暂不可用
+2. **平台依赖**：网易云音乐、QQ音乐、酷狗音乐、Spotify 均已完整支持
 
 ---
 
 ## 5. 后续规划
 
 - [x] 酷狗音乐平台支持（含歌单和专辑）
-- [ ] Spotify 平台恢复（需解决开发者 Token 问题或引导用户配置）
+- [x] Spotify 平台支持（通过 Embed 页面抓取，无需开发者 Token）
 - [ ] 打包为独立 .exe
