@@ -18,7 +18,7 @@ class SongCard:
     """Spotify 歌曲卡片类"""
 
     # 默认神秘歌曲封面
-    DEFAULT_MYSTERY_PIC = "https://i.scdn.co/image/ab67616d00001e01a0785b6a03795770e230c15f"
+    DEFAULT_MYSTERY_PIC = "https://image-cdn-ak.spotifycdn.com/image/ab67706c0000da8479839cbf7518d69f6905f21b"
 
     def __init__(
         self,
