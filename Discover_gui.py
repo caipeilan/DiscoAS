@@ -257,6 +257,8 @@ class SongCardWidget(QFrame):
         self.gui_setting = gui_setting
         self.image_loader = None
         self.card_size = card_size
+        self._lift_anim = None
+        self._original_pos = None
 
         self._setup_ui()
 
@@ -420,6 +422,37 @@ class SongCardWidget(QFrame):
         card_shadow.setOffset(int(10 * self.card_size), int(10 * self.card_size))
         card_shadow.setColor(QColor(0, 0, 0, 80))  # 半透明黑色
         self.setGraphicsEffect(card_shadow)
+
+    def enterEvent(self, event):
+        """鼠标进入卡片：向上浮起动画"""
+        super().enterEvent(event)
+        # 如果正在执行恢复动画，先停止，不更新 _original_pos（防止重复 hover 累积偏移）
+        if self._lift_anim and self._lift_anim.state() == QPropertyAnimation.State.Running:
+            self._lift_anim.stop()
+        elif self._original_pos is None:
+            # 正常情况：记录浮起前的位置
+            self._original_pos = self.pos()
+
+        self._lift_anim = QPropertyAnimation(self, b"pos")
+        self._lift_anim.setDuration(180)
+        self._lift_anim.setStartValue(self.pos())
+        self._lift_anim.setEndValue(QPoint(self.pos().x(), self.pos().y() - 8))
+        self._lift_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._lift_anim.start()
+
+    def leaveEvent(self, event):
+        """鼠标离开卡片：恢复原位动画"""
+        super().leaveEvent(event)
+        if self._lift_anim and self._lift_anim.state() == QPropertyAnimation.State.Running:
+            self._lift_anim.stop()
+
+        if self._original_pos is not None:
+            self._lift_anim = QPropertyAnimation(self, b"pos")
+            self._lift_anim.setDuration(200)
+            self._lift_anim.setStartValue(self.pos())
+            self._lift_anim.setEndValue(self._original_pos)
+            self._lift_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+            self._lift_anim.start()
 
     @staticmethod
     def _make_rounded_pixmap(pixmap: QPixmap, size: int, radius: int) -> QPixmap:
