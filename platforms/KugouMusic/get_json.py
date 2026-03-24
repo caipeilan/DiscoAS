@@ -42,6 +42,7 @@ class PlaylistAlbumJson:
         self.specialid: str = ""  # 解析后的 specialid
         self.playlist_album_name: str = ""
         self.playlist_album_json: dict | list = {}
+        self.playlist_info: dict = {}  # 歌单元数据（包含名称、封面等）
 
         self._fetch_data()
 
@@ -57,6 +58,25 @@ class PlaylistAlbumJson:
                 specialid = self._resolve_share_code(self.playlist_album_id)
                 if not specialid:
                     raise ValueError("无法解析歌单分享码")
+
+            # 获取歌单本身的信息（名称、封面等）
+            special_info_url = f"{KUGOU_BASE_URL}/api/v3/special/info"
+            info_params = {
+                "specialid": specialid,
+                "plat": 2,
+                "version": 8400,
+            }
+            try:
+                info_response = session.get(special_info_url, params=info_params, timeout=10)
+                info_data = info_response.json()
+                if info_data.get('status') == 1:
+                    self.playlist_info = info_data.get('data', {})
+                    self.playlist_album_name = self.playlist_info.get("specialname", specialid)
+                else:
+                    self.playlist_album_name = specialid
+            except Exception as e:
+                print(f"获取歌单信息失败: {e}")
+                self.playlist_album_name = specialid
 
             # 自动翻页拉取歌单
             all_songs = []
@@ -96,8 +116,6 @@ class PlaylistAlbumJson:
                     "info": all_songs
                 }
             }
-            # 歌单名称用 specialid 代替
-            self.playlist_album_name = specialid
             # 保存解析后的 specialid
             self.specialid = specialid
 
@@ -278,6 +296,30 @@ class PlaylistAlbumJson:
             "song_ids": song_ids,
             "songs_info": songs_info
         }
+
+        # 获取封面 URL
+        imgurl = ""
+        if self.typename == "playlist":
+            # 歌单：playlist_info.imgurl，将 {size} 替换为 500
+            imgurl = self.playlist_info.get("imgurl", "")
+            if imgurl and "{size}" in imgurl:
+                imgurl = imgurl.replace("{size}", "500")
+        elif self.typename == "album":
+            # 专辑：从第一首歌的 album_id 获取封面
+            first_song = self.playlist_album_json.get("data", {}).get("info", [{}])[0]
+            album_id = str(first_song.get("album_id", first_song.get("albumid", "")))
+            if album_id and album_id != "0":
+                try:
+                    album_url = f"{KUGOU_BASE_URL}/api/v3/album/info"
+                    params = {"albumid": album_id, "plat": 2, "version": 8400}
+                    resp = get_session().get(album_url, params=params, timeout=10)
+                    resp_data = resp.json()
+                    if resp_data.get("status") == 1:
+                        raw = resp_data.get("data", {}).get("sizable_cover") or resp_data.get("data", {}).get("imgurl", "")
+                        imgurl = raw.replace("{size}", "400") if raw else ""
+                except Exception:
+                    pass
+        data["coverUrl"] = imgurl
 
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")
         with open(filepath, "w", encoding="utf-8") as f:

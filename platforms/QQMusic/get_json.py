@@ -24,6 +24,8 @@ class PlaylistAlbumJson:
         self.typename = typename
         self.playlist_album_name: str = ""
         self.playlist_album_json: dict | list = {}
+        self.cover_url: str = ""
+        self.album_mid: str = ""  # 用于专辑封面 URL 构造
 
         # 尝试从API获取，失败则从本地缓存读取
         try:
@@ -68,6 +70,7 @@ class PlaylistAlbumJson:
             if cdlist:
                 self.playlist_album_name = cdlist[0].get("dissname", "")
                 self.playlist_album_json = {"songlist": cdlist[0].get("songlist", [])}
+                self.cover_url = cdlist[0].get("logo", "")
             else:
                 raise ValueError("无法获取歌单信息")
 
@@ -108,7 +111,14 @@ class PlaylistAlbumJson:
             if album_data:
                 self.playlist_album_name = album_data.get("name", "")
                 # data["list"] 数组里面正常包含了每一首歌的字典，里面拥有 "songid" / "songmid"
-                self.playlist_album_json = {"songlist": album_data.get("list",[])}
+                songlist = album_data.get("list", [])
+                self.playlist_album_json = {"songlist": songlist}
+                # 保存第一首歌的 album.mid 用于构造专辑封面 URL
+                if songlist:
+                    first_song = songlist[0]
+                    first_song_id = first_song.get("songid") or first_song.get("id")
+                    if first_song_id:
+                        self.album_mid = self._fetch_first_song_album_mid(first_song_id)
             else:
                 raise ValueError(f"无法获取专辑信息，API返回: {data}")
         else:
@@ -167,6 +177,26 @@ class PlaylistAlbumJson:
 
         return songs
 
+    def _fetch_first_song_album_mid(self, song_id: int) -> str:
+        """获取第一首歌的 album.mid 用于构造专辑封面 URL"""
+        try:
+            import platforms.QQMusic.qq_sign as qs
+            params = {
+                "types": [0],
+                "ids": [song_id],
+                "modify_stamp": [0],
+                "ctx": 0,
+                "client": 1,
+            }
+            api_result = qs.make_api_request("music.trackInfo.UniformRuleCtrl", "CgiGetTrackInfo", params)
+            tracks = api_result.get("music.trackInfo.UniformRuleCtrl", {}).get("data", {}).get("tracks", [])
+            if tracks:
+                album = tracks[0].get("album", {})
+                return album.get("mid", "")
+        except Exception as e:
+            print(f"获取歌曲专辑信息失败: {e}")
+        return ""
+
     def save(self) -> None:
         """保存到本地JSON文件"""
         # 使用统一的路径管理
@@ -174,11 +204,18 @@ class PlaylistAlbumJson:
         ensure_dir(path)
 
         song_ids = self.get_songs()
+
+        # 获取封面 URL：专辑使用 album_mid 构造 URL
+        cover_url = self.cover_url
+        if not cover_url and self.typename == "album" and self.album_mid:
+            cover_url = f"https://y.qq.com/music/photo_new/T002R300x300M000{self.album_mid}_1.jpg"
+
         data = {
             "playlist_album_id": self.playlist_album_id,
             "playlist_album_name": self.playlist_album_name,
             "playlist_album_type": self.typename,
-            "song_ids": song_ids
+            "song_ids": song_ids,
+            "coverUrl": cover_url
         }
 
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")

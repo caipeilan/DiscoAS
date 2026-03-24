@@ -141,11 +141,17 @@ class PlaylistAlbumJson:
         ensure_dir(path)
 
         song_ids = self.get_songs()
+        # 获取封面 URL
+        if self.typename == "playlist":
+            cover_url = self.playlist_album_json.get("playlist", {}).get("coverImgUrl", "")
+        else:
+            cover_url = self.playlist_album_json.get("album", {}).get("picUrl", "")
         data = {
             "playlist_album_id": self.playlist_album_id,
             "playlist_album_name": self.playlist_album_name,
             "playlist_album_type": self.typename,
-            "song_ids": song_ids
+            "song_ids": song_ids,
+            "coverUrl": cover_url
         }
 
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")

@@ -128,18 +128,56 @@ class PlaylistAlbumJson:
                 "duration": track.get("duration", 0),
             })
 
+        # 获取封面 URL
+        cover_art = self.playlist_album_json.get("coverArt", {})
+        sources = cover_art.get("sources", [{}])
+        cover_url = sources[0].get("url", "") if sources else ""
+
+        # 专辑封面为空时，从第一首歌的 track embed 页面获取
+        if not cover_url and self.typename == "album":
+            track_list = self.playlist_album_json.get("trackList", [])
+            if track_list:
+                first_uri = track_list[0].get("uri", "")
+                if first_uri.startswith("spotify:track:"):
+                    track_id = first_uri.replace("spotify:track:", "")
+                    cover_url = self._fetch_track_cover(track_id)
+
         data = {
             "playlist_album_id": self.playlist_album_id,
             "playlist_album_name": self.playlist_album_name,
             "playlist_album_type": self.typename,
             "song_ids": song_ids,
             "tracks_info": tracks_info,
+            "coverUrl": cover_url,
         }
 
         filepath = os.path.join(path, f"{self.playlist_album_id}.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
             print(f"已保存 {self.typename} {self.playlist_album_id} {self.playlist_album_name} 到 {path}")
+
+    def _fetch_track_cover(self, track_id: str) -> str:
+        """从 Spotify track embed 页面抓取专辑封面 URL"""
+        session = get_session()
+        url = f"https://open.spotify.com/embed/track/{track_id}"
+        try:
+            response = session.get(url, timeout=10)
+            response.raise_for_status()
+            match = re.search(
+                r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+                response.text
+            )
+            if not match:
+                return ""
+            data = json.loads(match.group(1))
+            entity = data["props"]["pageProps"]["state"]["data"]["entity"]
+            images = entity.get("visualIdentity", {}).get("image", [])
+            for img in images:
+                if img.get("maxHeight") == 300:
+                    return img.get("url", "")
+        except Exception:
+            pass
+        return ""
 
 
 if __name__ == '__main__':
