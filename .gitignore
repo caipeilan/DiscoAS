@@ -1,0 +1,67 @@
+# Build output and dependencies
+node_modules/
+target/
+dist/
+
+# IDE
+.vscode/
+.idea/
+.claude
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs, including legacy local logs
+*.log
+log/
+logs/
+
+# User data
+user_data/
+
+# Private configuration, credentials and paired exports
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.p12
+*.key
+pairing.json
+exports/
+paired-extensions/
+
+# Local AI instructions and development history
+AGENTS.md
+MD FOR AGENT/
+.codex/
+.agents/
+.local-docs/
+.local-release/
+/nul
+
+# Public documentation is limited to the root README and its developer links.
+*.md
+*.markdown
+*.rst
+*.adoc
+*.txt
+!/README.md
+!/docs/ARCHITECTURE.md
+!/crates/discoas-core/README.md
+!LICENSE*.txt
+!COPYING*.txt
+!NOTICE*.txt
+
+# Local UI verification screenshots (public screenshots can live in docs/screenshots/)
+/docs/*.jpg
+/docs/*-preview.png
+
+# Release packages are published as release assets
+/release/
+*.bundle

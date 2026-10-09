@@ -1,0 +1,24 @@
+.about-links { max-width: 880px; }
+.about-link-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  font-size: calc(13px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+.about-link-row + .about-link-row { border-top: 1px solid var(--border); }
+.about-link-row a {
+  color: var(--accent-text);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.about-link-row a:hover { text-decoration: underline; }
+.about-link-row a:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 3px;
+  border-radius: 3px;
+}

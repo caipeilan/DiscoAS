@@ -1,0 +1,71 @@
+@import "../../styles/tokens.css";
+
+html.tray-menu-window,
+.tray-menu-window body,
+.tray-menu-window #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.tray-menu-window {
+  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  color: var(--text);
+  user-select: none;
+}
+
+.tray-menu-stage { padding: 14px; height: 100%; box-sizing: border-box; }
+.tray-menu-panel {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: calc(232px * var(--font-scale, 1));
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: var(--shadow-popover);
+  animation: tray-menu-appear 110ms var(--ease-out);
+}
+
+.tray-menu-item {
+  appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--font-scale, 1));
+  width: 100%;
+  min-height: calc(32px * var(--font-scale, 1));
+  padding: calc(6px * var(--font-scale, 1)) calc(9px * var(--font-scale, 1));
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: 0;
+  transition: background 90ms, color 90ms;
+}
+
+.tray-menu-item:focus { background: var(--accent-soft); color: var(--accent-text); }
+.tray-menu-item:focus-visible { outline: 1px solid var(--accent-border); outline-offset: -1px; }
+.tray-menu-item:active { background: var(--accent); color: var(--on-accent); }
+.tray-menu-item:disabled { opacity: .55; cursor: default; }
+.tray-menu-label { flex: 1; }
+.tray-menu-icon, .tray-menu-check { display: flex; align-items: center; justify-content: center; width: calc(17px * var(--font-scale, 1)); }
+.tray-menu-icon svg, .tray-menu-check svg { width: calc(17px * var(--font-scale, 1)); height: calc(17px * var(--font-scale, 1)); }
+.tray-menu-check { margin-left: calc(6px * var(--font-scale, 1)); }
+.tray-menu-group { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border); }
+
+@keyframes tray-menu-appear { from { opacity: .6; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .tray-menu-panel { animation: none; }
+  .tray-menu-item { transition: none; }
+}

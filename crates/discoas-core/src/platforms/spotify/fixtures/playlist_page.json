@@ -1,0 +1,38 @@
+{
+  "data": {
+    "playlistV2": {
+      "__typename": "Playlist",
+      "content": {
+        "totalCount": 180,
+        "items": [
+          {
+            "uid": "0976e1c5207d7a57",
+            "itemV2": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "uri": "spotify:track:7MEHTWzEi3z7P2jEWAcdHZ",
+                "name": "Eyeless",
+                "artists": {
+                  "items": [{"profile": {"name": "Slipknot"}, "uri": "spotify:artist:05fG473iIaoy82BF1aGhL8"}]
+                },
+                "trackDuration": {"totalMilliseconds": 236360},
+                "albumOfTrack": {
+                  "name": "Slipknot (10th Anniversary Edition)",
+                  "uri": "spotify:album:2dL9Q5AtIv4Rw1L6lKcIUc",
+                  "coverArt": {
+                    "sources": [
+                      {"height": 300, "url": "https://i.scdn.co/image/ab67616d00001e02c9fb2f3be56b2385ef4221a2", "width": 300},
+                      {"height": 64, "url": "https://i.scdn.co/image/ab67616d00004851c9fb2f3be56b2385ef4221a2", "width": 64},
+                      {"height": 640, "url": "https://i.scdn.co/image/ab67616d0000b273c9fb2f3be56b2385ef4221a2", "width": 640}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

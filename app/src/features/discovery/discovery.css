@@ -1,0 +1,84 @@
+/* Cover geometry stays stable across pointer, keyboard, replacement, and preview states. */
+:root .discovery-body .song-card-slot { position: relative; container-type: inline-size; }
+:root .discovery-body .song-grid { grid-template-columns: repeat(var(--discovery-columns, 5), minmax(0, 1fr)); }
+:root .floating-content .discovery-body .song-grid { grid-template-columns: repeat(var(--discovery-columns, 5), calc(200px * var(--card-scale, 1))); }
+:root .floating-content:has(> .discovery-body) { overflow: visible; }
+:root .discovery-body .song-card {
+  user-select: none;
+  color: var(--card-font-color, var(--text));
+  background: var(--card-background, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-small);
+  transition: transform 180ms var(--ease-out), background 180ms, border-color 180ms, box-shadow 180ms;
+}
+:root .floating-content .discovery-body .song-card { border-radius: calc(12px * var(--card-scale, 1)); border-color: transparent; box-shadow: var(--shadow-floating); }
+:root .discovery-body .song-art > .cover { background: var(--surface-subtle); color: var(--text-tertiary); border-radius: 7px; }
+:root .floating-content .discovery-body .song-art > .cover { border-radius: calc(8px * var(--card-scale, 1)); }
+:root .discovery-body .song-card strong { font-weight: 550; }
+:root .discovery-body .song-artist { color: inherit; opacity: .7; }
+:root .discovery-body .song-kind { color: var(--text-tertiary); letter-spacing: 0; }
+:root .discovery-body .mystery-card { border-style: solid; }
+:root .discovery-body .mystery-cover { background: var(--surface-subtle) !important; color: var(--text-secondary) !important; }
+
+/* Each input mode owns one feedback style; native outlines never add a second frame. */
+:root .discovery-body .song-card:focus-visible { outline: none; }
+:root .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-card:not(:disabled),
+:root .discovery-body[data-input-mode="keyboard"] .song-card.keyboard-selected:not(:disabled) {
+  transform: translateY(-4px);
+  background: var(--card-background-hover, var(--surface-subtle));
+}
+:root .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-card:not(:disabled) { border-color: var(--control-border); box-shadow: var(--shadow-floating); }
+:root .discovery-body[data-input-mode="keyboard"] .song-card.keyboard-selected:not(:disabled) { border-color: transparent; box-shadow: 0 0 0 2px var(--card-border, var(--accent-focus)), var(--shadow-floating); }
+:root .floating-content .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-card:not(:disabled),
+:root .floating-content .discovery-body[data-input-mode="keyboard"] .song-card.keyboard-selected:not(:disabled) { transform: translateY(calc(-6px * var(--card-scale, 1))); }
+:root .floating-content .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-card:not(:disabled) { border-color: transparent; }
+
+:root .discovery-body .song-replace-button {
+  position: absolute; z-index: 2;
+  right: 20px; top: calc(100cqw - 49px);
+  width: calc(29px * var(--replacement-scale, 1) * var(--font-scale, 1));
+  height: calc(29px * var(--replacement-scale, 1) * var(--font-scale, 1));
+  display: grid; place-items: center; padding: 0;
+  border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-small);
+  opacity: 0; pointer-events: none;
+  transition: opacity 140ms, transform 180ms var(--ease-out), background 140ms;
+}
+:root .discovery-body .song-replace-button svg { width: 58%; height: 58%; }
+:root .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-replace-button,
+:root .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { opacity: 1; pointer-events: auto; transform: translateY(-4px); }
+:root .discovery-body .song-replace-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--accent-text); }
+:root .discovery-body .song-replace-button:disabled { cursor: default; color: var(--text-tertiary); }
+:root .floating-content .discovery-body .song-replace-button { right: calc(20px * var(--card-scale, 1)); top: calc(176px * var(--card-scale, 1) - 29px * var(--replacement-scale, 1) * var(--font-scale, 1)); }
+:root .floating-content .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-replace-button,
+:root .floating-content .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { transform: translateY(calc(-6px * var(--card-scale, 1))); }
+
+/* The opaque status bar follows the theme and stays outside the centered card group's layout. */
+:root .discovery-body .discovery-status-bar {
+  display: flex; flex-direction: column; align-self: center;
+  gap: calc(3px * var(--discovery-bar-scale, 1));
+  padding: calc(8px * var(--discovery-bar-scale, 1)) calc(16px * var(--discovery-bar-scale, 1));
+  border: 1px solid var(--border); border-radius: calc(8px * var(--discovery-bar-scale, 1));
+  background: var(--surface); color: var(--text-secondary); box-shadow: var(--shadow-floating);
+  text-align: center; white-space: nowrap;
+  font-size: calc(12px * var(--font-scale, 1) * var(--discovery-bar-scale, 1));
+  line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+:root .floating-content .discovery-body .discovery-status-bar { position: absolute; left: 50%; transform: translateX(-50%); z-index: 3; margin: 0; }
+:root .discovery-body .song-card[data-replaced="true"] { animation: discovery-card-replacement 200ms var(--ease-out); }
+:root .discovery-body[data-preview="true"] .song-card { opacity: .25; transition: opacity 180ms, transform 180ms var(--ease-out), box-shadow 180ms; }
+:root .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot:hover:not([data-preview-hover="true"]) .song-card:not(:disabled) {
+  transform: none; background: var(--card-background, var(--surface)); border-color: var(--border); box-shadow: var(--shadow-small);
+}
+:root .floating-content .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot:hover:not([data-preview-hover="true"]) .song-card:not(:disabled) { border-color: transparent; box-shadow: var(--shadow-floating); }
+:root .discovery-body[data-preview="true"] .song-card-slot[data-preview-hover="true"] .song-card { opacity: 1; }
+:root .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot[data-preview-hover="true"] .song-card {
+  transform: translateY(-4px); background: var(--card-background-hover, var(--surface-subtle)); border-color: var(--control-border); box-shadow: var(--shadow-floating);
+}
+:root .floating-content .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot[data-preview-hover="true"] .song-card { transform: translateY(calc(-6px * var(--card-scale, 1))); border-color: transparent; }
+@keyframes discovery-card-replacement { from { opacity: .25; scale: .98; } to { opacity: 1; scale: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  :root .discovery-body .song-card[data-replaced="true"] { animation: none; }
+  :root .discovery-body .song-card, :root .discovery-body .song-replace-button { transition: none; }
+}

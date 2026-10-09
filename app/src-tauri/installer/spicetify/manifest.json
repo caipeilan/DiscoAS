@@ -1,0 +1,8 @@
+{
+  "version": "2.45.3",
+  "platform": "windows-x64",
+  "archive": "spicetify-2.45.3-windows-x64.zip",
+  "sha256": "5d641d4db9caa3891b6a7cc2eb239667af9bb40252a8b413856f9be1e09ff5c1",
+  "source": "https://github.com/spicetify/cli/releases/tag/v2.45.3",
+  "download": "https://github.com/spicetify/cli/releases/download/v2.45.3/spicetify-2.45.3-windows-x64.zip"
+}

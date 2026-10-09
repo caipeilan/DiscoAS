@@ -1,0 +1,96 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DiscoAS",
+  "version": "../package.json",
+  "identifier": "com.caipeilan.discoas",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "DiscoAS",
+        "width": 1040,
+        "height": 760,
+        "minWidth": 740,
+        "minHeight": 560,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "resizable": true,
+        "shadow": true,
+        "center": true,
+        "visible": false
+      },
+      {
+        "label": "overlay",
+        "url": "index.html?view=discover",
+        "title": "发现一首歌 · DiscoAS",
+        "width": 940,
+        "height": 580,
+        "minWidth": 620,
+        "minHeight": 440,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "fullscreen": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "center": true,
+        "visible": false
+      },
+      {
+        "label": "splash",
+        "url": "index.html?view=splash",
+        "title": "DiscoAS",
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "fullscreen": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Caipeilan",
+    "homepage": "https://github.com/caipeilan/DiscoAS",
+    "shortDescription": "Discover a song from your music library",
+    "resources": {
+      "installer/spicetify/extract.ps1": "spicetify/extract.ps1",
+      "installer/spicetify/LICENSE": "spicetify/LICENSE",
+      "installer/spicetify/manifest.json": "spicetify/manifest.json",
+      "installer/spicetify/spicetify-2.45.3-windows-x64.zip": "spicetify/spicetify-2.45.3-windows-x64.zip"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "minimumWebview2Version": "109.0.0.0",
+      "nsis": {
+        "template": "installer/installer.nsi",
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "TradChinese", "English"],
+        "displayLanguageSelector": true,
+        "installerHooks": "installer/hooks.nsh",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
+  }
+}

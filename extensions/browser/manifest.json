@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "DiscoAS 浏览器播放桥接",
+  "version": "0.3.4",
+  "description": "在 DiscoAS 专用播放页切换 YouTube / Bilibili 视频，保留网站续播。",
+  "minimum_chrome_version": "116",
+  "icons": { "32": "icons/32x32.png", "128": "icons/128x128.png" },
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://www.youtube.com/*", "https://www.bilibili.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [{
+    "matches": ["https://www.youtube.com/*", "https://www.bilibili.com/video/*"],
+    "js": ["protocol.js", "content.js"],
+    "run_at": "document_idle"
+  }],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src ws://127.0.0.1:*"
+  }
+}

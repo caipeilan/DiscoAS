@@ -1,0 +1,28 @@
+{
+  "data": {
+    "albumUnion": {
+      "__typename": "Album",
+      "playability": {"playable": true},
+      "tracksV2": {
+        "totalCount": 15,
+        "items": [
+          {
+            "uid": "20dca59be60e4bbf7dee",
+            "track": {
+              "name": "Glass House",
+              "uri": "spotify:track:65MAh0uBZ9PNlWM1Oay7hA",
+              "artists": {
+                "items": [{"profile": {"name": "Screaming Females"}, "uri": "spotify:artist:3pZ666b6CyO1KGpVYirY0t"}]
+              },
+              "duration": {"totalMilliseconds": 224000},
+              "discNumber": 1,
+              "trackNumber": 1,
+              "playability": {"playable": true},
+              "relinkingInformation": {"linkedTrack": {"__typename": "Track", "uri": "spotify:track:1luXZ3wGajUSfwMs24Izvp"}}
+            }
+          }
+        ]
+      }
+    }
+  }
+}

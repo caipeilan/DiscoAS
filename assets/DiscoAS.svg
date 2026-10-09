@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>DiscoAS</title>
+  <defs>
+    <path id="card" d="M96 0H224C266 0 284 0 302 18C320 36 320 54 320 96V576C320 618 320 636 302 654C284 672 266 672 224 672H96C54 672 36 672 18 654C0 636 0 618 0 576V96C0 54 0 36 18 18C36 0 54 0 96 0Z"/>
+  </defs>
+  <use href="#card" x="592" y="176" fill="#E86E78"/>
+  <use href="#card" x="352" y="176" fill="#3BB0CC"/>
+  <use href="#card" x="112" y="176" fill="#F1C54B"/>
+</svg>

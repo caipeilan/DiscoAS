@@ -1,0 +1,8 @@
+.update-section { padding: 16px 20px; max-width: 880px; }
+.update-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.update-heading h2 { margin: 0; color: var(--text); }
+.update-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.update-section p { margin: 12px 0 0; overflow-wrap: anywhere; }
+.update-section .update-error { color: var(--danger); }
+.release-notes { margin-top: 12px; }
+.release-notes p { white-space: pre-wrap; }

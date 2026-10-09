@@ -1,0 +1,44 @@
+{
+  "name": "discoas",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "icons": "node scripts/build-icons.mjs",
+    "test:discovery": "node --test tests/discoveryFlow.test.mjs",
+    "test:motion": "tsc src/overlayMotion.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/overlayMotion.test.mjs",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test:preferences": "tsc src/shortcut.ts src/i18n.ts src/translations.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/preferences.test.mjs tests/appStateFlow.test.mjs",
+    "test:covers": "tsc src/prepareCovers.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/covers.test.mjs",
+    "test:source": "node --test tests/sourceInput.test.mjs",
+    "test:browser": "node --test ../extensions/browser/bridge.test.mjs",
+    "test:controls": "node --test tests/controls.test.mjs tests/fontOptions.test.mjs",
+    "test:library": "node --test tests/libraryFlow.test.mjs",
+    "test:keyboard": "node --test tests/discoveryKeybindings.test.mjs tests/keyboardSelection.test.mjs",
+    "test:history": "node --test tests/historyModel.test.mjs tests/historyFlow.test.mjs",
+    "test:theme": "node --test tests/themePalette.test.mjs",
+    "test:numeric": "node --test tests/numericPreferences.test.mjs",
+    "test:updates": "node --test tests/updateFlow.test.mjs",
+    "release:windows": "node scripts/build-windows-release.mjs",
+    "test:spotify": "node --test ../extensions/spotify/bridge.test.mjs",
+    "test:tray": "node --test tests/trayMenuModel.test.mjs",
+    "test:installer": "node --test tests/installerPolicy.test.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.1",
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}
