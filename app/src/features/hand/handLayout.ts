@@ -71,17 +71,6 @@ export function handLayout(count: number, settings: HandSettings, area: HandRect
     return { x, y, angle, width, height, scale };
   });
 }
-export function handDock(poses: CardPose[], side: HandSettings["side"], area: HandRect, size: { width: number; height: number }) {
-  if (side === "bottom") {
-    const center = poses.length ? poses.reduce((sum, p) => sum + p.x, 0) / poses.length : area.left + area.width / 2;
-    return { left: clamp(center, area.left + size.width / 2, area.left + area.width - size.width / 2),
-      top: area.top + area.height, transform: "translate(-50%, -100%)" };
-  }
-  const top = poses.length ? Math.min(...poses.map((p) => p.y - p.height / 2)) - 56 : area.top + area.height / 2;
-  return { left: side === "left" ? area.left : area.left + area.width,
-    top: clamp(top, area.top, area.top + area.height - size.height),
-    transform: side === "right" ? "translateX(-100%)" : undefined };
-}
 export function playDistance(side: HandSettings["side"], dx: number, dy: number): number {
   return side === "bottom" ? -dy : side === "left" ? dx : -dx;
 }

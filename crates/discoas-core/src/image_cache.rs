@@ -11,7 +11,7 @@ use std::{
 const DISK_BUDGET: u64 = 128 * 1024 * 1024;
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(60))
         .user_agent("Mozilla/5.0")
         .build()
         .expect("image HTTP client")

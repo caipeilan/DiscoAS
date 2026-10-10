@@ -307,6 +307,8 @@ pub fn run() {
             desktop::hand::present_hand,
             desktop::hand::hand_arrival_ready,
             desktop::hand::set_hand_hit_regions,
+            desktop::hand::begin_hand_dock_drag,
+            desktop::hand::save_hand_dock,
             desktop::hand::collect_hand_card,
             desktop::hand::show_collected_hand_card,
             desktop::hand::play_hand_card,

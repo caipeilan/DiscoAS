@@ -1,6 +1,6 @@
 [package]
 name = "discoas-core"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2021"
 description = "Platform metadata, discovery rules and local storage for DiscoAS"
 repository = "https://github.com/caipeilan/DiscoAS"

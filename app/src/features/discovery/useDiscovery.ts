@@ -334,6 +334,7 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
         collected = next.discovery;
         const keepOpen = hand.keep_discovery_open && next.discovery.songs.length > 0;
         const receive = () => call("show_collected_hand_card", { id: next.id,
+          mysteryCover: song.mysteryMode ? song.coverDataUri : null,
           origin: rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null });
         if (floating && !keepOpen) {
           setCollecting(song.songId);

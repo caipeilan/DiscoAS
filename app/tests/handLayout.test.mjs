@@ -5,7 +5,11 @@ import ts from "typescript";
 const source = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handLayout.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { handCardSize, mergeHandCards, handLayout, handDock, hoverHandIndex, canPlayDrag, reorderIndex, reorderCards } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { handCardSize, mergeHandCards, handLayout, hoverHandIndex, canPlayDrag, reorderIndex, reorderCards } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const dockSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/floatingDock.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
+}).outputText;
+const { floatingDockRect, defaultDockPoint, settleDockPoint } = await import(`data:text/javascript;base64,${Buffer.from(dockSource).toString("base64")}`);
 const settings = { side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
 const area = { left: 200, top: 100, width: 1280, height: 680 };
 test("bottom fan fits the work area, expands around selection, and keeps hover after lifting", () => {
@@ -50,10 +54,9 @@ test("hovered cards fit at their enlarged size while the resting hand keeps its 
   for (const side of ["bottom", "left", "right"]) for (const position of [0, 100]) for (const scale of [1, 3]) for (const font of [14, 24]) {
     const prefs = { ...settings, side, position, scale, tilt: 45, edge_distance: -120 };
     const resting = handLayout(4, prefs, bounds, -1, undefined, font);
-    const size = { width: 280, height: 54 };
-    const dock = handDock(resting, side, bounds, size);
-    const rect = { left: dock.left - (side === "bottom" ? size.width/2 : side === "right" ? size.width : 0),
-      top: dock.top - (side === "bottom" ? size.height : 0), ...size };
+    const diameter = 44 * font / 14;
+    const point = defaultDockPoint(resting, side, bounds, diameter);
+    const rect = floatingDockRect(point, true, diameter, [bounds]);
     for (let index = 0; index < resting.length; index++) {
       const p = handLayout(4, prefs, bounds, index, rect, font)[index];
       assert.equal(p.angle, 0);
@@ -75,18 +78,22 @@ test("incremental hand updates retain unchanged covers, remove discarded cards a
   assert.deepEqual(mergeHandCards([a], [], []), []);
   assert.equal(mergeHandCards([], [c], ["a", "c"]), null);
 });
-test("the hand dock stays attached to its edge and fits empty hands, extreme positions and larger text", () => {
-  for (const side of ["bottom", "left", "right"]) for (const position of [0, 100]) for (const count of [0, 4, 100]) {
-    const poses = handLayout(count, { ...settings, side, position, edge_distance: -120 }, area);
-    const size = { width: 280, height: 54 };
-    const dock = handDock(poses, side, area, size);
-    const left = dock.left - (side === "bottom" ? size.width/2 : side === "right" ? size.width : 0);
-    const top = dock.top - (side === "bottom" ? size.height : 0);
-    assert.ok(left >= area.left && left+size.width <= area.left+area.width);
-    assert.ok(top >= area.top && top+size.height <= area.top+area.height);
-    assert.equal(side === "left" ? left : side === "right" ? left+size.width : top+size.height,
-      side === "left" ? area.left : side === "right" ? area.left+area.width : area.top+area.height);
+test("the floating dock keeps its Logo center when toggled, including partially hidden screen edges", () => {
+  const bounds = { left: -1280, top: -100, width: 1280, height: 900 };
+  for (const diameter of [44, 76]) for (const point of [
+    { x: bounds.left + 8, y: bounds.top + 8 }, { x: -8, y: 700 },
+    { x: bounds.left + 500, y: 300 }, { x: -300, y: 450 },
+  ]) {
+    for (const expanded of [false, true]) {
+      const rect = floatingDockRect(point, expanded, diameter, [bounds]);
+      const center = rect.direction === "right" ? rect.left + diameter / 2 : rect.left + rect.width - diameter / 2;
+      assert.equal(center, point.x);
+      assert.equal(rect.top + diameter / 2, point.y);
+      assert.equal(rect.direction, point.x < bounds.left + bounds.width / 2 ? "right" : "left");
+    }
   }
+  assert.deepEqual(settleDockPoint({ x: bounds.left + 2, y: 300 }, 44, [bounds]), { x: bounds.left + 8, y: 300 });
+  assert.deepEqual(settleDockPoint({ x: -2, y: 300 }, 44, [bounds]), { x: -8, y: 300 });
 });
 test("narrow and negative-origin work areas fit dense hands and extreme relative positions", () => {
   for (const side of ["bottom", "left", "right"]) for (const position of [0,100]) for (const tilt of [0,12,45]) {

@@ -5,13 +5,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
 import type { LibraryProgress, DiscoveryState, Preferences, GuiSettings,
-  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility } from "../types";
+  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface } from "../types";
 
 export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
 
 export type DesktopCommand =
   | "hand_ready" | "present_hand" | "hand_arrival_ready" | "set_hand_hit_regions" | "collect_hand_card" | "show_collected_hand_card" | "play_hand_card"
   | "discard_hand_card" | "clear_hand" | "reorder_hand" | "toggle_hand" | "hide_hand" | "toggle_hand_expanded"
+  | "begin_hand_dock_drag" | "save_hand_dock"
   | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
   | "tray_menu_ready"
   | "present_tray_menu"
@@ -79,6 +80,7 @@ export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 export interface DesktopEvents {
   "hand-state-changed": HandSnapshot;
   "hand-visibility-changed": HandVisibility;
+  "hand-surface-changed": { generation: number; surface: HandSurface };
   "hand-hide": number;
   "hand-focus": void;
   "hand-escape": void;

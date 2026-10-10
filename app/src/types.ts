@@ -44,13 +44,16 @@ export const defaultHandSettings: HandSettings = {
 export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean }
 export interface CollectedHandCard { id: string; discovery: DiscoveryState }
 export interface HandRect { left: number; top: number; width: number; height: number }
+export interface HandPoint { x: number; y: number }
+export interface HandSurface { left: number; top: number; width: number; height: number; scale: number }
 export interface HandSnapshot {
   cardOrder?: string[];
   generation: number; cards: HandCard[]; settings: HandSettings; gui: GuiSettings;
   keys: DiscoveryKeybindings; workArea: HandRect; preview: boolean; focus: boolean; expanded: boolean;
-  arrival: { id: string; rect: HandRect } | null;
+  workAreas?: HandRect[]; dockPoint?: HandPoint | null; surface?: HandSurface;
+  arrival: { id: string; rect: HandRect; mysteryCover?: string | null } | null;
 }
-export interface HandVisibility { generation: number; expanded: boolean; focus: boolean }
+export interface HandVisibility { generation: number; expanded: boolean; focus: boolean; surface?: HandSurface }
 export interface DiscoveryWeighting {
   enabled: boolean;
   base_weight: number;

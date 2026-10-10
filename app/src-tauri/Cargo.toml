@@ -1,6 +1,6 @@
 [package]
 name = "discoas"
-version = "2.0.1"
+version = "2.0.2"
 description = "Discover a song from your music library"
 authors = ["Caipeilan"]
 repository = "https://github.com/caipeilan/DiscoAS"

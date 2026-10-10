@@ -1,16 +1,31 @@
 .hand-window, .hand-window body, .hand-window #root { background: transparent !important; overflow: hidden; }
-.hand-stage { position: fixed; inset: 0; color: var(--text); user-select: none; font-size: calc(13px * var(--font-scale)); pointer-events: none; }
-.hand-toolbar { position: absolute; display: flex; align-items: center; gap: 9px; padding: 7px 9px 7px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-floating); white-space: nowrap; z-index: 1500; pointer-events: auto; transition: opacity 180ms ease, transform 250ms var(--ease-out); }
-.hand-stage[data-side="left"] .hand-toolbar { border-left: 0; border-radius: 0 12px 12px 0; }
-.hand-stage[data-side="right"] .hand-toolbar { border-right: 0; border-radius: 12px 0 0 12px; }
-.hand-stage[data-side="bottom"] .hand-toolbar { border-bottom: 0; border-radius: 12px 12px 0 0; }
-.hand-toolbar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.hand-toolbar button { display: grid; place-items: center; min-width: calc(24px * var(--font-scale)); height: calc(24px * var(--font-scale)); padding: calc(3px * var(--font-scale)); border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: inherit; flex-shrink: 0; }
-.hand-toolbar svg { display: block; width: calc(16px * var(--font-scale)); height: calc(16px * var(--font-scale)); }
-.hand-toggle svg { transform: rotate(var(--hand-toggle-angle)); transition: transform 180ms ease; }
-.hand-stage[data-preview] .hand-toggle svg { transform: none; }
-.hand-toolbar button:hover { background: var(--surface-hover); color: var(--text); }
-.hand-toolbar .hand-clear:hover { color: var(--danger); background: var(--danger-soft); }
+.hand-stage { position: fixed; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; color: var(--text); user-select: none; font-size: calc(13px * var(--font-scale)); pointer-events: none; }
+.hand-dock { --dock-morph-duration: 260ms; position: absolute; left: 0; top: 0; width: var(--dock-width); height: var(--dock-diameter); translate: var(--dock-x) var(--dock-y); transform: translateX(0); border: 1px solid var(--border); border-radius: calc(var(--dock-diameter) / 2); background: var(--surface); box-shadow: var(--shadow-floating); white-space: nowrap; z-index: 1500; pointer-events: auto; overflow: hidden; transition: width var(--dock-morph-duration) var(--ease-out), translate 260ms var(--ease-out), border-radius 260ms var(--ease-out), opacity 180ms ease; }
+.hand-dock[data-direction="left"] { transform: translateX(calc(var(--dock-diameter) - 100%)); }
+.hand-dock[data-folding] { --dock-morph-duration: 160ms; }
+.hand-dock[data-edge-left] { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.hand-dock[data-edge-right] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.hand-dock[data-edge-top] { border-top-left-radius: 0; border-top-right-radius: 0; }
+.hand-dock[data-edge-bottom] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.hand-dock button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: inherit; }
+.hand-dock-logo { position: absolute; top: 0; left: 0; width: calc(var(--dock-diameter) - 2px); height: calc(var(--dock-diameter) - 2px); border-radius: 50%; touch-action: none; }
+.hand-dock[data-direction="left"] .hand-dock-logo { left: auto; right: 0; }
+.hand-dock-logo img { display: block; width: 82%; height: 82%; object-fit: contain; pointer-events: none; transition: transform 180ms var(--ease-out); }
+.hand-dock-logo:hover img { transform: scale(1.06); }
+.hand-dock-logo:active img { transform: scale(.95); }
+.hand-dock-logo:active:not(:disabled) { transform: none; }
+.hand-dock-actions { position: absolute; top: 0; left: var(--dock-diameter); right: calc(7px * var(--font-scale)); height: 100%; display: flex; align-items: center; justify-content: space-between; gap: calc(9px * var(--font-scale)); opacity: 1; transition: opacity 110ms ease 80ms; }
+.hand-dock[data-direction="left"] .hand-dock-actions { left: calc(7px * var(--font-scale)); right: var(--dock-diameter); flex-direction: row-reverse; }
+.hand-dock[data-dock-expanded="false"] .hand-dock-actions, .hand-dock[data-folding] .hand-dock-actions { opacity: 0; pointer-events: none; transition-duration: 80ms; transition-delay: 0ms; }
+.hand-dock-count { flex: 1; min-width: 0; text-align: center; overflow: hidden; text-overflow: ellipsis; font-size: calc(13px * var(--font-scale)); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.hand-dock .hand-clear { flex-shrink: 0; width: calc(30px * var(--font-scale)); height: calc(30px * var(--font-scale)); border-radius: 50%; }
+.hand-dock .hand-clear svg { display: block; width: calc(16px * var(--font-scale)); height: calc(16px * var(--font-scale)); }
+.hand-dock .hand-clear:hover, .hand-dock .hand-clear-confirm { color: var(--danger); background: var(--danger-soft); }
+.hand-dock .hand-clear:disabled { opacity: .4; cursor: default; }
+.hand-dock .hand-clear:disabled:hover { background: transparent; color: var(--text-secondary); }
+.hand-dock button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -4px; }
+.hand-dock-dragging { transition: width var(--dock-morph-duration) var(--ease-out), border-radius 260ms var(--ease-out); cursor: grabbing; will-change: translate; }
+.hand-dock-dragging .hand-dock-logo { cursor: grabbing; }
 .hand-card { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) translate(var(--card-x, 0px), var(--card-y, 0px)) rotate(var(--drag-angle, var(--hand-angle, 0deg))) scale(var(--hand-card-scale, 1)); transform-origin: center; transition: transform 300ms cubic-bezier(.2,.85,.25,1.15), opacity 220ms ease; pointer-events: auto; touch-action: none; cursor: grab; }
 .hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease, border-color 180ms ease; backface-visibility: hidden; }
 .hand-art { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
@@ -37,9 +52,14 @@
 .hand-stage[data-preview] .hand-card { opacity: .25; pointer-events: none; }
 .hand-stage[data-preview] .hand-active { opacity: 1; }
 .hand-flying { z-index: 1200; pointer-events: none; transition: none; animation: hand-play 350ms cubic-bezier(.2,.7,.2,1) both; }
+.hand-card.hand-discarding { pointer-events: none; transition: none; animation: hand-discard 240ms cubic-bezier(.2,.7,.2,1) both; animation-delay: var(--discard-delay, 0ms); }
 .hand-error { position: absolute; z-index: 1600; padding: 9px 14px; background: var(--surface); border: 1px solid var(--danger-border); border-radius: 10px; box-shadow: var(--shadow-floating); color: var(--danger); pointer-events: auto; white-space: nowrap; }
 @keyframes hand-play {
   from { transform: translate(-50%,-50%) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
   to { transform: translate(-50%,-50%) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .35)); opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card-face, .hand-toolbar, .hand-toggle svg { transition-duration: 0ms; } .hand-flying { animation-duration: 0ms; } }
+@keyframes hand-discard {
+  from { transform: translate(-50%, -50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
+  to { transform: translate(-50%, -50%) translate(var(--hand-x), calc(var(--hand-y) + 14px)) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .65)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding { animation-duration: 0ms; animation-delay: 0ms; } }
