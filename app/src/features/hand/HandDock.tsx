@@ -11,23 +11,25 @@ interface Props {
   diameter: number; count: number; capacity: number; busy: boolean; confirm: boolean;
   toCanvas: (x: number, y: number) => DockPoint;
   beginDrag: () => Promise<unknown>;
+  nativeDrag?: () => Promise<DockPoint>;
   dragging: (value: boolean) => void;
   move: (point: DockPoint) => void;
   toggle: () => void; clear: () => void;
+  message?: string;
 }
 
 export function HandDock({ element, point, areas, expanded, preview, diameter, count, capacity, busy, confirm,
-  toCanvas, beginDrag, dragging, move, toggle, clear }: Props) {
+  toCanvas, beginDrag, nativeDrag, dragging, move, toggle, clear, message }: Props) {
   const [moving, setMoving] = useState(false);
   const gesture = useRef<{ pointerId: number; x: number; y: number; dx: number; dy: number;
-    origin: DockPoint; started: boolean } | null>(null);
+    origin: DockPoint; started: boolean; native?: boolean } | null>(null);
   const animationFrame = useRef(0);
   const wantedDirection = floatingDockRect(point, expanded || preview, diameter, areas).direction;
   const [appearance, setAppearance] = useState({ direction: wantedDirection, folding: false });
   const appearanceRef = useRef(appearance);
   const desiredDirection = useRef(wantedDirection);
   const held = gesture.current;
-  const displayPoint = held?.started ? { x: held.origin.x + held.dx, y: held.origin.y + held.dy } : point;
+  const displayPoint = held?.started && !held.native ? { x: held.origin.x + held.dx, y: held.origin.y + held.dy } : point;
   const pillExpanded = (expanded || preview) && !appearance.folding;
   const geometry = floatingDockRect(displayPoint, pillExpanded, diameter, areas, appearance.direction);
   const latest = useRef({ point, areas, expanded: expanded || preview, diameter, toCanvas });
@@ -64,7 +66,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
     }
   };
   useLayoutEffect(() => {
-    if (!gesture.current?.started) requestDirection(wantedDirection);
+    if (!gesture.current?.started || gesture.current.native) requestDirection(wantedDirection);
   }, [wantedDirection, expanded, preview, diameter]);
   useLayoutEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -72,13 +74,13 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
     motion.addEventListener("change", changed);
     return () => { cancelAnimationFrame(animationFrame.current); motion.removeEventListener("change", changed); };
   }, []);
-  const finish = (cancelled = false) => {
+  const finish = (cancelled = false, nativePoint?: DockPoint) => {
     const held = gesture.current;
     if (!held) return;
     gesture.current = null;
     cancelAnimationFrame(animationFrame.current); animationFrame.current = 0;
     if (held.started) {
-      const next = cancelled ? latest.current.point : settleDockPoint({ x: held.origin.x + held.dx, y: held.origin.y + held.dy }, latest.current.diameter, latest.current.areas);
+      const next = cancelled ? latest.current.point : settleDockPoint(nativePoint ?? { x: held.origin.x + held.dx, y: held.origin.y + held.dy }, latest.current.diameter, latest.current.areas);
       requestDirection(floatingDockRect(next, latest.current.expanded, latest.current.diameter, latest.current.areas).direction);
       move(next); dragging(false);
     } else if (!cancelled) toggle();
@@ -106,23 +108,29 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
         event.currentTarget.setPointerCapture(event.pointerId);
       }} onPointerMove={(event) => {
         const held = gesture.current;
-        if (!held || held.pointerId !== event.pointerId) return;
+        if (!held || held.native || held.pointerId !== event.pointerId) return;
         const cursor = latest.current.toCanvas(event.clientX, event.clientY);
         held.dx = cursor.x - held.x; held.dy = cursor.y - held.y;
         if (!held.started && Math.hypot(held.dx, held.dy) > 5) {
           held.started = true; setMoving(true); dragging(true);
+          if (nativeDrag) {
+            held.native = true;
+            void nativeDrag().then((point) => { if (gesture.current === held) finish(false, point); })
+              .catch(() => { if (gesture.current === held) finish(true); });
+            return;
+          }
           void beginDrag().catch(() => { if (gesture.current === held) finish(true); });
         }
         if (held.started && !animationFrame.current) animationFrame.current = requestAnimationFrame(paint);
       }} onPointerUp={(event) => {
-        if (gesture.current?.pointerId !== event.pointerId) return;
+        if (gesture.current?.pointerId !== event.pointerId || gesture.current.native) return;
         finish();
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-      }} onPointerCancel={() => finish(true)} onLostPointerCapture={() => finish(true)}>
+      }} onPointerCancel={() => { if (!gesture.current?.native) finish(true); }} onLostPointerCapture={() => { if (!gesture.current?.native) finish(true); }}>
       <img src={appLogo} draggable={false} alt="" />
     </button>
     <div className="hand-dock-actions" aria-hidden={!pillExpanded} inert={!pillExpanded}>
-      <span className="hand-dock-count">{t("手牌 {p0}／{p1}", { p0: count, p1: capacity })}</span>
+      <span className="hand-dock-count" role={message ? "alert" : undefined}>{message || t("手牌 {p0}／{p1}", { p0: count, p1: capacity })}</span>
       {preview ? <button className="hand-clear" aria-label={t("退出预览")} data-hand-close onClick={toggle}><Icon name="close" size={16} /></button>
         : <button className={`hand-clear${confirm ? " hand-clear-confirm" : ""}`} disabled={!count || busy}
           aria-label={confirm ? t("确认清空") : t("清空手牌")} onClick={clear}><Icon name={confirm ? "check" : "remove"} size={16} /></button>}

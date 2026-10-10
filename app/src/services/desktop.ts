@@ -1,11 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
 import type { LibraryProgress, DiscoveryState, Preferences, GuiSettings,
-  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface } from "../types";
+  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint } from "../types";
 
 export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
 
@@ -13,6 +13,7 @@ export type DesktopCommand =
   | "hand_ready" | "present_hand" | "hand_arrival_ready" | "set_hand_hit_regions" | "collect_hand_card" | "show_collected_hand_card" | "play_hand_card"
   | "discard_hand_card" | "clear_hand" | "reorder_hand" | "toggle_hand" | "hide_hand" | "toggle_hand_expanded"
   | "begin_hand_dock_drag" | "save_hand_dock"
+  | "hand_dock_ready" | "position_hand_dock" | "set_hand_dock_hit_regions"
   | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
   | "tray_menu_ready"
   | "present_tray_menu"
@@ -78,9 +79,15 @@ export interface UpdateInfo {
 export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 
 export interface DesktopEvents {
+  "hand-dock-state-changed": HandDockSnapshot;
+  "hand-dock-moved": { generation: number; point: HandPoint; surface: HandSurface };
+  "hand-dock-position-changed": { generation: number; point: HandPoint };
+  "hand-dock-hide": number;
+  "hand-clear-requested": void;
+  "hand-clear-finished": string | null;
+  "hand-busy-changed": boolean;
   "hand-state-changed": HandSnapshot;
   "hand-visibility-changed": HandVisibility;
-  "hand-surface-changed": { generation: number; surface: HandSurface };
   "hand-hide": number;
   "hand-focus": void;
   "hand-escape": void;
@@ -132,6 +139,10 @@ export const listenPreviewClosed = (handler: () => void) => onDesktopEvent("prev
 
 /** The only module that depends on Tauri's browser bridge. */
 export const desktop = isTauri();
+
+export const requestHandClear = () => emitTo("hand", "hand-clear-requested");
+export const notifyHandClear = (error: string | null) => emitTo("hand-dock", "hand-clear-finished", error);
+export const notifyHandBusy = (busy: boolean) => emitTo("hand-dock", "hand-busy-changed", busy);
 
 export function call<T>(name: DesktopCommand, args?: Record<string, unknown>): Promise<T> {
   return desktop

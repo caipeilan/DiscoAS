@@ -5,6 +5,7 @@ pub mod dialogs;
 pub mod discovery_preview;
 pub mod fonts;
 pub mod hand;
+pub mod hand_dock;
 pub mod library;
 pub mod monitors;
 pub mod playback;

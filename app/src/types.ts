@@ -46,6 +46,10 @@ export interface CollectedHandCard { id: string; discovery: DiscoveryState }
 export interface HandRect { left: number; top: number; width: number; height: number }
 export interface HandPoint { x: number; y: number }
 export interface HandSurface { left: number; top: number; width: number; height: number; scale: number }
+export interface HandDockSnapshot {
+  generation: number; count: number; settings: HandSettings; gui: GuiSettings;
+  workArea: HandRect; workAreas: HandRect[]; dockPoint: HandPoint | null; expanded: boolean;
+}
 export interface HandSnapshot {
   cardOrder?: string[];
   generation: number; cards: HandCard[]; settings: HandSettings; gui: GuiSettings;

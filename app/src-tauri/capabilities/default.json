@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the overlay window",
-  "windows": ["main", "overlay", "splash", "hand"],
+  "windows": ["main", "overlay", "splash", "hand", "hand-dock"],
   "permissions": [
     "core:default",
     "opener:default",

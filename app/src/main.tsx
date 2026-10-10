@@ -4,23 +4,25 @@ import App from "./App";
 import { StartupScreen } from "./StartupScreen";
 import { TrayMenu } from "./features/tray/TrayMenu";
 import { HandWindow } from "./features/hand/HandWindow";
+import { HandDockWindow } from "./features/hand/HandDockWindow";
 import appLogo from "../../assets/DiscoAS.svg";
 
 const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
 if (favicon) favicon.href = appLogo;
 
 const view = new URLSearchParams(location.search).get("view");
-document.documentElement.classList.toggle("hand-window", view === "hand");
+document.documentElement.classList.toggle("hand-window", view === "hand" || view === "hand-dock");
 document.documentElement.classList.toggle("tray-menu-window", view === "tray");
 document.documentElement.classList.toggle(
   "floating-window",
-  view === "discover" || view === "splash" || view === "tray" || view === "hand",
+  view === "discover" || view === "splash" || view === "tray" || view === "hand" || view === "hand-dock",
 );
 
 function Root() {
   const [startupDone, setStartupDone] = React.useState(view !== "splash");
   if (view === "tray") return <TrayMenu />;
   if (view === "hand") return <HandWindow />;
+  if (view === "hand-dock") return <HandDockWindow />;
   return startupDone ? (
     <App />
   ) : (

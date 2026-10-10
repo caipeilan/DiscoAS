@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { HandCard, HandSnapshot, HandKey, HandSurface } from "../../types";
+import type { HandCard, HandSnapshot, HandKey } from "../../types";
 import { defaultGuiSettings, defaultHandSettings, emptyState } from "../../types";
-import { call, desktop, onDesktopEvent } from "../../services/desktop";
+import { call, desktop, onDesktopEvent, notifyHandBusy, notifyHandClear } from "../../services/desktop";
 import { applyAppearance } from "../../appearance";
 import { currentLocale, errorText, setLanguage, t } from "../../i18n";
 import { keybindingFromEvent } from "../settings/discoveryKeybindings";
@@ -75,6 +75,7 @@ export function HandWindow() {
   const dockAreas = useMemo(() => snapshot.workAreas?.length ? snapshot.workAreas : [snapshot.workArea], [snapshot.workAreas, snapshot.workArea]);
   const dockPosition = dockPoint ?? defaultDockPoint(restPoses, snapshot.settings.side, snapshot.workArea, diameter);
   const toolbar = floatingDockRect(dockPosition, snapshot.expanded || snapshot.preview, diameter, dockAreas);
+  if (desktop && !snapshot.preview) toolbarBounds.current = toolbar;
   const poses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, activeIndex, toolbar, snapshot.gui.font_size),
     [cards.length, snapshot.settings, snapshot.workArea, activeIndex, toolbar.left, toolbar.top, toolbar.width, toolbar.height, snapshot.gui.font_size]);
   const posesRef = useRef(poses); posesRef.current = poses;
@@ -86,7 +87,7 @@ export function HandWindow() {
   const mounted = useRef(false);
   const unfolding = useRef(true);
   const regionTask = useRef<Promise<unknown>>(Promise.resolve());
-  const reportedRegions = useRef<{ generation: number; dragging: boolean; compact: boolean; rects: HandSnapshot["workArea"][] } | null>(null);
+  const reportedRegions = useRef<{ generation: number; dragging: boolean; rects: HandSnapshot["workArea"][] } | null>(null);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const later = (f: () => void, ms: number) => {
     const timer = setTimeout(() => { timers.current.delete(timer); f(); }, ms);
@@ -168,15 +169,18 @@ export function HandWindow() {
     finally { finishDiscards(); busyRef.current = ""; setBusy(""); }
   };
   const clearHand = async () => {
-    if (busyRef.current || current.current.preview) return;
+    if (busyRef.current || current.current.preview) { if (desktop) void notifyHandClear(null); return; }
     const targets = current.current.cards;
-    if (!targets.length) return;
+    if (!targets.length) { if (desktop) void notifyHandClear(null); return; }
     busyRef.current = "clear"; setBusy("clear"); setError("");
     const flight = animateDiscard(targets);
+    let message: string | null = null;
     try { await call("clear_hand"); await flight; }
-    catch (e) { await flight; returning.current.push(...targets.map((card) => card.id)); setError(errorText(e)); }
-    finally { finishDiscards(); busyRef.current = ""; setBusy(""); }
+    catch (e) { await flight; returning.current.push(...targets.map((card) => card.id)); message = errorText(e); setError(message); }
+    finally { finishDiscards(); busyRef.current = ""; setBusy(""); if (desktop) void notifyHandClear(message); }
   };
+  const clearHandRef = useRef(clearHand); clearHandRef.current = clearHand;
+  useEffect(() => { if (desktop && !snapshot.preview) void notifyHandBusy(!!busy); }, [busy, snapshot.preview]);
   const keyboard = (event: KeyboardEvent | HandKey) => {
     const state = current.current;
     if (!state.expanded || dockMoving) return;
@@ -215,16 +219,17 @@ export function HandWindow() {
   useEffect(() => {
     mounted.current = true;
     let cancelled = false; const cleanups: Array<() => void> = [];
-    const listen = async <E extends "hand-state-changed" | "hand-visibility-changed" | "hand-surface-changed" | "hand-hide" | "hand-pointer" | "hand-key" | "hand-error" | "hand-focus" | "hand-escape">(event: E, handler: Parameters<typeof onDesktopEvent<E>>[1]) => {
+    const listen = async <E extends "hand-state-changed" | "hand-visibility-changed" | "hand-dock-position-changed" | "hand-clear-requested" | "hand-hide" | "hand-pointer" | "hand-key" | "hand-error" | "hand-focus" | "hand-escape">(event: E, handler: Parameters<typeof onDesktopEvent<E>>[1]) => {
       const stop = await onDesktopEvent(event, handler); if (cancelled) stop(); else cleanups.push(stop);
     };
     void Promise.all([
       listen("hand-state-changed", accept),
       listen("hand-visibility-changed", (value) => accept({ ...current.current, ...value, arrival: null })),
-      listen("hand-surface-changed", (value) => {
+      listen("hand-dock-position-changed", (value) => {
         if (value.generation !== accepted.current) return;
-        current.current = { ...current.current, surface: value.surface }; setSnapshot(current.current);
+        current.current = { ...current.current, dockPoint: value.point }; setSnapshot(current.current); setDockPoint(value.point);
       }),
+      listen("hand-clear-requested", () => { void clearHandRef.current(); }),
       listen("hand-focus", () => { if (current.current.expanded) stage.current?.focus({ preventScroll: true }); }),
       listen("hand-hide", (generation) => { if (generation >= accepted.current) { accepted.current = generation; setHidden(true); setPhase("closed"); unfolding.current = true; finishFlight(); finishDiscards(); cancelDrag(); } }),
       listen("hand-error", (e) => setError(errorText(e))),
@@ -277,17 +282,15 @@ export function HandWindow() {
       const elements = stage.current?.querySelectorAll<HTMLElement>(snapshot.preview ? "[data-hand-close]" : "[data-hand-hit]") || [];
       const dpi = window.devicePixelRatio;
       const dragging = !!drag || dockMoving;
-      const animating = stage.current?.getAnimations({ subtree: true }).some((a) => a.playState === "running" || a.pending);
-      const compact = !snapshot.expanded && !snapshot.preview && !cardsMounted && !dragging && !animating;
-      const rects = dragging ? [] : Array.from(elements).filter((e) => !e.classList.contains("hand-pending") && !e.classList.contains("hand-discarding"))
+      const rects = dragging ? [] : Array.from(elements).filter((e) => !e.classList.contains("hand-pending"))
         .map((e) => e.getBoundingClientRect()).map((r) => {
           const left = Math.floor(r.left * dpi) / dpi, top = Math.floor(r.top * dpi) / dpi;
           const point = toCanvas(left, top), scale = current.current.surface?.scale ?? 1;
           return { left: point.x, top: point.y, width: (Math.ceil(r.right * dpi) / dpi - left) / scale, height: (Math.ceil(r.bottom * dpi) / dpi - top) / scale };
         });
-      const next = { generation: snapshot.generation, rects, dragging, compact };
+      const next = { generation: snapshot.generation, rects, dragging };
       const old = reportedRegions.current;
-      if (old?.generation === next.generation && old.dragging === next.dragging && old.compact === next.compact && old.rects.length === rects.length &&
+      if (old?.generation === next.generation && old.dragging === next.dragging && old.rects.length === rects.length &&
         rects.every((r, i) => r.left === old.rects[i].left && r.top === old.rects[i].top && r.width === old.rects[i].width && r.height === old.rects[i].height)) return;
       regionTask.current = call("set_hand_hit_regions", next);
       await regionTask.current.then(() => { reportedRegions.current = next; }).catch(() => {});
@@ -312,13 +315,14 @@ export function HandWindow() {
     return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); };
   }, [snapshot, phase, active, drag?.id, drag?.index, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving]);
 
+  const showCardWindow = snapshot.preview || (cardsMounted && (snapshot.cards.length > 0 || discarding.length > 0)) || !!flying;
   useEffect(() => {
     if (!snapshot.generation || hidden) return;
     let cancelled = false, frame = 0;
-    const present = desktop ? call("present_hand", { generation: snapshot.generation }) : Promise.resolve();
+    const present = desktop ? call("present_hand", { generation: snapshot.generation, showCards: showCardWindow }) : Promise.resolve();
     void present.then(async () => {
       if (cancelled || snapshot.generation !== accepted.current) return;
-      if (!snapshot.expanded) return;
+      if (!snapshot.expanded || !showCardWindow) return;
       const arrival = arrivalMotion.current;
       if (arrival?.generation === snapshot.generation) {
         await Promise.all(Array.from(arrival.element.querySelectorAll("img")).map((image) => image.decode().catch(() => {})));
@@ -349,7 +353,7 @@ export function HandWindow() {
       if (snapshot.arrival && desktop) void call("hand_arrival_ready", { generation: snapshot.generation, error: errorText(e) });
     });
     return () => { cancelled = true; cancelAnimationFrame(frame); };
-  }, [snapshot.generation, snapshot.expanded, hidden]);
+  }, [snapshot.generation, snapshot.expanded, hidden, showCardWindow]);
 
   useLayoutEffect(() => {
     const arrival = snapshot.arrival;
@@ -424,16 +428,10 @@ export function HandWindow() {
     data-hidden={hidden || undefined} data-expanded={snapshot.expanded} data-input-mode={inputMode}
     style={{ "--hand-card-height": `${cardSize.height}px`, width: surface?.width, height: surface?.height,
       transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties} onContextMenu={(e) => e.preventDefault()}>
-    <HandDock element={toolbarElement} point={dockPosition} areas={dockAreas} expanded={snapshot.expanded} preview={snapshot.preview}
+    {(!desktop || snapshot.preview) && <HandDock element={toolbarElement} point={dockPosition} areas={dockAreas} expanded={snapshot.expanded} preview={snapshot.preview}
       diameter={diameter} count={snapshot.cards.length} capacity={snapshot.settings.capacity} busy={!!busy} confirm={clearConfirm}
       toCanvas={toCanvas} dragging={setDockMoving}
-      beginDrag={() => {
-        const generation = current.current.generation;
-        return call<HandSurface>("begin_hand_dock_drag", { generation }).then((surface) => {
-          if (surface && current.current.generation === generation) { current.current = { ...current.current, surface }; setSnapshot(current.current); }
-          setInputMode("pointer"); setHover(null); return surface;
-        }).catch((e) => { setError(errorText(e)); throw e; });
-      }}
+      beginDrag={() => Promise.resolve()}
       move={(point) => {
         current.current = { ...current.current, dockPoint: point }; setSnapshot(current.current); setDockPoint(point);
         void call("save_hand_dock", { generation: current.current.generation, point }).catch((e) => setError(errorText(e)));
@@ -442,7 +440,7 @@ export function HandWindow() {
       clear={() => {
         if (!clearConfirm) { setClearConfirm(true); later(() => setClearConfirm(false), 3000); return; }
         setClearConfirm(false); void clearHand();
-      }} />
+      }} />}
     {error && <div className="hand-error" role="alert" data-hand-hit style={{ left: toolbar.left,
       top: Math.max(snapshot.workArea.top+8, toolbar.top - 48) }} onClick={() => setError("")}>{error}</div>}
     {cardsMounted && visibleCards.map((card) => {

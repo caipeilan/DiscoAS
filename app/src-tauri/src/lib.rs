@@ -157,6 +157,7 @@ pub fn run() {
         .manage(browser_playback::BrowserPlaybackService::default())
         .manage(library::ShortcutRecording::default())
         .manage(desktop::hand::HandState::default())
+        .manage(desktop::hand_dock::DockState::default())
         .manage(AtomicBool::new(false))
         .manage(StartupPending(AtomicBool::new(true)))
         .manage(StartupShowMain(AtomicBool::new(true)))
@@ -286,7 +287,7 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         desktop::discovery_preview::dismiss_for_window_close(&app);
                     });
-                } else if window.label() == "hand" {
+                } else if window.label() == "hand" || window.label() == "hand-dock" {
                     let app = window.app_handle().clone();
                     tauri::async_runtime::spawn(async move {
                         desktop::hand::hide(&app);
@@ -307,7 +308,10 @@ pub fn run() {
             desktop::hand::present_hand,
             desktop::hand::hand_arrival_ready,
             desktop::hand::set_hand_hit_regions,
-            desktop::hand::begin_hand_dock_drag,
+            desktop::hand_dock::begin_hand_dock_drag,
+            desktop::hand_dock::hand_dock_ready,
+            desktop::hand_dock::position_hand_dock,
+            desktop::hand_dock::set_hand_dock_hit_regions,
             desktop::hand::save_hand_dock,
             desktop::hand::collect_hand_card,
             desktop::hand::show_collected_hand_card,
