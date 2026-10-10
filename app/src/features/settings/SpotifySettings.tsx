@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DesktopPreferences, SpotifyBridgeStatus, SpotifySetupStatus } from "../../types";
 import { call, desktop, openExternalUrl } from "../../services/desktop";
 import { SettingRow } from "../../components/SettingsControls";
@@ -14,28 +14,46 @@ export function SpotifySettings({ settings, setSettings }: {
   const [setup, setSetup] = useState<SpotifySetupStatus | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [statusError, setStatusError] = useState("");
   const [guideOpen, setGuideOpen] = useState(false);
+  const section = useRef<HTMLElement>(null);
+  const [inView, setInView] = useState(false);
   useEffect(() => {
-    if (!desktop) return;
+    const observer = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting));
+    if (section.current) observer.observe(section.current);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!desktop || settings.spotify_playback_mode !== "extension" || !inView || working) return;
     let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
     const refresh = () => Promise.all([
       call<SpotifyBridgeStatus>("get_spotify_bridge_status"),
       call<SpotifySetupStatus>("get_spotify_setup_status"),
-    ]).then(([bridge, installed]) => { if (active) { setStatus(bridge); setSetup(installed); } }).catch(() => {});
-    refresh();
-    const timer = window.setInterval(refresh, 4000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, []);
+    ]).then(([bridge, installed]) => {
+      if (active) { setStatus(bridge); setSetup(installed); setStatusError(""); }
+    }).catch((failure) => { if (active) setStatusError(errorText(failure)); });
+    const visibility = () => {
+      clearInterval(timer);
+      if (document.hidden) return;
+      void refresh();
+      timer = setInterval(refresh, 4000);
+    };
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
+    return () => { active = false; clearInterval(timer); document.removeEventListener("visibilitychange", visibility); };
+  }, [settings.spotify_playback_mode, inView, working]);
   const check = async () => {
     setWorking(true); setError("");
     try {
       setStatus(await call<SpotifyBridgeStatus>("get_spotify_bridge_status"));
       setSetup(await call<SpotifySetupStatus>("get_spotify_setup_status"));
+      setStatusError("");
     }
     catch (failure) { setError(errorText(failure)); }
     finally { setWorking(false); }
   };
-  return <section className="settings-section">
+  return <section ref={section} className="settings-section">
     <h2>Spotify</h2>
     <SettingRow title={t("切歌方式")} description={t("受客户端限制，Free账户切歌时会出现异常情况（如歌曲错误、切换失败等），使用spicetify只能避免部分异常情况")}>
       <Select
@@ -74,7 +92,7 @@ export function SpotifySettings({ settings, setSettings }: {
         {status?.extensionPath && <p className="extension-path">{status.extensionPath}</p>}
         {status?.extensionPath && <button type="button" className="button secondary" onClick={() => call("open_spotify_extension_folder").catch((failure) => setError(errorText(failure)))}>{t("打开扩展文件夹")}</button>}
       </InstallationGuide>
-      {error && <p className="inline-error" role="alert">{error}</p>}
+      {(error || statusError) && <p className="inline-error" role="alert">{error || statusError}</p>}
     </div>}
   </section>;
 }

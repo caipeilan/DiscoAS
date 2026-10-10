@@ -15,8 +15,9 @@ use windows_sys::Win32::{
     UI::{
         Input::KeyboardAndMouse::GetAsyncKeyState,
         WindowsAndMessaging::{
-            CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT,
-            WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+            CallNextHookEx, GetAncestor, GetForegroundWindow, SetWindowsHookExW,
+            UnhookWindowsHookEx, GA_ROOT, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN,
+            WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
         },
     },
 };
@@ -127,7 +128,7 @@ impl KeyModel {
             .bindings
             .iter()
             .find(|b| b.vk == vk as i32 && b.modifiers == (ctrl, alt, shift) && !meta)?;
-        if repeat && ["select", "replace"].contains(&binding.action) {
+        if repeat && ["select", "replace", "discard"].contains(&binding.action) {
             return None;
         }
         Some(Input::Key(KeyInput {
@@ -153,6 +154,7 @@ struct HookState {
     model: KeyModel,
     keys: mpsc::Sender<KeyInput>,
     exit: mpsc::Sender<()>,
+    foreground: Option<isize>,
 }
 impl Drop for HookState {
     fn drop(&mut self) {
@@ -182,7 +184,7 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
             match state.model.observe(
                 event.vkCode as usize,
                 down,
-                super::tray_menu::owns_keyboard(),
+                super::tray_menu::owns_keyboard() || state.foreground.is_some_and(|hwnd| unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) } as isize != hwnd),
             ) {
                 Some(Input::Exit) => {
                     let _ = state.exit.try_send(());
@@ -202,6 +204,7 @@ pub(super) async fn install(
     generation: u64,
     active: Arc<AtomicU64>,
     keys: DiscoveryKeybindings,
+    foreground: Option<isize>,
 ) -> Result<InputReceiver, String> {
     let (key_tx, key_rx) = mpsc::channel(64);
     // Escape has its own queue and cannot be starved by held navigation keys.
@@ -214,7 +217,20 @@ pub(super) async fn install(
             }
             let mut slot = slot.borrow_mut();
             *slot = None;
-            let model = KeyModel::new(&keys, |vk| unsafe { GetAsyncKeyState(vk) < 0 });
+            let mut model = KeyModel::new(&keys, |vk| unsafe { GetAsyncKeyState(vk) < 0 });
+            if foreground.is_some() {
+                model.bindings.push(Binding {
+                    action: "discard",
+                    text: "Delete".into(),
+                    vk: 0x2e,
+                    key: "Delete".into(),
+                    code: "Delete".into(),
+                    modifiers: (false, false, false),
+                });
+                let held = unsafe { GetAsyncKeyState(0x2e) < 0 };
+                model.held[0x2e] = held;
+                model.opening[0x2e] = held;
+            }
             let handle = unsafe {
                 SetWindowsHookExW(WH_KEYBOARD_LL, Some(callback), std::ptr::null_mut(), 0)
             };
@@ -228,6 +244,7 @@ pub(super) async fn install(
                 model,
                 keys: key_tx,
                 exit: exit_tx,
+                foreground,
             });
             Ok(())
         });

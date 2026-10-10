@@ -18,8 +18,6 @@ pub async fn save_preferences(
     cache: tauri::State<'_, Arc<Cache>>,
     settings: MusicSetting,
 ) -> Result<Snapshot, String> {
-    preferences::validate_preferences(&settings)?;
-    shortcuts::parse_shortcut(&settings.shortcut_key)?;
     if app
         .state::<shortcuts::ShortcutRecording>()
         .active
@@ -32,21 +30,13 @@ pub async fn save_preferences(
     let old = repository.load_settings()?;
     let settings = preferences::prepare_music_preferences(&old, settings)?;
     shortcuts::save_preferences(&app, &repository, &old, &settings)?;
-    if discoas_core::discovery_service::DiscoveryService::new(
-        repository.root(),
-        cache.inner().clone(),
-    )
-    .trim_history(settings.history_limit)
-    .is_err()
-    {
-        super::diagnostics::log_event(&app, "history_limit", "write_failed");
-    }
     changed_with_invalidation(
         &app,
         cache.inner(),
         preferences::discovery_preferences_changed(&old, &settings),
     )
     .await;
+    super::hand::refresh(&app).await?;
     get_app_state(app)
 }
 
@@ -58,6 +48,7 @@ pub async fn save_gui_preferences(
     let _guard = cache.operation.lock().await;
     preferences::save_gui_preferences(&repository(&app)?.gui_path(), settings)?;
     let _ = app.emit("gui-changed", ());
+    super::hand::refresh(&app).await?;
     get_app_state(app)
 }
 

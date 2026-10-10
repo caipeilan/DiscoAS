@@ -1,41 +1,40 @@
 //! Seed the desktop library once, without networking or changing existing user data.
 use std::{
-    collections::HashSet,
     io::{ErrorKind, Write},
     path::Path,
 };
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::{
     core::playlist::{PlaylistJson, TypeName},
-    error::{AppError, AppResult},
+    error::AppResult,
     settings::music_setting::{MusicSetting, PlaylistAlbum},
 };
 use discoas_core::storage::LibraryStore;
 
 const DEFAULT_PLAYLIST: &str = include_str!("../../resources/default-playlist.json");
 const AUTHOR_PLAYLIST_ID: &str = "8285082830";
-const SNAPSHOT_SONG_COUNT: usize = 4_889;
 const MARKER_FILENAME: &str = ".discoas-bootstrap-v1.json";
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BootstrapMarker {
     application: String,
     format_version: u32,
     playlist_id: String,
-    snapshot_sha256: String,
+    // Accept receipts from 2.0.0; ownership and cache bytes already identify the seed.
+    #[serde(default, skip_serializing, rename = "snapshot_sha256")]
+    _legacy_snapshot_hash: Option<serde::de::IgnoredAny>,
 }
 
 impl BootstrapMarker {
-    fn for_snapshot(bytes: &[u8]) -> Self {
+    fn new() -> Self {
         Self {
             application: "DiscoAS".into(),
             format_version: 1,
             playlist_id: AUTHOR_PLAYLIST_ID.into(),
-            snapshot_sha256: format!("{:x}", Sha256::digest(bytes)),
+            _legacy_snapshot_hash: None,
         }
     }
 }
@@ -65,20 +64,19 @@ pub fn seed_new_user(root: &Path) -> AppResult<bool> {
         return Ok(false);
     }
     let raw: serde_json::Value = serde_json::from_str(DEFAULT_PLAYLIST)?;
-    let source = validated_seed(&raw)?;
+    let source: PlaylistJson = serde_json::from_value(raw.clone())?;
     let cache_bytes = serde_json::to_vec_pretty(&raw)?;
-    let expected_marker = BootstrapMarker::for_snapshot(&cache_bytes);
+    let expected_marker = BootstrapMarker::new();
     let store = LibraryStore::new(root);
     let cache_path =
         store.playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, TypeName::Playlist)?;
     let marker_bytes = match marker {
         MarkerFile::Present(bytes) => {
-            if serde_json::from_slice::<BootstrapMarker>(&bytes)
-                .ok()
-                .as_ref()
-                != Some(&expected_marker)
-                || !has_only_seed_files(root, &marker_path, &bytes, &cache_path, &cache_bytes)?
-            {
+            if !serde_json::from_slice::<BootstrapMarker>(&bytes).is_ok_and(|marker| {
+                marker.application == expected_marker.application
+                    && marker.format_version == expected_marker.format_version
+                    && marker.playlist_id == expected_marker.playlist_id
+            }) {
                 return Ok(false);
             }
             bytes
@@ -93,7 +91,6 @@ pub fn seed_new_user(root: &Path) -> AppResult<bool> {
     // Recheck after claiming the new directory. Never write through a link or
     // overwrite user files which appeared while startup was preparing its seed.
     if !has_only_seed_files(root, &marker_path, &marker_bytes, &cache_path, &cache_bytes)? {
-        remove_unchanged_marker(&marker_path, &marker_bytes);
         return Ok(false);
     }
     store.save_playlist_json(
@@ -227,42 +224,6 @@ fn has_only_seed_files(
     Ok(true)
 }
 
-fn validated_seed(raw: &serde_json::Value) -> AppResult<PlaylistJson> {
-    let source: PlaylistJson = serde_json::from_value(raw.clone())?;
-    let expected_fields = [
-        "playlist_album_id",
-        "playlist_album_name",
-        "playlist_album_type",
-        "song_ids",
-        "coverUrl",
-        "saved_at",
-    ];
-    let valid_fields = raw.as_object().is_some_and(|object| {
-        object.len() == expected_fields.len()
-            && expected_fields
-                .iter()
-                .all(|field| object.contains_key(*field))
-    });
-    let unique: HashSet<&str> = source.song_ids.iter().map(String::as_str).collect();
-    let valid_ids = source.song_ids.iter().all(|id| {
-        id.bytes().all(|byte| byte.is_ascii_digit())
-            && id.parse::<u64>().is_ok_and(|value| value > 0)
-    });
-    if !valid_fields
-        || source.playlist_album_id != AUTHOR_PLAYLIST_ID
-        || source.playlist_album_type != "playlist"
-        || source.playlist_album_name.trim().is_empty()
-        || source.song_ids.len() != SNAPSHOT_SONG_COUNT
-        || unique.len() != source.song_ids.len()
-        || !valid_ids
-        || source.saved_at <= 0
-        || !source.cover_url.starts_with("https://p1.music.126.net/")
-    {
-        return Err(AppError::Platform("内置歌单快照无效".into()));
-    }
-    Ok(source)
-}
-
 fn has_existing_data(root: &Path) -> std::io::Result<bool> {
     let metadata = match std::fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
@@ -330,7 +291,8 @@ mod tests {
         let playlist = LibraryStore::new(&root)
             .load_playlist(&source.name, &source.playlist_album_id, TypeName::Playlist)
             .unwrap();
-        assert_eq!(playlist.song_ids.len(), SNAPSHOT_SONG_COUNT);
+        let seed: PlaylistJson = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
+        assert_eq!(playlist.song_ids, seed.song_ids);
         assert_eq!(playlist.get_random_song(4).len(), 4);
         let settings_before = std::fs::read(root.join("settings/music_setting.json")).unwrap();
         assert!(!seed_new_user(&root).unwrap());
@@ -410,30 +372,48 @@ mod tests {
     #[test]
     fn shipped_snapshot_is_complete_unique_and_contains_only_public_cache_fields() {
         let raw: serde_json::Value = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
-        validated_seed(&raw).unwrap();
-        let mut incomplete = raw.clone();
-        incomplete["song_ids"].as_array_mut().unwrap().pop();
-        assert!(validated_seed(&incomplete).is_err());
-        let mut duplicate = raw.clone();
-        duplicate["song_ids"][1] = duplicate["song_ids"][0].clone();
-        assert!(validated_seed(&duplicate).is_err());
-        for (field, value) in [
-            ("playlist_album_id", serde_json::json!("1")),
-            ("playlist_album_type", serde_json::json!("album")),
-            ("coverUrl", serde_json::json!("file:///private.jpg")),
-            ("cookie", serde_json::json!("not allowed")),
-        ] {
-            let mut invalid = raw.clone();
-            invalid[field] = value;
-            assert!(validated_seed(&invalid).is_err(), "{field}");
-        }
+        let source: PlaylistJson = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(source.playlist_album_id, AUTHOR_PLAYLIST_ID);
+        assert_eq!(source.playlist_album_type, "playlist");
+        assert!(!source.playlist_album_name.trim().is_empty());
+        assert!(!source.song_ids.is_empty());
+        assert_eq!(
+            source
+                .song_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            source.song_ids.len()
+        );
+        assert!(source
+            .song_ids
+            .iter()
+            .all(|id| id.parse::<u64>().is_ok_and(|n| n > 0)));
+        assert!(source.saved_at > 0);
+        assert!(source.cover_url.starts_with("https://"));
+        let mut fields: Vec<_> = raw
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        fields.sort_unstable();
+        assert_eq!(
+            fields,
+            [
+                "coverUrl",
+                "playlist_album_id",
+                "playlist_album_name",
+                "playlist_album_type",
+                "saved_at",
+                "song_ids"
+            ]
+        );
     }
 
     fn interrupted_seed(root: &Path, include_cache: bool) -> Vec<u8> {
         let raw: serde_json::Value = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
-        let cache_bytes = serde_json::to_vec_pretty(&raw).unwrap();
-        let marker =
-            serde_json::to_vec_pretty(&BootstrapMarker::for_snapshot(&cache_bytes)).unwrap();
+        let marker = serde_json::to_vec_pretty(&BootstrapMarker::new()).unwrap();
         create_marker(&root.join(MARKER_FILENAME), &marker).unwrap();
         if include_cache {
             LibraryStore::new(root)
@@ -450,9 +430,19 @@ mod tests {
 
     #[test]
     fn recognized_interrupted_bootstrap_resumes_with_or_without_committed_cache() {
-        for include_cache in [false, true] {
+        for (include_cache, legacy) in [(false, false), (true, false), (false, true), (true, true)]
+        {
             let fixture = Fixture::new();
             interrupted_seed(&fixture.0, include_cache);
+            if legacy {
+                let mut marker = serde_json::to_value(BootstrapMarker::new()).unwrap();
+                marker["snapshot_sha256"] = serde_json::json!("legacy receipt");
+                std::fs::write(
+                    fixture.0.join(MARKER_FILENAME),
+                    serde_json::to_vec(&marker).unwrap(),
+                )
+                .unwrap();
+            }
             assert!(seed_new_user(&fixture.0).unwrap());
             assert!(!fixture.0.join(MARKER_FILENAME).exists());
             let settings =
@@ -467,7 +457,8 @@ mod tests {
             let playlist = LibraryStore::new(&fixture.0)
                 .load_playlist("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, TypeName::Playlist)
                 .unwrap();
-            assert_eq!(playlist.song_ids.len(), SNAPSHOT_SONG_COUNT);
+            let seed: PlaylistJson = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
+            assert_eq!(playlist.song_ids, seed.song_ids);
         }
     }
 
@@ -518,13 +509,13 @@ mod tests {
 
     #[test]
     fn invalid_unknown_or_modified_receipts_are_preserved() {
-        let raw: serde_json::Value = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
-        let snapshot = serde_json::to_vec_pretty(&raw).unwrap();
-        let marker = serde_json::to_value(BootstrapMarker::for_snapshot(&snapshot)).unwrap();
+        let marker = serde_json::to_value(BootstrapMarker::new()).unwrap();
         let mut wrong_version = marker.clone();
         wrong_version["format_version"] = serde_json::json!(99);
-        let mut wrong_hash = marker.clone();
-        wrong_hash["snapshot_sha256"] = serde_json::json!("different snapshot");
+        let mut wrong_playlist = marker.clone();
+        wrong_playlist["playlist_id"] = serde_json::json!("1");
+        let mut wrong_application = marker.clone();
+        wrong_application["application"] = serde_json::json!("another application");
         let mut unknown_field = marker.clone();
         unknown_field["user_value"] = serde_json::json!("preserve me");
         for bytes in [
@@ -532,7 +523,8 @@ mod tests {
             Vec::new(),
             vec![b'x'; 1_025],
             serde_json::to_vec(&wrong_version).unwrap(),
-            serde_json::to_vec(&wrong_hash).unwrap(),
+            serde_json::to_vec(&wrong_playlist).unwrap(),
+            serde_json::to_vec(&wrong_application).unwrap(),
             serde_json::to_vec(&unknown_field).unwrap(),
         ] {
             let fixture = Fixture::new();

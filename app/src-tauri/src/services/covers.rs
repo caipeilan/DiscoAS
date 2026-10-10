@@ -2,9 +2,6 @@
 use std::path::Path;
 
 pub fn image_extension(bytes: &[u8]) -> Result<&'static str, String> {
-    if bytes.len() > 5 * 1024 * 1024 {
-        return Err("封面图片不能超过 5 MB".into());
-    }
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Ok("png")
     } else if bytes.starts_with(b"\xff\xd8\xff") {
@@ -19,9 +16,6 @@ pub fn image_extension(bytes: &[u8]) -> Result<&'static str, String> {
 }
 
 pub fn copy_mystery_cover(source: &Path, destination_root: &Path) -> Result<String, String> {
-    if std::fs::metadata(source).map_err(|e| e.to_string())?.len() > 5 * 1024 * 1024 {
-        return Err("封面图片不能超过 5 MB".into());
-    }
     let data = std::fs::read(source).map_err(|e| e.to_string())?;
     let extension = image_extension(&data)?;
     let destination =

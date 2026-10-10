@@ -6,6 +6,7 @@ use crate::{
         discover::{load_one_batch_cached_weighted, load_one_card_cached, select_batch_weighted},
         playlist::{Playlist, TypeName},
     },
+    hand::{HandStore, StoredHandCard},
     history::{HistoryEntry, HistoryStore},
     image_cache::{
         library_key, prepare_batch_covers, prepare_song_cover, read_library_cover,
@@ -17,7 +18,6 @@ use crate::{
     },
     settings::music_setting::{HistoryExclusion, MusicSetting, PlaylistAlbum, MAX_HISTORY_LIMIT},
     storage::LibraryStore,
-    weighting::WeightStore,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -50,12 +50,19 @@ pub struct PreparedReplacement {
     song: SongCardDto,
 }
 
+struct SamplingInputs {
+    source: PlaylistAlbum,
+    raw: serde_json::Value,
+    playlist: Playlist,
+    excluded: HashSet<String>,
+    weights: HashMap<String, f64>,
+}
+
 #[derive(Clone)]
 pub struct DiscoveryService {
     store: LibraryStore,
     cache: Arc<Cache>,
     history: HistoryStore,
-    weights: WeightStore,
 }
 
 impl DiscoveryService {
@@ -65,13 +72,79 @@ impl DiscoveryService {
             store: LibraryStore::new(user_data.as_ref().to_path_buf()),
             cache,
             history: HistoryStore::new(user_data.as_ref()),
-            weights: WeightStore::new(user_data),
         }
     }
 
     fn settings(&self) -> Result<MusicSetting, String> {
         MusicSetting::load_from_path(&self.store.root().join("settings/music_setting.json"))
             .map_err(|error| error.to_string())
+    }
+
+    fn excluded_song_ids(
+        &self,
+        setting: &MusicSetting,
+        platform: &str,
+    ) -> Result<HashSet<String>, String> {
+        let mut ids = self
+            .history
+            .excluded_song_ids(platform, setting.history_exclusion, setting.history_limit)
+            .map_err(|e| e.to_string())?;
+        if setting.hand.enabled {
+            ids.extend(HandStore::new(self.store.root()).held_ids(platform)?);
+        }
+        Ok(ids)
+    }
+
+    /// The caller holds operation through persistence and its desktop notifications.
+    pub async fn collect_hand_card(
+        &self,
+        args: &PlaySongArgs,
+        epoch: u64,
+    ) -> Result<StoredHandCard, String> {
+        let setting = self.settings()?;
+        if !setting.hand.enabled {
+            return Err("错误：手牌模式未开启".into());
+        }
+        if epoch != self.cache.current_batch_epoch() {
+            return Err("歌曲来源已改变，请重新发现歌曲".into());
+        }
+        self.playback_target(args).await?;
+        let song = self
+            .cache
+            .current_batch
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|batch| batch.iter().find(|s| matches_identity(s, args)))
+            .cloned()
+            .ok_or("歌曲来源已改变，请重新发现歌曲")?;
+        let store = HandStore::new(self.store.root());
+        let card = store.add(song, &setting.hand)?;
+        if let Err(error) = self.record_selection(args).await {
+            store.remove(&card.id)?;
+            return Err(error);
+        }
+        self.sync_hand_exclusions().await?;
+        if !setting.hand.keep_discovery_open {
+            self.cache.release_current_batch().await;
+        }
+        Ok(card)
+    }
+
+    pub async fn sync_hand_exclusions(&self) -> Result<(), String> {
+        let setting = self.settings()?;
+        if setting.hand.enabled {
+            let held = HandStore::new(self.store.root())
+                .load()?
+                .cards
+                .into_iter()
+                .map(|c| (c.song.platform, c.song.song_id))
+                .collect();
+            self.cache.exclude_held_songs(&held).await;
+        } else {
+            self.cache.invalidate_preloads().await;
+        }
+        Ok(())
     }
 
     async fn prepare(&self, setting: &MusicSetting) -> Result<Vec<SongCardDto>, String> {
@@ -84,7 +157,7 @@ impl DiscoveryService {
         setting: &MusicSetting,
         deadline: Duration,
     ) -> Result<Vec<SongCardDto>, String> {
-        self.prepare_with_exclusions(setting, deadline, &HashSet::new())
+        self.prepare_inputs(setting, deadline, self.sampling_inputs(setting)?)
             .await
     }
 
@@ -107,30 +180,54 @@ impl DiscoveryService {
         Ok((source.clone(), raw, playlist))
     }
 
-    async fn prepare_with_exclusions(
-        &self,
-        setting: &MusicSetting,
-        deadline: Duration,
-        reserved: &HashSet<String>,
-    ) -> Result<Vec<SongCardDto>, String> {
+    fn sampling_inputs(&self, setting: &MusicSetting) -> Result<SamplingInputs, String> {
         let (source, raw, playlist) = self.source_snapshot(setting)?;
-        let mut excluded = self
-            .history
-            .excluded_song_ids(
-                &source.name,
-                setting.history_exclusion,
-                setting.history_limit,
-            )
-            .map_err(|error| error.to_string())?;
-        excluded.extend(reserved.iter().cloned());
-        let weights = self
-            .weights
+        let history = if (setting.history_exclusion != HistoryExclusion::Off
+            && setting.history_limit > 0)
+            || setting.discovery_weighting.enabled
+        {
+            self.history.load().map_err(|error| error.to_string())?
+        } else {
+            Default::default()
+        };
+        let mut excluded = history.excluded_song_ids(
+            &source.name,
+            setting.history_exclusion,
+            setting.history_limit,
+        );
+        if setting.hand.enabled {
+            excluded.extend(HandStore::new(self.store.root()).held_ids(&source.name)?);
+        }
+        let weights = history
+            .weighting
             .weights(
                 &source.name,
                 &playlist.song_ids,
                 &setting.discovery_weighting,
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| error.to_string())?;
+        Ok(SamplingInputs {
+            source,
+            raw,
+            playlist,
+            excluded,
+            weights,
+        })
+    }
+
+    async fn prepare_inputs(
+        &self,
+        setting: &MusicSetting,
+        deadline: Duration,
+        inputs: SamplingInputs,
+    ) -> Result<Vec<SongCardDto>, String> {
+        let SamplingInputs {
+            source,
+            raw,
+            excluded,
+            weights,
+            ..
+        } = inputs;
         tokio::time::timeout(deadline, async {
             let mut songs = load_one_batch_cached_weighted(
                 &raw,
@@ -266,13 +363,7 @@ impl DiscoveryService {
         let setting = self.settings()?;
         let enabled = setting.playlist_albums.iter().find(|source| source.enabled);
         let excluded = if let Some(source) = enabled {
-            self.history
-                .excluded_song_ids(
-                    &source.name,
-                    setting.history_exclusion,
-                    setting.history_limit,
-                )
-                .map_err(|error| error.to_string())?
+            self.excluded_song_ids(&setting, &source.name)?
         } else {
             Default::default()
         };
@@ -333,23 +424,16 @@ impl DiscoveryService {
             {
                 return Ok(());
             }
-            let reserved = if setting.preload_deduplication {
-                let (source, _, playlist) = self.source_snapshot(&setting)?;
-                let excluded = self
-                    .history
-                    .excluded_song_ids(
-                        &source.name,
-                        setting.history_exclusion,
-                        setting.history_limit,
-                    )
-                    .map_err(|e| e.to_string())?;
-                let eligible: HashSet<_> = playlist
+            let mut inputs = self.sampling_inputs(&setting)?;
+            if setting.preload_deduplication {
+                let eligible: HashSet<_> = inputs
+                    .playlist
                     .song_ids
                     .iter()
-                    .filter(|id| !id.is_empty() && !excluded.contains(*id))
+                    .filter(|id| !id.is_empty() && !inputs.excluded.contains(*id))
                     .cloned()
                     .collect();
-                let reserved = self.cache.reserved_song_ids(&source.name).await;
+                let reserved = self.cache.reserved_song_ids(&inputs.source.name).await;
                 let target = (setting.number_of_discovered_songs.clamp(1, 15)
                     + if setting.have_mystery_song {
                         setting
@@ -363,15 +447,13 @@ impl DiscoveryService {
                 {
                     return Ok(());
                 }
-                reserved
-            } else {
-                HashSet::new()
-            };
+                inputs.excluded.extend(reserved);
+            }
             let prepared = tokio::select! {
                 biased;
                 _ = self.cache.generation_changed(generation) => continue,
-                prepared = self.prepare_with_exclusions(
-                    &setting, BATCH_PREPARATION_TIMEOUT, &reserved,
+                prepared = self.prepare_inputs(
+                    &setting, BATCH_PREPARATION_TIMEOUT, inputs,
                 ) => prepared,
             };
             match prepared {
@@ -401,14 +483,7 @@ impl DiscoveryService {
             return Ok(0);
         }
         let (source, _, playlist) = self.source_snapshot(setting)?;
-        let excluded = self
-            .history
-            .excluded_song_ids(
-                &source.name,
-                setting.history_exclusion,
-                setting.history_limit,
-            )
-            .map_err(|e| e.to_string())?;
+        let excluded = self.excluded_song_ids(setting, &source.name)?;
         Ok(playlist
             .song_ids
             .into_iter()
@@ -434,7 +509,8 @@ impl DiscoveryService {
             remaining_songs: self.remaining_for(&setting)?,
             replacements_remaining: setting.replacement_limit.saturating_sub(used),
             exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
-                && setting.history_limit > 0,
+                && setting.history_limit > 0
+                || setting.hand.enabled,
             replacement_enabled: setting.replacement_limit > 0,
             preview: false,
         })
@@ -454,7 +530,8 @@ impl DiscoveryService {
             remaining_songs: self.remaining_for(&setting)?,
             replacements_remaining: setting.replacement_limit,
             exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
-                && setting.history_limit > 0,
+                && setting.history_limit > 0
+                || setting.hand.enabled,
             replacement_enabled: setting.replacement_limit > 0,
             preview: true,
         })
@@ -485,31 +562,21 @@ impl DiscoveryService {
             .iter()
             .position(|song| matches_identity(song, args))
             .ok_or("歌曲来源已改变，请重新发现歌曲")?;
-        let (source, raw, playlist) = self.source_snapshot(&setting)?;
+        let SamplingInputs {
+            source,
+            raw,
+            playlist,
+            mut excluded,
+            weights,
+        } = self.sampling_inputs(&setting)?;
         if source.name != args.platform
             || source.playlist_album_id != args.playlist_id
             || source.typename != args.typename
         {
             return Err("歌曲来源已改变，请重新发现歌曲".into());
         }
-        let mut excluded = self
-            .history
-            .excluded_song_ids(
-                &source.name,
-                setting.history_exclusion,
-                setting.history_limit,
-            )
-            .map_err(|e| e.to_string())?;
         excluded.extend(current.iter().map(|song| song.song_id.clone()));
         excluded.extend(session.replaced_song_ids);
-        let weights = self
-            .weights
-            .weights(
-                &source.name,
-                &playlist.song_ids,
-                &setting.discovery_weighting,
-            )
-            .map_err(|e| e.to_string())?;
         let mut candidate = select_batch_weighted(&playlist, 1, false, 0, &excluded, &weights)
             .map_err(|_| "没有可替换的歌曲".to_string())?
             .songs
@@ -889,10 +956,6 @@ impl DiscoveryService {
         Some((originals, metadata))
     }
 
-    pub fn trim_history(&self, limit: u32) -> Result<(), String> {
-        self.history.trim(limit).map_err(|error| error.to_string())
-    }
-
     /// The host holds Cache::operation and can request preload again after clearing.
     pub async fn clear_history(&self) -> Result<(), String> {
         self.history.clear().map_err(|error| error.to_string())?;
@@ -1029,7 +1092,7 @@ impl DiscoveryService {
     ) -> Option<(
         HistoryEntry,
         Option<crate::platforms::SongDetail>,
-        Option<Vec<u8>>,
+        Option<Arc<[u8]>>,
     )> {
         let identity = identity?;
         let row = rows
@@ -1106,6 +1169,46 @@ mod tests {
     use crate::settings::music_setting::PlaylistAlbum;
     use serde_json::json;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn one_batch_uses_one_history_snapshot_and_the_next_batch_reads_new_events() {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source();
+        fixture.configure(|setting| {
+            setting.have_mystery_song = false;
+            setting.history_exclusion = HistoryExclusion::Selected;
+            setting.history_limit = 1;
+            setting.discovery_weighting.enabled = true;
+        });
+        let service = fixture.service(Cache::new());
+        service
+            .history
+            .record_selected(
+                &SongCardDto {
+                    platform: "Spotify".into(),
+                    song_id: "a".into(),
+                    name: "A".into(),
+                    ..Default::default()
+                },
+                MAX_HISTORY_LIMIT,
+            )
+            .unwrap();
+        let setting = service.settings().unwrap();
+        let captured = service.sampling_inputs(&setting).unwrap();
+        assert!(captured.excluded.contains("a"));
+        assert!(captured.weights["a"] < captured.weights["b"]);
+        service.history.clear().unwrap();
+        let batch = service
+            .prepare_inputs(&setting, BATCH_PREPARATION_TIMEOUT, captured)
+            .await
+            .unwrap();
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].song_id, "b");
+        let fresh = service.sampling_inputs(&setting).unwrap();
+        assert!(fresh.excluded.is_empty());
+        assert_eq!(fresh.weights["a"], fresh.weights["b"]);
+    }
 
     struct Fixture(PathBuf);
     impl Fixture {
@@ -1187,6 +1290,107 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[tokio::test]
+    async fn collecting_removes_held_cards_from_visible_and_preloaded_batches_without_a_new_round()
+    {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source_many(7);
+        fixture.configure(|s| {
+            s.hand.enabled = true;
+            s.hand.keep_discovery_open = true;
+            s.hand.capacity = 2;
+            s.discovery_weighting.enabled = true;
+        });
+        let cache = Cache::new();
+        let service = fixture.service(cache.clone());
+        let batch = service.discover(false).await.unwrap();
+        let args = identities(&batch.songs);
+        let guard = cache.operation.lock().await;
+        let first = service
+            .collect_hand_card(&args[0], batch.state.batch_epoch)
+            .await
+            .unwrap();
+        let state = service.get_state().await.unwrap();
+        assert_eq!(state.songs.len(), 1);
+        assert_eq!(state.remaining_songs, 6);
+        assert!(!state.songs.iter().any(|s| s.song_id == first.song.song_id));
+        assert!(service
+            .collect_hand_card(&args[1], batch.state.batch_epoch)
+            .await
+            .is_err());
+        service
+            .collect_hand_card(&args[1], state.batch_epoch)
+            .await
+            .unwrap();
+        assert!(service.get_state().await.unwrap().songs.is_empty());
+        drop(guard);
+        service.preload().await.unwrap();
+        let held = HandStore::new(&fixture.0).held_ids("Spotify").unwrap();
+        assert!(cache
+            .song_batches
+            .lock()
+            .await
+            .iter()
+            .flatten()
+            .all(|s| !held.contains(&s.song_id)));
+        let history = HistoryStore::new(&fixture.0).load().unwrap();
+        assert_eq!(history.selected.len(), 2);
+        assert_eq!(
+            serde_json::to_value(history.weighting).unwrap()["rounds"]["Spotify"],
+            1
+        );
+        let guard = cache.operation.lock().await;
+        HandStore::new(&fixture.0).remove(&first.id).unwrap();
+        service.sync_hand_exclusions().await.unwrap();
+        assert_eq!(service.get_state().await.unwrap().remaining_songs, 6);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn full_hand_keeps_the_discovery_card_and_default_collection_closes_the_batch() {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source_many(4);
+        fixture.configure(|s| {
+            s.hand.enabled = true;
+            s.hand.capacity = 1;
+        });
+        let cache = Cache::new();
+        let service = fixture.service(cache.clone());
+        let batch = service.discover(false).await.unwrap();
+        let args = identities(&batch.songs);
+        {
+            let _guard = cache.operation.lock().await;
+            service
+                .collect_hand_card(&args[0], batch.state.batch_epoch)
+                .await
+                .unwrap();
+        }
+        assert!(service.get_state().await.unwrap().songs.is_empty());
+        let next = service.discover(false).await.unwrap();
+        let next_args = identities(&next.songs);
+        {
+            let _guard = cache.operation.lock().await;
+            assert_eq!(
+                service
+                    .collect_hand_card(&next_args[0], next.state.batch_epoch)
+                    .await
+                    .unwrap_err(),
+                "错误：手牌已满"
+            );
+        }
+        assert_eq!(service.get_state().await.unwrap().songs, next.songs);
+        fixture.configure(|s| s.playlist_albums.clear());
+        cache.invalidate().await;
+        let card = HandStore::new(&fixture.0).load().unwrap().cards.remove(0);
+        assert!(crate::platforms::build_scheme_url(&card.playback_args())
+            .unwrap()
+            .contains(&card.song.song_id));
+        fixture.configure(|s| s.hand.enabled = false);
+        assert_eq!(HandStore::new(&fixture.0).load().unwrap().cards.len(), 1);
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@ export interface Preferences {
   history_exclusion: "off" | "selected" | "discovered";
   history_limit: number;
   discovery_keybindings: DiscoveryKeybindings;
+  hand: HandSettings;
   playlist_albums: PlaylistSetting[];
 }
 export interface DiscoveryKeybindings {
@@ -31,6 +32,25 @@ export interface DiscoveryKeybindings {
   select: string;
   replace: string;
 }
+export interface HandSettings {
+  enabled: boolean; reveal_mystery: boolean; resident: boolean; keep_discovery_open: boolean;
+  shortcut: string; side: "left" | "right" | "bottom"; capacity: number;
+  scale: number; edge_distance: number; position: number; overlap: number; tilt: number;
+}
+export const defaultHandSettings: HandSettings = {
+  enabled: false, reveal_mystery: false, resident: false, keep_discovery_open: false,
+  shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
+};
+export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean }
+export interface CollectedHandCard { id: string; discovery: DiscoveryState }
+export interface HandRect { left: number; top: number; width: number; height: number }
+export interface HandSnapshot {
+  cardOrder?: string[];
+  generation: number; cards: HandCard[]; settings: HandSettings; gui: GuiSettings;
+  keys: DiscoveryKeybindings; workArea: HandRect; preview: boolean; focus: boolean; expanded: boolean;
+  arrival: { id: string; rect: HandRect } | null;
+}
+export interface HandVisibility { generation: number; expanded: boolean; focus: boolean }
 export interface DiscoveryWeighting {
   enabled: boolean;
   base_weight: number;
@@ -63,6 +83,7 @@ export interface PreviewKey {
   key: string; code: string; ctrlKey: boolean; altKey: boolean;
   shiftKey: boolean; metaKey: boolean; repeat: boolean; source: "native";
 }
+export type HandKey = Omit<PreviewKey, "action"> & { action: PreviewKey["action"] | "discard" };
 export interface PreviewCloseRect { left: number; top: number; width: number; height: number }
 export interface LibraryEntry {
   platform: string;
@@ -79,10 +100,10 @@ export interface LibraryEntry {
 }
 export interface AppState {
   version: string;
-  buildId: string;
   settings: Preferences;
   guiSettings: GuiSettings;
   desktopSettings: DesktopPreferences;
+  desktopSettingsError: string | null;
   playlists: LibraryEntry[];
   dataPath: string;
   legacyDataPath: string | null;
@@ -260,7 +281,6 @@ export const platforms = [
 ];
 export const emptyState: AppState = {
   version: "",
-  buildId: "",
   desktopSettings: {
     launch_at_login: false,
     start_hidden: false,
@@ -289,11 +309,13 @@ export const emptyState: AppState = {
     history_exclusion: "off",
     history_limit: 200,
     discovery_keybindings: { up: "W", left: "A", down: "S", right: "D", select: "Enter", replace: "R" },
+    hand: defaultHandSettings,
     playlist_albums: [],
   },
   playlists: [],
   dataPath: "",
   legacyDataPath: null,
   shortcutError: null,
+  desktopSettingsError: null,
   startupRefreshError: null,
 };

@@ -1,14 +1,15 @@
 import type { GuiSettings } from "../../types";
 
-export type TrayAction = "discover" | "main" | "pause" | "restart" | "quit";
+export type TrayAction = "discover" | "hand" | "main" | "pause" | "restart" | "quit";
 export interface TrayMenuSnapshot {
   generation: number;
   gui: GuiSettings;
-  labels: [string, string, string, string, string];
+  labels: [string, string, string, string, string, string];
   paused: boolean;
+  handEnabled: boolean;
 }
 
-export const trayActions: readonly TrayAction[] = ["discover", "main", "pause", "restart", "quit"];
+export const trayActions: readonly TrayAction[] = ["discover", "hand", "main", "pause", "restart", "quit"];
 
 /** Menu arrows wrap; Home/End remain predictable after font and language changes. */
 export function nextMenuIndex(key: string, index: number, count = trayActions.length): number | null {

@@ -27,7 +27,7 @@ export function BrowserSettings({ settings, setSettings }: {
       if (!active) return;
       setStatus(next);
       if (!browserChosen.current && next.connected && next.connectedBrowser) setBrowser(next.connectedBrowser);
-    }).catch(() => {});
+    }).catch((failure) => { if (active) setError(errorText(failure)); });
     return () => { active = false; };
   }, []);
   const action = async (prepare: boolean) => {

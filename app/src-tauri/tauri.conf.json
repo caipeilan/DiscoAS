@@ -70,7 +70,6 @@
     "resources": {
       "installer/spicetify/extract.ps1": "spicetify/extract.ps1",
       "installer/spicetify/LICENSE": "spicetify/LICENSE",
-      "installer/spicetify/manifest.json": "spicetify/manifest.json",
       "installer/spicetify/spicetify-2.45.3-windows-x64.zip": "spicetify/spicetify-2.45.3-windows-x64.zip"
     },
     "icon": [

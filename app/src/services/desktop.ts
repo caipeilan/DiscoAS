@@ -4,12 +4,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
-import type { LibraryProgress, Song, DiscoveryState, Preferences, GuiSettings,
-  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect } from "../types";
+import type { LibraryProgress, DiscoveryState, Preferences, GuiSettings,
+  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility } from "../types";
 
 export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
 
 export type DesktopCommand =
+  | "hand_ready" | "present_hand" | "hand_arrival_ready" | "set_hand_hit_regions" | "collect_hand_card" | "show_collected_hand_card" | "play_hand_card"
+  | "discard_hand_card" | "clear_hand" | "reorder_hand" | "toggle_hand" | "hide_hand" | "toggle_hand_expanded"
+  | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
   | "tray_menu_ready"
   | "present_tray_menu"
   | "dismiss_tray_menu"
@@ -43,7 +46,6 @@ export type DesktopCommand =
   | "choose_mystery_cover"
   | "open_data_folder"
   | "open_log_folder"
-  | "discover_songs"
   | "discover_batch"
   | "get_discovery_state"
   | "replace_discovery_song"
@@ -75,6 +77,15 @@ export interface UpdateInfo {
 export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 
 export interface DesktopEvents {
+  "hand-state-changed": HandSnapshot;
+  "hand-visibility-changed": HandVisibility;
+  "hand-hide": number;
+  "hand-focus": void;
+  "hand-escape": void;
+  "hand-pointer": [number, number, boolean];
+  "hand-key": HandKey;
+  "hand-preview-closed": void;
+  "hand-error": string;
   "tray-menu-open": TrayMenuSnapshot;
   "library-changed": { discoveryInvalidated: boolean } | void;
   "library-progress": LibraryProgress;
@@ -84,9 +95,8 @@ export interface DesktopEvents {
   "cover-refresh-failed": void;
   "client-window-result": { platform: string; minimized: boolean; warning: string | null };
   "playback-result": { platform: string; songId: string; success: boolean; confirmed: boolean; error: string | null };
-  "discovery-changed": Song[];
   "discovery-state-changed": DiscoveryState;
-  "discovery-history-changed": void;
+  "discovery-history-changed": { source: string | null } | null;
   "preview-pointer": PreviewPointer;
   "preview-key": PreviewKey;
   "preview-appearance": GuiSettings;
@@ -99,8 +109,8 @@ export const discoverBatch = (force = false) => call<DiscoveryState>("discover_b
 export const getDiscoveryState = () => call<DiscoveryState>("get_discovery_state");
 export const replaceDiscoverySong = (args: PlaySongArgs, batchEpoch: number) =>
   call<DiscoveryState>("replace_discovery_song", { args, batchEpoch });
-export const mutateDiscoveryHistory = (mutation: HistoryMutation) =>
-  call<HistoryEntry[]>("mutate_discovery_history", { mutation });
+export const mutateDiscoveryHistory = (mutation: HistoryMutation, source?: string) =>
+  call<HistoryEntry[]>("mutate_discovery_history", { mutation, source });
 export const getHistoryCovers = (identities: HistoryIdentity[]) =>
   call<HistoryCover[]>("get_history_covers", { identities });
 export const startDiscoveryPreview = (settings: Preferences, gui: GuiSettings) =>

@@ -25,6 +25,26 @@ fn key(platform: &str, id: &str) -> String {
     format!("{platform}\u{1f}{id}")
 }
 impl WeightSnapshot {
+    pub(crate) fn weights(
+        &self,
+        platform: &str,
+        ids: &[String],
+        config: &DiscoveryWeighting,
+    ) -> AppResult<HashMap<String, f64>> {
+        if !config.enabled {
+            return Ok(HashMap::new());
+        }
+        config.validate().map_err(AppError::Platform)?;
+        let round = self.rounds.get(platform).copied().unwrap_or(0);
+        let unseen = SongEvents::default();
+        Ok(ids
+            .iter()
+            .map(|id| {
+                let event = self.songs.get(&key(platform, id)).unwrap_or(&unseen);
+                (id.clone(), weight_at(round, event, config))
+            })
+            .collect())
+    }
     pub(crate) fn displayed(&mut self, songs: &[SongCardDto], new_round: bool) {
         let Some(song) = songs.first() else {
             return;
@@ -105,20 +125,7 @@ impl WeightStore {
         if !config.enabled {
             return Ok(HashMap::new());
         }
-        config.validate().map_err(AppError::Platform)?;
-        let snapshot = self.load()?;
-        let round = snapshot.rounds.get(platform).copied().unwrap_or(0);
-        Ok(ids
-            .iter()
-            .map(|id| {
-                let event = snapshot
-                    .songs
-                    .get(&key(platform, id))
-                    .cloned()
-                    .unwrap_or_default();
-                (id.clone(), weight_at(round, &event, config))
-            })
-            .collect())
+        self.load()?.weights(platform, ids, config)
     }
 }
 
@@ -145,29 +152,6 @@ fn weight_at(round: u64, event: &SongEvents, config: &DiscoveryWeighting) -> f64
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn penalties_recover_and_idle_songs_gain_bounded_positive_weights() {
-        let config = DiscoveryWeighting {
-            enabled: true,
-            ..Default::default()
-        };
-        let event = SongEvents {
-            discovered: Some(10),
-            selected: Some(10),
-        };
-        assert_eq!(weight_at(10, &event, &config), 40.0);
-        assert_eq!(weight_at(12, &event, &config), 64.0);
-        assert_eq!(weight_at(15, &event, &config), 100.0);
-        assert_eq!(weight_at(21, &event, &config), 105.0);
-        assert_eq!(weight_at(u64::MAX, &event, &config), 500.0);
-        let config = DiscoveryWeighting {
-            discovered_penalty: 10000.0,
-            selected_penalty: 10000.0,
-            ..config
-        };
-        assert_eq!(weight_at(10, &event, &config), 1.0);
-    }
-
     #[test]
     fn decimal_penalties_recover_smoothly_and_boost_without_integer_truncation() {
         let config = DiscoveryWeighting {

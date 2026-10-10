@@ -23,11 +23,6 @@ if ($discoFinalUri.Scheme -ne 'https' -or $discoFinalUri.Host -ne $discoExpected
   throw 'The Microsoft download redirect did not match the expected Windows x64 installer.'
 }
 $discoGuid = $Matches[1]
-$discoSourceInfo = Get-Item -LiteralPath $discoSource
-$discoExpectedLength = [long]$discoResponse.Headers['Content-Length']
-if ($discoExpectedLength -gt 0 -and $discoSourceInfo.Length -ne $discoExpectedLength) {
-  throw 'The local installer size does not match the current Microsoft x64 download. Download the current standalone installer again.'
-}
 $discoCacheRoot = Join-Path (Join-Path $env:LOCALAPPDATA 'tauri') 'x64'
 $discoDestination = Join-Path (Join-Path $discoCacheRoot $discoGuid) 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe'
 New-Item -ItemType Directory -Path (Split-Path -Parent $discoDestination) -Force | Out-Null

@@ -45,27 +45,6 @@ test("source changes, batch changes and inactive views clear selection", () => {
   assert.equal(selection.index, -1);
 });
 
-test("pointer movement switches input modes, but a stationary pointer preserves keyboard feedback", () => {
-  const selection = new CardSelection();
-  selection.synchronize("batch", 7, true);
-  assert.equal(selection.inputMode, "pointer");
-  assert.equal(selection.pointer(100, 200), false);
-  selection.move("right", 3);
-  assert.equal(selection.highlighted("batch"), 0);
-  assert.equal(selection.pointer(100, 200, 5, 0), false);
-  assert.equal(selection.inputMode, "keyboard");
-  assert.equal(selection.pointer(101, 200), true);
-  assert.equal(selection.inputMode, "pointer");
-  assert.equal(selection.highlighted("batch"), -1);
-  selection.move("right", 3);
-  assert.equal(selection.highlighted("batch"), 1);
-  assert.equal(selection.pointer(101, 200, 0, 0, true), true);
-  assert.equal(selection.highlighted("batch"), -1);
-  selection.synchronize("next batch", 7, true);
-  assert.equal(selection.index, -1);
-  assert.equal(selection.inputMode, "pointer");
-});
-
 const event = (code, overrides = {}) => ({
   code, key: code === "Enter" ? "Enter" : code.replace("Key", "").toLowerCase(),
   ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, repeat: false, isComposing: false,

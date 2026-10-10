@@ -39,9 +39,7 @@ export function useSettings(app: AppStateController, notice: Notice) {
     if (busy) return;
     setBusy("settings");
     try {
-      await call("set_shortcut_recording", { recording: false }).catch(
-        () => { },
-      );
+      await call("set_shortcut_recording", { recording: false });
       if (!samePreferences(settings, state.settings)) {
         const next = await call<AppState>("save_preferences", { settings });
         applySnapshot(next);

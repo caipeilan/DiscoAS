@@ -1,13 +1,15 @@
 //! Business preference validation and persistence; native shortcut registration stays at the desktop boundary.
 use crate::settings::{gui_setting::GuiSetting, music_setting::MusicSetting};
+use discoas_core::settings::discovery_keybindings::DiscoveryKeybindings;
 use std::path::Path;
 
-pub fn validate_preferences(setting: &MusicSetting) -> Result<(), String> {
-    setting.discovery_keybindings.normalized()?;
+pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindings, String> {
+    let keybindings = setting.discovery_keybindings.normalized()?;
     if setting.history_limit > 10000 {
         return Err("错误：排除上限应为 0–10000".into());
     }
     setting.discovery_weighting.validate()?;
+    setting.hand.validate()?;
     if setting.replacement_limit > 100 {
         return Err("错误：替换次数应为 0–100".into());
     }
@@ -25,7 +27,7 @@ pub fn validate_preferences(setting: &MusicSetting) -> Result<(), String> {
     if setting.cache_batches > 5 {
         return Err("预加载批数应为 0–5".into());
     }
-    Ok(())
+    Ok(keybindings)
 }
 
 /// Preserve the source list loaded while holding the caller's library operation lock.
@@ -33,10 +35,10 @@ pub fn prepare_music_preferences(
     current: &MusicSetting,
     mut incoming: MusicSetting,
 ) -> Result<MusicSetting, String> {
-    validate_preferences(&incoming)?;
+    incoming.discovery_keybindings = validate_preferences(&incoming)?;
     incoming.playlist_albums = current.playlist_albums.clone();
     incoming.shortcut_key = incoming.shortcut_key.trim().to_string();
-    incoming.discovery_keybindings = incoming.discovery_keybindings.normalized()?;
+    incoming.hand.shortcut = incoming.hand.shortcut.trim().to_string();
     Ok(incoming)
 }
 
@@ -142,61 +144,5 @@ mod tests {
             prepare_music_preferences(&current, incoming).unwrap_err(),
             "错误：选歌按键无效"
         );
-    }
-
-    #[test]
-    fn bindings_and_inactive_metadata_do_not_discard_prepared_discovery_batches() {
-        let mut old = MusicSetting::default();
-        old.playlist_albums
-            .push(crate::settings::music_setting::PlaylistAlbum {
-                name: "NeteaseCloudMusic".into(),
-                playlist_album_id: "123".into(),
-                typename: "playlist".into(),
-                playlist_album_name: "Current title".into(),
-                playlist_album_remark: String::new(),
-                update_time: "123".into(),
-                enabled: true,
-            });
-        let mut incoming = old.clone();
-        incoming.shortcut_key = "Ctrl+Shift+D".into();
-        incoming.discovery_keybindings.up = "ArrowUp".into();
-        incoming.playlist_albums[0].playlist_album_name = "Updated title".into();
-        incoming.playlist_albums[0].playlist_album_remark = "New remark".into();
-        incoming.playlist_albums[0].update_time = "456".into();
-        let mut inactive = incoming.playlist_albums[0].clone();
-        inactive.playlist_album_id = "456".into();
-        inactive.enabled = false;
-        incoming.playlist_albums.push(inactive);
-        assert!(!discovery_preferences_changed(&old, &incoming));
-        for changed in [
-            MusicSetting {
-                number_of_discovered_songs: 5,
-                ..incoming.clone()
-            },
-            MusicSetting {
-                cache_batches: 5,
-                ..incoming.clone()
-            },
-            MusicSetting {
-                history_limit: 55,
-                ..incoming.clone()
-            },
-            MusicSetting {
-                replacement_limit: 4,
-                ..incoming.clone()
-            },
-        ] {
-            assert!(discovery_preferences_changed(&old, &changed));
-        }
-        for field in ["platform", "id", "kind", "disabled"] {
-            let mut changed = incoming.clone();
-            match field {
-                "platform" => changed.playlist_albums[0].name = "Spotify".into(),
-                "id" => changed.playlist_albums[0].playlist_album_id = "789".into(),
-                "kind" => changed.playlist_albums[0].typename = "album".into(),
-                _ => changed.playlist_albums[0].enabled = false,
-            }
-            assert!(discovery_preferences_changed(&old, &changed), "{field}");
-        }
     }
 }

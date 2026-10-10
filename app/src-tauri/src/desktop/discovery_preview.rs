@@ -171,6 +171,7 @@ pub async fn start_discovery_preview(
 ) -> Result<DiscoveryStateDto, String> {
     crate::services::preferences::validate_preferences(&settings)?;
     gui.validate().map_err(|e| e.to_string())?;
+    super::hand::stop_preview(&app);
     let root = crate::paths::user_data_dir(&app).map_err(|e| e.to_string())?;
     let store = crate::services::library::LibraryRepository::new(&root);
     let setting =
@@ -222,26 +223,31 @@ pub async fn start_discovery_preview(
     // Installing the hook waits for the UI message loop; never retain native/operation locks here.
     #[cfg(windows)]
     {
-        let input =
-            match super::preview_keyboard::install(&app, generation, keyboard_generation, keys)
-                .await
-            {
-                Ok(input) => input,
-                Err(error) => {
-                    let preview = app.state::<PreviewState>();
-                    let _lifecycle = preview.lifecycle.lock().unwrap();
-                    if preview
-                        .session
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .is_some_and(|s| s.generation == generation)
-                    {
-                        stop_in_lifecycle(&app, true);
-                    }
-                    return Err(error);
+        let input = match super::preview_keyboard::install(
+            &app,
+            generation,
+            keyboard_generation,
+            keys,
+            None,
+        )
+        .await
+        {
+            Ok(input) => input,
+            Err(error) => {
+                let preview = app.state::<PreviewState>();
+                let _lifecycle = preview.lifecycle.lock().unwrap();
+                if preview
+                    .session
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|s| s.generation == generation)
+                {
+                    stop_in_lifecycle(&app, true);
                 }
-            };
+                return Err(error);
+            }
+        };
         observe_keyboard(app.clone(), generation, input);
     }
     observe_pointer(app.clone(), generation);

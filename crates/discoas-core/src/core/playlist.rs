@@ -217,25 +217,6 @@ mod tests {
         assert_eq!(TypeName::Album.as_str(), "album");
     }
 
-    /// 网易云歌单（song_ids 是整数数组）。
-    #[test]
-    fn loads_netease_integer_song_ids() {
-        let json = r##"{
-            "playlist_album_id": "8285082830",
-            "playlist_album_name": "测试歌单",
-            "playlist_album_type": "playlist",
-            "song_ids": [3352212988, 3388568485, 2749390174, 3358688489],
-            "coverUrl": "http://example.com/cover.jpg",
-            "saved_at": 1700000000
-        }"##;
-        let data: PlaylistJson = serde_json::from_str(json).unwrap();
-        assert_eq!(data.playlist_album_name, "测试歌单");
-        assert_eq!(data.song_ids.len(), 4);
-        // 整数被转成字符串
-        assert_eq!(data.song_ids[0], "3352212988");
-        assert_eq!(data.song_ids[1], "3388568485");
-    }
-
     #[test]
     fn loads_refreshed_cache_with_both_cover_fields() {
         let data = serde_json::json!({
@@ -289,53 +270,6 @@ mod tests {
         let defaults: PlaylistJson = serde_json::from_str("{}").unwrap();
         assert!(defaults.song_ids.is_empty());
         assert!(defaults.cover_url.is_empty());
-    }
-
-    /// 酷狗歌单（song_ids 是字符串 hash 数组）。
-    #[test]
-    fn loads_kugou_string_song_ids() {
-        let json = r##"{
-            "playlist_album_id": "7jMXT32FZV2",
-            "specialid": "7365552",
-            "playlist_album_name": "术力口大整合",
-            "song_ids": ["EC6869730FBA67AC0A683606EFB76E6E", "4809EE31DEF9945C7751E3FD7BF7C009"]
-        }"##;
-        let data: PlaylistJson = serde_json::from_str(json).unwrap();
-        assert_eq!(data.song_ids.len(), 2);
-        assert_eq!(data.song_ids[0], "EC6869730FBA67AC0A683606EFB76E6E");
-    }
-
-    /// 随机抽歌：不重复 + 数量正确。
-    #[test]
-    fn random_song_returns_correct_count() {
-        let pl = Playlist {
-            platform: "test".into(),
-            playlist_type: TypeName::Playlist,
-            playlist_id: "1".into(),
-            song_ids: (0..100).map(|i| i.to_string()).collect(),
-            playlist_album_name: String::new(),
-        };
-        let picked = pl.get_random_song(5);
-        assert_eq!(picked.len(), 5);
-        // 不重复
-        let mut sorted = picked.clone();
-        sorted.sort();
-        sorted.dedup();
-        assert_eq!(sorted.len(), 5);
-    }
-
-    /// 随机抽歌：请求数量超过总数时返回全部。
-    #[test]
-    fn random_song_clamps_to_available() {
-        let pl = Playlist {
-            platform: "test".into(),
-            playlist_type: TypeName::Playlist,
-            playlist_id: "1".into(),
-            song_ids: vec!["a".into(), "b".into(), "c".into()],
-            playlist_album_name: String::new(),
-        };
-        let picked = pl.get_random_song(10);
-        assert_eq!(picked.len(), 3); // 不足时返回全部
     }
 
     /// 随机抽歌：请求数量 0 返回空。

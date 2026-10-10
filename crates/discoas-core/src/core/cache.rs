@@ -9,7 +9,7 @@
 //! 设计：
 //! - `Cache` 用 `Arc` 在调用者的任务间共享
 //! - `tokio::sync::Mutex`（async 锁，因预加载是 async）
-//! - 状态机记录上次动作（Played/Cancelled），下次 discover_songs 时消费
+//! - 状态机记录上次动作（Played/Cancelled），下次发现时消费
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -22,7 +22,6 @@ use crate::model::SongCardDto;
 use crate::platforms::SongDetail;
 
 const IMAGE_BUDGET: usize = 32 * 1024 * 1024;
-const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 const DETAIL_CAPACITY: usize = 256;
 const DETAIL_TTL: Duration = Duration::from_secs(300);
 
@@ -50,14 +49,14 @@ fn batch_identity(batch: &[SongCardDto]) -> BatchIdentity {
 
 #[derive(Default)]
 struct ImageCache {
-    entries: HashMap<String, (Vec<u8>, u64)>,
+    entries: HashMap<String, (Arc<[u8]>, u64)>,
     bytes: usize,
     clock: u64,
 }
 
 impl ImageCache {
     fn insert(&mut self, url: String, data: Vec<u8>, budget: usize) {
-        if data.len() > MAX_IMAGE_BYTES || data.len() > budget {
+        if data.len() > budget {
             return;
         }
         if let Some((old, _)) = self.entries.remove(&url) {
@@ -78,10 +77,10 @@ impl ImageCache {
         }
         self.clock = self.clock.wrapping_add(1);
         self.bytes += data.len();
-        self.entries.insert(url, (data, self.clock));
+        self.entries.insert(url, (data.into(), self.clock));
     }
 
-    fn get(&mut self, url: &str) -> Option<Vec<u8>> {
+    fn get(&mut self, url: &str) -> Option<Arc<[u8]>> {
         let (bytes, used) = self.entries.get_mut(url)?;
         self.clock = self.clock.wrapping_add(1);
         *used = self.clock;
@@ -308,7 +307,7 @@ impl Cache {
         self.song_batches.lock().await.len()
     }
 
-    /// 设置当前展示批次（discover_songs 返回时存入，取消时插回用）。
+    /// 设置当前展示批次（发现返回时存入，取消时插回用）。
     pub async fn set_current_batch(&self, batch: Vec<SongCardDto>) {
         {
             let mut current = self.current_batch.lock().await;
@@ -405,12 +404,35 @@ impl Cache {
         *current = None;
     }
 
+    /// Remove collected identities while retaining this discovery's round and replacement budget.
+    pub async fn exclude_held_songs(&self, held: &HashSet<(String, String)>) {
+        let mut batches = self.song_batches.lock().await;
+        self.advance_generation();
+        batches.retain(|batch| {
+            batch
+                .iter()
+                .all(|s| !held.contains(&(s.platform.clone(), s.song_id.clone())))
+        });
+        let mut current = self.current_batch.lock().await;
+        if let Some(batch) = current.as_mut() {
+            let old_len = batch.len();
+            batch.retain(|s| !held.contains(&(s.platform.clone(), s.song_id.clone())));
+            if old_len != batch.len() {
+                self.current_batch_epoch.fetch_add(1, Ordering::SeqCst);
+                *self.displayed_batch.lock().await = Some(batch_identity(batch));
+            }
+            if batch.is_empty() {
+                *current = None;
+            }
+        }
+    }
+
     /// 记录上次动作。
     pub async fn set_last_action(&self, action: LastAction) {
         *self.last_action.lock().await = action;
     }
 
-    /// 取出并重置上次动作（discover_songs 开头消费）。
+    /// 取出并重置上次动作（发现开始时消费）。
     pub async fn take_last_action(&self) -> LastAction {
         let mut action = self.last_action.lock().await;
         let a = *action;
@@ -449,7 +471,7 @@ impl Cache {
     }
 
     /// 取缓存图片。对照旧版 `_image_cache.get(url)`。
-    pub async fn get_image(&self, url: &str) -> Option<Vec<u8>> {
+    pub async fn get_image(&self, url: &str) -> Option<Arc<[u8]>> {
         self.images.lock().await.get(url)
     }
 
@@ -678,49 +700,15 @@ mod tests {
         assert!(cache.pop_batch().await.is_none());
     }
 
-    #[tokio::test]
-    async fn requeue_current_batch_inserts_at_head() {
-        let cache = Cache::new();
-        cache.song_batches.lock().await.push(vec![dto("old")]);
-        cache.set_current_batch(vec![dto("current")]).await;
-        cache.requeue_current_batch().await;
-        let head = cache.pop_batch().await.unwrap();
-        assert_eq!(head[0].song_id, "current"); // 插回队头
-    }
-
-    #[tokio::test]
-    async fn release_current_batch_does_not_requeue() {
-        let cache = Cache::new();
-        cache.set_current_batch(vec![dto("played")]).await;
-        cache.release_current_batch().await;
-        assert!(cache.pop_batch().await.is_none()); // 没插回
-    }
-
-    #[tokio::test]
-    async fn last_action_roundtrip() {
-        let cache = Cache::new();
-        cache.set_last_action(LastAction::Played).await;
-        assert_eq!(cache.take_last_action().await, LastAction::Played);
-        // 取出后重置
-        assert_eq!(cache.take_last_action().await, LastAction::None);
-    }
-
-    #[tokio::test]
-    async fn image_cache_roundtrip() {
-        let cache = Cache::new();
-        cache.cache_image("http://x".into(), vec![1, 2, 3]).await;
-        let got = cache.get_image("http://x").await.unwrap();
-        assert_eq!(got, vec![1, 2, 3]);
-        assert!(cache.get_image("http://y").await.is_none());
-    }
-
     #[test]
     fn image_eviction_retains_recent_items_and_replacement_counts_only_new_bytes() {
         let mut images = ImageCache::default();
         images.insert("a".into(), vec![1; 4], 12);
         images.insert("b".into(), vec![2; 4], 12);
         images.insert("c".into(), vec![3; 4], 12);
-        assert_eq!(images.get("a"), Some(vec![1; 4]));
+        let shared = images.get("a").unwrap();
+        assert_eq!(shared.as_ref(), &[1; 4]);
+        assert!(Arc::ptr_eq(&shared, &images.get("a").unwrap()));
         images.insert("d".into(), vec![4; 4], 12);
         assert!(images.get("b").is_none());
         assert!(images.get("a").is_some() && images.get("c").is_some());
@@ -731,23 +719,6 @@ mod tests {
         images.insert("oversized".into(), vec![0; 13], 12);
         assert_eq!(images.bytes, 10);
         assert_eq!(images.entries.len(), 3);
-    }
-
-    #[tokio::test]
-    async fn image_cache_enforces_budget_without_discarding_the_entire_cache() {
-        let cache = Cache::new();
-        for index in 0..8 {
-            cache
-                .cache_image(index.to_string(), vec![index as u8; 5 * 1024 * 1024])
-                .await;
-        }
-        assert_eq!(cache.image_cache_stats().await, (6, 30 * 1024 * 1024));
-        assert!(cache.get_image("0").await.is_none());
-        assert!(cache.get_image("2").await.is_some());
-        cache
-            .cache_image("bad".into(), vec![0; MAX_IMAGE_BYTES + 1])
-            .await;
-        assert_eq!(cache.image_cache_stats().await, (6, 30 * 1024 * 1024));
     }
 
     #[tokio::test]

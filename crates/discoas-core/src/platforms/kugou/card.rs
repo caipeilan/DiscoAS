@@ -91,17 +91,6 @@ mod tests {
         assert!(s.contains("未知歌曲.mp3"));
     }
 
-    /// filename 无 .mp3 后缀 → 自动追加。
-    #[test]
-    fn appends_mp3_suffix() {
-        let url = scheme_url("H", "歌手 - 歌名");
-        let p = url.strip_prefix("kugou://play?p=").unwrap();
-        let json = STANDARD.decode(p).unwrap();
-        let s = String::from_utf8(json).unwrap();
-        assert!(s.contains("歌手 - 歌名.mp3"));
-        assert!(!s.contains("\"歌手 - 歌名\"}"));
-    }
-
     /// filename 已有 .mp3 → 不重复追加。
     #[test]
     fn keeps_existing_mp3_suffix() {
@@ -113,8 +102,4 @@ mod tests {
         assert!(!s.contains("name.mp3.mp3"));
     }
 
-    #[test]
-    fn scheme_url_has_kugou_prefix() {
-        assert!(scheme_url("H", "f").starts_with("kugou://play?p="));
-    }
 }

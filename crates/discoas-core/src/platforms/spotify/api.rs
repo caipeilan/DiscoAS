@@ -178,11 +178,16 @@ fn best_image(sources: &Value) -> Option<String> {
         .as_array()?
         .iter()
         .filter(|image| nonempty_string(&image["url"]).is_some())
-        .max_by_key(|image| {
-            image["width"]
+        .min_by_key(|image| {
+            let width = image["width"]
                 .as_u64()
                 .or_else(|| image["maxWidth"].as_u64())
-                .unwrap_or(0)
+                .unwrap_or(0);
+            match width {
+                0 => (2, 0),
+                1..=640 => (0, 640 - width),
+                _ => (1, width - 640),
+            }
         })
         .and_then(|image| nonempty_string(&image["url"]))
         .map(str::to_string)
@@ -491,7 +496,7 @@ mod tests {
     fn row(uid: &str, album: bool) -> Value {
         let track = json!({"uri":"spotify:track:7MEHTWzEi3z7P2jEWAcdHZ", "name":"Eyeless",
             "artists":{"items":[{"profile":{"name":"Slipknot"}},{"profile":{"name":"Guest"}}]},
-            "albumOfTrack":{"coverArt":{"sources":[{"url":"https://i.scdn.co/small","width":64},{"url":"https://i.scdn.co/large","width":640}]}},
+            "albumOfTrack":{"coverArt":{"sources":[{"url":"https://i.scdn.co/small","width":64},{"url":"https://i.scdn.co/large","width":640},{"url":"https://i.scdn.co/original","width":3000}]}},
             "trackDuration":{"totalMilliseconds":236360}});
         if album {
             json!({"uid":uid,"track":track})

@@ -1120,9 +1120,6 @@ a {
     gap: 11px;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   }
-  .page-header h1 {
-    font-size: calc(25px * var(--font-scale, 1));
-  }
   .page-header p {
     font-size: calc(11px * var(--font-scale, 1));
   }
@@ -1690,16 +1687,19 @@ html.floating-window #root {
 .page-header {
   margin-bottom: 22px;
   gap: 16px; }
-.main-content > .settings-topbar {
-  position: sticky;
-  top: calc(-1 * var(--content-padding-top));
-  z-index: 5;
+.main-content > .page-header {
   flex-wrap: wrap;
+  min-height: 68px;
   animation: none;
   background: var(--canvas);
   border-bottom: 1px solid var(--border);
   padding: 12px var(--content-padding-x);
   margin: calc(-1 * var(--content-padding-top)) calc(-1 * var(--content-padding-x)) 20px;
+}
+.main-content > :is(.settings-topbar, .history-topbar) {
+  position: sticky;
+  top: calc(-1 * var(--content-padding-top));
+  z-index: 5;
 }
 .settings-topbar > div { min-width: 0; }
 .settings-topbar .button { margin-left: auto; flex-shrink: 0; }
@@ -1822,9 +1822,6 @@ html.floating-window #root {
 }
 .playlist-row:only-child {
   border-radius: 8px;
-}
-.settings-topbar h1 {
-  font-size: calc(22px * var(--font-scale, 1));
 }
 .custom-select .select-trigger {
   background: var(--surface);

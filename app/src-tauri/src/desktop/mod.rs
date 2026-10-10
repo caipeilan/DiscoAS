@@ -4,8 +4,10 @@ pub mod diagnostics;
 pub mod dialogs;
 pub mod discovery_preview;
 pub mod fonts;
+pub mod hand;
 pub mod library;
 pub mod monitors;
+pub mod playback;
 pub mod preferences;
 #[cfg(windows)]
 mod preview_keyboard;

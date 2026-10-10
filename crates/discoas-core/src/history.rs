@@ -79,6 +79,43 @@ pub struct HistorySnapshot {
     pub weighting: crate::weighting::WeightSnapshot,
 }
 
+impl HistorySnapshot {
+    pub(crate) fn excluded_song_ids(
+        &self,
+        platform: &str,
+        mode: HistoryExclusion,
+        limit: u32,
+    ) -> HashSet<String> {
+        if limit == 0 {
+            return HashSet::new();
+        }
+        let (entries, selected) = match mode {
+            HistoryExclusion::Selected => (&self.selected, true),
+            HistoryExclusion::Discovered => (&self.discovered, false),
+            HistoryExclusion::Off => return HashSet::new(),
+        };
+        let event_time = |entry: &HistoryEntry| {
+            if selected {
+                entry.selected_at
+            } else {
+                entry.discovered_at
+            }
+        };
+        let mut recent: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.platform == platform && event_time(entry).is_some())
+            .collect();
+        recent.sort_by_key(|entry| std::cmp::Reverse(event_time(entry).unwrap_or(0)));
+        let mut seen = HashSet::new();
+        recent
+            .into_iter()
+            .filter(|entry| !entry.song_id.is_empty() && seen.insert(entry.song_id.as_str()))
+            .take(limit.min(MAX_HISTORY_LIMIT) as usize)
+            .map(|entry| entry.song_id.clone())
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HistoryStore {
     path: PathBuf,
@@ -224,27 +261,7 @@ impl HistoryStore {
         if mode == HistoryExclusion::Off || limit == 0 {
             return Ok(HashSet::new());
         }
-        let mut snapshot = self.load()?;
-        let entries = match mode {
-            HistoryExclusion::Selected => &mut snapshot.selected,
-            HistoryExclusion::Discovered => &mut snapshot.discovered,
-            HistoryExclusion::Off => unreachable!(),
-        };
-        let event_time = |entry: &HistoryEntry| match mode {
-            HistoryExclusion::Selected => entry.selected_at,
-            HistoryExclusion::Discovered => entry.discovered_at,
-            HistoryExclusion::Off => None,
-        };
-        entries.retain(|entry| entry.platform == platform && event_time(entry).is_some());
-        entries.sort_by_key(|entry| std::cmp::Reverse(event_time(entry).unwrap_or(0)));
-        let mut seen = HashSet::new();
-        entries.retain(|entry| !entry.song_id.is_empty() && seen.insert(entry.song_id.clone()));
-        entries.truncate(limit.min(MAX_HISTORY_LIMIT) as usize);
-        Ok(entries
-            .iter()
-            .filter(|entry| entry.platform == platform)
-            .map(|entry| entry.song_id.clone())
-            .collect())
+        Ok(self.load()?.excluded_song_ids(platform, mode, limit))
     }
     /// One recent display list with both timestamps; source metadata comes from the latest event.
     pub fn entries(&self, limit: u32) -> AppResult<Vec<HistoryEntry>> {

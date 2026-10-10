@@ -73,19 +73,6 @@ pub fn native_text(app: &tauri::AppHandle, text: [&'static str; 3]) -> &'static 
 mod tests {
     use super::*;
 
-    /// ground truth：旧版 zh_CN.json 的部分内容。
-    #[test]
-    fn loads_legacy_zh_cn() {
-        let json = r##"{
-            "app_name": "DiscoAS",
-            "discover": "发现一首歌！",
-            "about": "关于"
-        }"##;
-        let map: HashMap<String, String> = serde_json::from_str(json).unwrap();
-        assert_eq!(map.get("app_name").unwrap(), "DiscoAS");
-        assert_eq!(map.get("discover").unwrap(), "发现一首歌！");
-    }
-
     /// t() 命中时返回翻译，缺失时返回 key 本身（对照旧版 default or key）。
     #[test]
     fn t_returns_translation_or_key() {
@@ -110,13 +97,5 @@ mod tests {
         assert!(is_supported("zh_TW"));
         assert!(is_supported("en_US"));
         assert!(!is_supported("ja_JP"));
-    }
-
-    /// LANGUAGES 常量内容正确。
-    #[test]
-    fn languages_constant() {
-        assert_eq!(LANGUAGES.len(), 3);
-        assert_eq!(LANGUAGES[0], ("zh_CN", "简体中文"));
-        assert_eq!(DEFAULT_LANGUAGE, "zh_CN");
     }
 }

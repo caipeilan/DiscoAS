@@ -15,11 +15,12 @@ const deferred = () => {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 };
-function controller({ deferredPlayback = false, deferredReplacement = false, deferredClose = false, failedReplacement = false, preview = false, floating = false, desktop = false } = {}) {
+function controller({ deferredPlayback = false, deferredReplacement = false, deferredClose = false, deferredArrival = false, failedReplacement = false, preview = false, floating = false, desktop = false, hand = false, keepDiscoveryOpen = false, failedCollection = false } = {}) {
   const ready = deferred();
   const playback = deferred();
   const replacement = deferred();
   const closing = deferred();
+  const arrival = deferred();
   const calls = [];
   const notices = [];
   let reloads = 0;
@@ -65,8 +66,15 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
       calls.push({ name, args });
       if (name === "discover_batch") {
         state = { ...state, songs: [{ ...song, songId: `track-${++batch}` }], batchEpoch: state.batchEpoch + 1 };
+        if (hand && keepDiscoveryOpen) state.songs.push({ ...song, songId: "hand-second" });
         return state;
       }
+      if (name === "collect_hand_card") {
+        if (failedCollection) throw new Error("错误：手牌已满");
+        state = { ...state, songs: keepDiscoveryOpen ? state.songs.slice(1) : [], batchEpoch: state.batchEpoch+1 };
+        return { id: "held-track-1", discovery: state };
+      }
+      if (name === "show_collected_hand_card" && deferredArrival) return arrival.promise;
       if (name === "replace_discovery_song") {
         if (deferredReplacement) await replacement.promise;
         if (failedReplacement) throw new Error("替换失败");
@@ -97,11 +105,13 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
       open() { this.visible = true; this.phase("opening"); return ++this.revision; }
       isCurrent(revision) { return this.visible && revision === this.revision; }
       finishOpen(revision) { if (this.isCurrent(revision)) this.phase("open"); }
-      async close() {
+      async close(beforeHide) {
         this.visible = false;
         const revision = ++this.revision;
         this.phase("closing");
         if (deferredClose) await closing.promise;
+        if (revision !== this.revision) return false;
+        await beforeHide?.();
         if (revision !== this.revision) return false;
         this.phase("closed"); return true;
       }
@@ -126,8 +136,8 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
     return `const {${names}} = globalThis.__discoveryTest${imports[module] ? `.${imports[module]}` : ""};`;
   });
   const page = { current: "discover" };
-  const props = { floating, page, reload: async () => { reloads++; }, notice: (...args) => notices.push(args) };
-  return { calls, ready, playback, replacement, closing, notices, preparedBatches,
+  const props = { floating, page, reload: async () => { reloads++; }, notice: (...args) => notices.push(args), hand: { enabled:hand, keep_discovery_open:keepDiscoveryOpen } };
+  return { calls, ready, playback, replacement, closing, arrival, notices, preparedBatches,
     nextCovers: () => { const pending = deferred(); coverPreparations.push(pending); return pending; },
     emit: (event, payload) => events.get(event)?.(payload),
     reloads: () => reloads,
@@ -147,6 +157,50 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
 const originalWindow = globalThis.window;
 globalThis.window = { innerWidth: 1200, addEventListener() {}, removeEventListener() {}, setTimeout: (handler) => { handler(); return 0; } };
 test.after(() => { globalThis.window = originalWindow; delete globalThis.__discoveryTest; });
+
+test("hand collection fades other content, keeps its source until the hand is painted, or keeps discovery open", async () => {
+  const originalDocument = globalThis.document;
+  globalThis.document = { querySelectorAll: () => [] };
+  try {
+    for (const keepDiscoveryOpen of [false,true]) {
+      const harness = controller({ hand:true, keepDiscoveryOpen, floating:true, desktop:true, deferredClose:true, deferredArrival:true }); const render = await harness.mount();
+      render();
+      await harness.emit("show-overlay");
+      harness.ready.resolve(); await render().discover();
+      const shown = render(); const collectionDone = shown.play(shown.songs[0]);
+      await new Promise(setImmediate);
+      if (!keepDiscoveryOpen) {
+        assert.equal(render().overlayPhase, "closing");
+        assert.equal(render().collecting, "track-1");
+        assert.equal(harness.calls.some((c) => c.name === "show_collected_hand_card"), false);
+      }
+      harness.closing.resolve(); await new Promise(setImmediate);
+      assert.equal(harness.calls.some((c) => c.name === "show_collected_hand_card"), true);
+      if (!keepDiscoveryOpen) {
+        assert.equal(render().overlayPhase, "closing");
+        assert.equal(render().collecting, "track-1");
+        assert.equal(render().songs[0].songId, "track-1");
+      }
+      harness.arrival.resolve(); await collectionDone;
+      const collection = harness.calls.find((c) => c.name === "collect_hand_card");
+      assert.equal(collection.args.batchEpoch, 1);
+      assert.equal(collection.args.args.songId, "track-1");
+      assert.equal(harness.calls.some((c) => c.name === "play_song"), false);
+      assert.equal(harness.calls.find((c) => c.name === "show_collected_hand_card").args.id, "held-track-1");
+      assert.equal(render().songs.length, keepDiscoveryOpen ? 1 : 0);
+    }
+  } finally { globalThis.document = originalDocument; }
+});
+test("a full hand reports the error and keeps the current discovery usable", async () => {
+  const originalDocument = globalThis.document; globalThis.document = { querySelectorAll: () => [] };
+  try {
+    const harness = controller({ hand:true, failedCollection:true }); const render = await harness.mount();
+    harness.ready.resolve(); await render().discover(); const shown = render();
+    await shown.play(shown.songs[0]);
+    assert.equal(render().songs.length, 1); assert.equal(render().playing, "");
+    assert.ok(harness.notices.some((n) => n[0].includes("手牌已满")));
+  } finally { globalThis.document = originalDocument; }
+});
 
 test("discovery history is acknowledged only after the cover-ready cards are committed", async () => {
   const harness = controller();

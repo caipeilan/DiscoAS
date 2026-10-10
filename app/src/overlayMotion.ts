@@ -27,11 +27,23 @@ export class OverlayMotion {
   finishOpen(revision: number) {
     if (this.isCurrent(revision)) this.phase("open");
   }
-  async close() {
+  async close(beforeHide?: () => Promise<unknown>) {
     this.wantedVisible = false;
     const revision = ++this.revision;
     this.phase("closing");
     await this.delay();
+    if (revision !== this.revision) return false;
+    if (beforeHide) {
+      try {
+        await beforeHide();
+      } catch (error) {
+        if (revision === this.revision) {
+          this.wantedVisible = true;
+          this.phase("open");
+        }
+        throw error;
+      }
+    }
     if (revision !== this.revision) return false;
     await this.hide();
     if (revision !== this.revision) {

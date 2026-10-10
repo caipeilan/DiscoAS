@@ -1,10 +1,11 @@
 use crate::core::cache::Cache;
+use crate::settings::music_setting::{MusicSetting, MusicSettingDesktop};
 use discoas_core::discovery_service::DiscoveryService;
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 pub use discoas_core::model::{
-    DiscoveryStateDto, HistoryIdentity, HistoryMutationDto, PlaySongArgs, SongCardDto,
+    DiscoveryStateDto, HistoryIdentity, HistoryMutationDto, PlaySongArgs,
 };
 
 fn discovery_service(
@@ -50,11 +51,17 @@ pub async fn play_song(
     };
     // Keep the source check and client invocation in the same operation.
     let _guard = cache.operation.lock().await;
+    if MusicSetting::load(&app)
+        .map_err(|e| e.to_string())?
+        .hand
+        .enabled
+    {
+        return Err("错误：手牌模式已开启，请重新选择".into());
+    }
     if crate::desktop::discovery_preview::isolated(&app) {
         return Err("错误：预览中不能播放歌曲".into());
     }
     // Preferences may have been saved while the official song page was loading.
-    let options = crate::desktop_preferences::DesktopPreferences::load(&app)?;
     let url = service.playback_target(&args).await?;
     let url = if let Some((batch_epoch, target)) = prepared_kuwo {
         // History changes can invalidate preloads while the visible batch stays
@@ -66,7 +73,7 @@ pub async fn play_song(
     } else {
         url
     };
-    let mut card = cache
+    let card = cache
         .current_batch
         .lock()
         .await
@@ -80,42 +87,8 @@ pub async fn play_song(
             })
         })
         .cloned();
-    // Only the native observer receives canonical metadata; the floating card stays masked.
-    if let Some(card) = &mut card {
-        if card.mystery_mode {
-            if let Some(metadata) = &card.real_metadata {
-                card.name = metadata.name.clone();
-                card.artist_names = metadata.artist_names.clone();
-                card.mystery_mode = false;
-            }
-        }
-    }
-    if matches!(args.platform.as_str(), "YouTube" | "Bilibili") {
-        crate::client_window::cancel_pending();
-        app.state::<crate::spotify_playback::PlaybackService>()
-            .cancel_pending();
-        app.state::<crate::browser_playback::BrowserPlaybackService>()
-            .invoke(app.clone(), &args, url, &options.browser_playback_mode)
-            .await?;
-    } else {
-        app.state::<crate::browser_playback::BrowserPlaybackService>()
-            .cancel_pending();
-        app.state::<crate::spotify_playback::PlaybackService>()
-            .invoke(
-                app.clone(),
-                &args,
-                card.as_ref(),
-                url,
-                &options.spotify_playback_mode,
-            )
-            .await?;
-        crate::client_window::schedule(
-            app.clone(),
-            args.platform.clone(),
-            options.minimize_after_playback,
-            options.minimize_delay_seconds,
-        );
-    }
+    crate::desktop::hand::clear_pending(&app);
+    crate::desktop::playback::dispatch(&app, &args, card.as_ref(), url).await?;
     match service.record_selection(&args).await {
         Ok(()) => {
             let _ = app.emit("discovery-history-changed", ());
@@ -123,34 +96,9 @@ pub async fn play_song(
         Err(_) => crate::desktop_preferences::log_event(&app, "selection_history", "write_failed"),
     }
     cache.release_current_batch().await;
-    let _ = app.emit("discovery-changed", Vec::<SongCardDto>::new());
     publish_discovery_state(&app, cache.inner()).await;
     spawn_preload(app, cache.inner().clone());
     Ok(())
-}
-
-#[tauri::command]
-pub async fn discover_songs(
-    app: tauri::AppHandle,
-    cache: tauri::State<'_, Arc<Cache>>,
-    force: Option<bool>,
-) -> Result<Vec<SongCardDto>, String> {
-    let guard = cache.operation.lock().await;
-    if let Some(preview) = crate::desktop::discovery_preview::snapshot(&app) {
-        return Ok(preview.songs);
-    }
-    if crate::desktop::discovery_preview::isolated(&app) {
-        return Err("错误：预览已关闭".into());
-    }
-    let batch = discovery_service(&app, cache.inner())?
-        .discover_in_operation(force.unwrap_or(false), &guard)
-        .await?;
-    if batch.newly_selected {
-        let _ = app.emit("discovery-changed", batch.songs.clone());
-        let _ = app.emit("discovery-state-changed", batch.state);
-        spawn_preload(app, cache.inner().clone());
-    }
-    Ok(batch.songs)
 }
 
 /// Invoke while retaining Cache::operation so an older event cannot overwrite a newer batch.
@@ -182,7 +130,6 @@ pub async fn discover_batch(
         .discover_in_operation(force.unwrap_or(false), &guard)
         .await?;
     if batch.newly_selected {
-        let _ = app.emit("discovery-changed", batch.songs);
         let _ = app.emit("discovery-state-changed", batch.state.clone());
         spawn_preload(app, cache.inner().clone());
     }
@@ -227,7 +174,6 @@ pub async fn replace_discovery_song(
     let state = service
         .commit_replacement_in_operation(prepared, &guard)
         .await?;
-    let _ = app.emit("discovery-changed", state.songs.clone());
     let _ = app.emit("discovery-state-changed", state.clone());
     spawn_preload(app, cache.inner().clone());
     Ok(state)
@@ -272,7 +218,6 @@ pub async fn report_cancelled(
     discovery_service(&app, cache.inner())?
         .cancel_in_operation(&guard)
         .await?;
-    let _ = app.emit("discovery-changed", Vec::<SongCardDto>::new());
     publish_discovery_state(&app, cache.inner()).await;
     Ok(())
 }
@@ -297,11 +242,19 @@ pub fn show_main(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub fn get_discovery_history(
+pub async fn get_discovery_history(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<Vec<discoas_core::history::HistoryEntry>, String> {
-    discovery_service(&app, cache.inner())?.history()
+    read_history(discovery_service(&app, cache.inner())?).await
+}
+
+async fn read_history(
+    service: DiscoveryService,
+) -> Result<Vec<discoas_core::history::HistoryEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || service.history())
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -313,19 +266,23 @@ pub async fn repair_discovery_history_metadata(
     if service.repair_history_metadata(100).await.is_err() {
         crate::desktop_preferences::log_event(&app, "history_metadata", "repair_failed");
     }
-    service.history()
+    read_history(service).await
 }
 
 #[tauri::command]
 pub async fn clear_discovery_history(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
+    source: Option<String>,
 ) -> Result<(), String> {
     let _guard = cache.operation.lock().await;
     discovery_service(&app, cache.inner())?
         .clear_history()
         .await?;
-    let _ = app.emit("discovery-history-changed", ());
+    let _ = app.emit(
+        "discovery-history-changed",
+        serde_json::json!({ "source": source }),
+    );
     publish_discovery_state(&app, cache.inner()).await;
     spawn_preload(app, cache.inner().clone());
     Ok(())
@@ -357,14 +314,18 @@ pub async fn mutate_discovery_history(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     mutation: HistoryMutationDto,
+    source: Option<String>,
 ) -> Result<Vec<discoas_core::history::HistoryEntry>, String> {
     let _guard = cache.operation.lock().await;
     let service = discovery_service(&app, cache.inner())?;
     service.mutate_history(&mutation).await?;
-    let _ = app.emit("discovery-history-changed", ());
+    let _ = app.emit(
+        "discovery-history-changed",
+        serde_json::json!({ "source": source }),
+    );
     publish_discovery_state(&app, cache.inner()).await;
     spawn_preload(app, cache.inner().clone());
-    service.history()
+    read_history(service).await
 }
 
 #[tauri::command]

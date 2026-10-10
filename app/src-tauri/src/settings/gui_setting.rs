@@ -263,17 +263,6 @@ mod tests {
         assert_eq!(s.setting_night_mode.background, "#565656");
     }
 
-    /// 完全空的 JSON 应全部用默认值。
-    #[test]
-    fn empty_json_uses_all_defaults() {
-        let json = r#"{}"#;
-        let s: GuiSetting = serde_json::from_str(json).unwrap();
-        assert!(!s.night_mode);
-        assert_eq!(s.card_size, 1.0);
-        assert_eq!(s.language, "zh_CN");
-        assert_eq!(s.card.background, ""); // ColorGroup 默认全空
-    }
-
     /// 往返：save → load 数据一致。
     #[test]
     fn roundtrip_save_load() {

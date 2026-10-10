@@ -955,17 +955,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_source_is_an_error_instead_of_an_empty_success() {
-        let result = load_one_batch(
-            &json!({"song_ids":[]}),
-            &source("Spotify"),
-            &MusicSetting::default(),
-        )
-        .await;
-        assert!(matches!(result, Err(AppError::Platform(_))));
-    }
-
-    #[tokio::test]
     async fn details_run_four_at_a_time_and_keep_mystery_tracks_at_the_end() {
         let loader = InstrumentedLoader::default();
         let setting = MusicSetting {

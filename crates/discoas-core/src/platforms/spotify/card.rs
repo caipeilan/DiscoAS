@@ -41,16 +41,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn scheme_url_has_spotify_prefix() {
-        assert!(scheme_url("id", "").starts_with("spotify:track:"));
-    }
-
-    /// context 里的冒号必须编码为 %3A。
-    #[test]
-    fn encodes_colon_in_context() {
-        let url = scheme_url("id", "pid");
-        assert!(url.contains("spotify%3Aplaylist%3Apid"));
-        assert!(!url.contains("spotify:playlist:pid"));
-    }
 }

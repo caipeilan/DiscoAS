@@ -1,5 +1,7 @@
 //! Desktop and installer entry points for the path-based Spotify setup service.
-use crate::services::spotify_setup::{SpotifySetupPaths, SpotifySetupService, SpotifySetupStatus};
+use crate::services::spotify_setup::{
+    SpotifySetupPaths, SpotifySetupService, SpotifySetupStatus, ARCHIVE_NAME,
+};
 use std::path::{Path, PathBuf};
 use tauri::{Emitter, Manager};
 
@@ -39,7 +41,7 @@ fn desktop_paths(app: &tauri::AppHandle) -> Result<SpotifySetupPaths, String> {
         .resource_dir()
         .map_err(|_| "错误：无法读取安装资源")?;
     let installed = resource_dir.join("spicetify");
-    let bundled_dir = if installed.join("manifest.json").is_file() {
+    let bundled_dir = if installed.join(ARCHIVE_NAME).is_file() {
         installed
     } else if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("installer/spicetify")

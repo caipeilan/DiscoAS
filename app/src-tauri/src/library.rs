@@ -1,6 +1,6 @@
 //! Stable Tauri command surface. Business rules live in services; native effects in desktop.
 pub use crate::desktop::library::{refresh_enabled_on_startup, DesktopStatus, Snapshot};
-pub use crate::desktop::shortcuts::{register_shortcut, ShortcutRecording};
+pub use crate::desktop::shortcuts::ShortcutRecording;
 use crate::{
     core::cache::Cache,
     settings::{gui_setting::GuiSetting, music_setting::MusicSetting},

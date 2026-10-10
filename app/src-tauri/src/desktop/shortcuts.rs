@@ -8,6 +8,35 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 pub struct ShortcutRecording {
     pub(crate) active: std::sync::atomic::AtomicBool,
     generation: std::sync::atomic::AtomicU64,
+    hand_id: std::sync::Mutex<Option<u32>>,
+}
+
+pub fn is_hand_shortcut(app: &tauri::AppHandle, shortcut: &Shortcut) -> bool {
+    *app.state::<ShortcutRecording>().hand_id.lock().unwrap() == Some(shortcut.id())
+}
+fn global_keys(settings: &MusicSetting) -> Vec<&str> {
+    let mut keys = vec![settings.shortcut_key.as_str()];
+    if settings.hand.enabled {
+        keys.push(&settings.hand.shortcut);
+    }
+    keys
+}
+pub fn register_all(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<(), String> {
+    *app.state::<ShortcutRecording>().hand_id.lock().unwrap() = if settings.hand.enabled {
+        parse_shortcut(&settings.hand.shortcut)?.map(|s| s.id())
+    } else {
+        None
+    };
+    let mut error = None;
+    for key in global_keys(settings) {
+        if let Err(e) = register_shortcut(app, key) {
+            error.get_or_insert(e);
+        }
+    }
+    match error {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 pub fn set_shortcut_recording(app: tauri::AppHandle, recording: bool) -> Result<(), String> {
@@ -15,10 +44,12 @@ pub fn set_shortcut_recording(app: tauri::AppHandle, recording: bool) -> Result<
     let state = app.state::<ShortcutRecording>();
     if recording {
         let settings = MusicSetting::load(&app).map_err(|e| e.to_string())?;
-        if let Some(shortcut) = parse_shortcut(&settings.shortcut_key).ok().flatten() {
-            app.global_shortcut()
-                .unregister(shortcut)
-                .map_err(|_| "无法暂停快捷键录制".to_string())?;
+        for key in global_keys(&settings) {
+            if let Some(shortcut) = parse_shortcut(key).ok().flatten() {
+                app.global_shortcut()
+                    .unregister(shortcut)
+                    .map_err(|_| "无法暂停快捷键录制".to_string())?;
+            }
         }
         state.active.store(true, Ordering::SeqCst);
         let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -37,7 +68,7 @@ pub fn set_shortcut_recording(app: tauri::AppHandle, recording: bool) -> Result<
     } else if state.active.swap(false, Ordering::SeqCst) {
         state.generation.fetch_add(1, Ordering::SeqCst);
         let settings = MusicSetting::load(&app).map_err(|e| e.to_string())?;
-        let result = register_shortcut(&app, &settings.shortcut_key);
+        let result = register_all(&app, &settings);
         *app.state::<DesktopStatus>().shortcut_error.lock().unwrap() =
             result.as_ref().err().cloned();
         let _ = app.emit("desktop-changed", ());
@@ -50,11 +81,20 @@ pub fn register_shortcut(app: &tauri::AppHandle, key: &str) -> Result<(), String
     let Some(shortcut) = parse_shortcut(key)? else {
         return Ok(());
     };
+    register_parsed_shortcut(app, shortcut, key).map(|_| ())
+}
+
+fn register_parsed_shortcut(
+    app: &tauri::AppHandle,
+    shortcut: Shortcut,
+    key: &str,
+) -> Result<bool, String> {
     if app.global_shortcut().is_registered(shortcut) {
-        return Ok(());
+        return Ok(false);
     }
     app.global_shortcut()
         .register(shortcut)
+        .map(|_| true)
         .map_err(|e| format!("快捷键 {key} 无法注册，可能已被其他应用占用：{e}"))
 }
 
@@ -73,7 +113,7 @@ fn validate_local_shortcut_conflicts(
     settings: &MusicSetting,
     global: Option<Shortcut>,
 ) -> Result<(), String> {
-    let local = settings.discovery_keybindings.normalized()?;
+    let local = &settings.discovery_keybindings;
     let Some(global) = global else {
         return Ok(());
     };
@@ -102,33 +142,58 @@ pub(crate) fn save_preferences(
     old: &MusicSetting,
     settings: &MusicSetting,
 ) -> Result<(), String> {
-    let old_shortcut = parse_shortcut(&old.shortcut_key).ok().flatten();
-    let new_shortcut = parse_shortcut(&settings.shortcut_key)?;
-    validate_local_shortcut_conflicts(settings, new_shortcut)?;
-    let same_identity =
-        old_shortcut.map(|shortcut| shortcut.id()) == new_shortcut.map(|shortcut| shortcut.id());
-    let mut newly_registered = false;
+    let old_shortcuts: Vec<_> = global_keys(old)
+        .into_iter()
+        .filter_map(|key| parse_shortcut(key).ok().flatten())
+        .collect();
+    let new_shortcuts: Vec<_> = global_keys(settings)
+        .into_iter()
+        .map(|key| parse_shortcut(key).map(|s| (s, key)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut identities = std::collections::HashSet::new();
+    for (shortcut, _) in &new_shortcuts {
+        validate_local_shortcut_conflicts(settings, *shortcut)?;
+        if let Some(shortcut) = shortcut {
+            if !identities.insert(shortcut.id()) {
+                return Err("错误：发现与手牌快捷键不能重复".into());
+            }
+        }
+    }
+    let mut newly_registered = Vec::new();
     let mut shortcut_error = None;
-    if new_shortcut.is_some_and(|shortcut| !app.global_shortcut().is_registered(shortcut)) {
-        match register_shortcut(app, &settings.shortcut_key) {
-            Ok(()) => newly_registered = true,
-            Err(error) if same_identity => shortcut_error = Some(error),
-            Err(error) => return Err(error),
+    for (shortcut, key) in &new_shortcuts {
+        if let Some(shortcut) = shortcut {
+            match register_parsed_shortcut(app, *shortcut, key) {
+                Ok(true) => newly_registered.push(*shortcut),
+                Ok(false) => {}
+                Err(error) if old_shortcuts.iter().any(|s| s.id() == shortcut.id()) => {
+                    shortcut_error = Some(error)
+                }
+                Err(error) => {
+                    for registered in newly_registered {
+                        let _ = app.global_shortcut().unregister(registered);
+                    }
+                    return Err(error);
+                }
+            }
         }
     }
     if let Err(error) = repository.save_settings(settings) {
-        if newly_registered {
-            if let Some(shortcut) = new_shortcut {
-                let _ = app.global_shortcut().unregister(shortcut);
-            }
+        for registered in newly_registered {
+            let _ = app.global_shortcut().unregister(registered);
         }
         return Err(error);
     }
-    if !same_identity {
-        if let Some(shortcut) = old_shortcut {
+    for shortcut in old_shortcuts {
+        if !identities.contains(&shortcut.id()) {
             let _ = app.global_shortcut().unregister(shortcut);
         }
     }
+    *app.state::<ShortcutRecording>().hand_id.lock().unwrap() = if settings.hand.enabled {
+        parse_shortcut(&settings.hand.shortcut)?.map(|s| s.id())
+    } else {
+        None
+    };
     *app.state::<DesktopStatus>().shortcut_error.lock().unwrap() = shortcut_error;
     Ok(())
 }

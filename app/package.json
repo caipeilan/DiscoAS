@@ -1,7 +1,7 @@
 {
   "name": "discoas",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "scripts": {
     "icons": "node scripts/build-icons.mjs",
@@ -25,6 +25,7 @@
     "release:windows": "node scripts/build-windows-release.mjs",
     "test:spotify": "node --test ../extensions/spotify/bridge.test.mjs",
     "test:tray": "node --test tests/trayMenuModel.test.mjs",
+    "test:hand": "node --test tests/handLayout.test.mjs tests/discoveryFlow.test.mjs",
     "test:installer": "node --test tests/installerPolicy.test.mjs"
   },
   "dependencies": {

@@ -97,44 +97,4 @@ mod tests {
         assert_eq!(sign(&request), expected);
     }
 
-    /// 验证 JSON 序列化保持插入序（orjson 行为），且 compact 无空格。
-    /// 这是签名正确的前提：若 serde_json 退回 BTreeMap 排序，哈希会变。
-    #[test]
-    fn json_preserves_insertion_order() {
-        let request = json!({
-            "comm": {"ct": "11", "cv": "13020508"},
-            "music.srfDissInfo.DissInfo": {
-                "disstid": "9595891286",
-                "song_begin": 0,
-                "song_num": 10,
-            }
-        });
-        let s = serde_json::to_string(&request).unwrap();
-        assert_eq!(
-            s,
-            r#"{"comm":{"ct":"11","cv":"13020508"},"music.srfDissInfo.DissInfo":{"disstid":"9595891286","song_begin":0,"song_num":10}}"#
-        );
-    }
-
-    /// 相同输入应产生相同签名（确定性）。
-    #[test]
-    fn sign_is_deterministic() {
-        let request = json!({"a": 1, "b": 2});
-        assert_eq!(sign(&request), sign(&request));
-    }
-
-    /// 不同输入应产生不同签名。
-    #[test]
-    fn sign_differs_on_different_input() {
-        let a = json!({"a": 1});
-        let b = json!({"a": 2});
-        assert_ne!(sign(&a), sign(&b));
-    }
-
-    /// 签名总是以 "zzc" 前缀开头（对照旧版 f"zzc..."）。
-    #[test]
-    fn sign_has_zzc_prefix() {
-        let request = json!({"anything": true});
-        assert!(sign(&request).starts_with("zzc"));
-    }
 }

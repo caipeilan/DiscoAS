@@ -10,14 +10,15 @@ import "./trayMenu.css";
 const fallback: TrayMenuSnapshot = {
   generation: 0,
   gui: defaultGuiSettings,
-  labels: ["发现一首歌", "歌单与设置", "暂停全局快捷键", "重启 DiscoAS", "退出 DiscoAS"],
+  labels: ["发现一首歌", "显示手牌", "歌单与设置", "暂停全局快捷键", "重启 DiscoAS", "退出 DiscoAS"],
   paused: false,
+  handEnabled: false,
 };
 
 function TrayGlyph({ action }: { action: TrayAction }) {
   if (action === "pause") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14" /></svg>;
   if (action === "quit") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M12 3v9M6.35 6.35a8 8 0 1 0 11.3 0" /></svg>;
-  return <Icon name={{ discover: "discover", main: "library", restart: "refresh" }[action]} />;
+  return <Icon name={{ discover: "discover", hand: "hand", main: "library", restart: "refresh" }[action]} />;
 }
 
 export function TrayMenu() {
@@ -101,11 +102,11 @@ export function TrayMenu() {
           items.current[nextMenuIndex(event.shiftKey ? "ArrowUp" : "ArrowDown", index)!]?.focus();
         }
       }}>
-      {trayActions.map((action, index) => <div key={action} className={index === 3 ? "tray-menu-group" : undefined}>
+      {trayActions.map((action, index) => <div key={action} className={index === 4 ? "tray-menu-group" : undefined}>
         <button ref={(element) => { items.current[index] = element; }}
           type="button" role={action === "pause" ? "menuitemcheckbox" : "menuitem"}
           aria-checked={action === "pause" ? snapshot.paused : undefined}
-          className="tray-menu-item" disabled={busy} tabIndex={-1}
+          className="tray-menu-item" disabled={busy || (action === "hand" && !snapshot.handEnabled)} tabIndex={-1}
           onPointerMove={(event) => { if (event.movementX || event.movementY) event.currentTarget.focus({ preventScroll: true }); }}
           onClick={() => { void activate(action).catch(() => {}); }}>
           <span className="tray-menu-icon"><TrayGlyph action={action} /></span>

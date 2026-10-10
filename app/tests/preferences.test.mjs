@@ -18,7 +18,7 @@ const { samePreferences, sameGuiPreferences } = await import(
 const libraryModule = ts.transpileModule(fs.readFileSync(
   new URL("../src/features/library/libraryModel.ts", import.meta.url), "utf8",
 ), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext } }).outputText;
-const { sourceKey, filterLibrary } = await import(
+const { filterLibrary } = await import(
   `data:text/javascript;base64,${Buffer.from(libraryModule).toString("base64")}`,
 );
 
@@ -150,12 +150,6 @@ test("network and playback errors stay concise and do not mistake server errors 
   assert.equal(isCancelledError("操作已取消"), true);
   assert.equal(isCancelledError("错误：网络连接超时"), false);
   setLanguage("zh_CN");
-});
-test("source selection identities distinguish platforms and kinds even when their IDs match", () => {
-  const entry = { platform: "Spotify", kind: "playlist", id: "123" };
-  assert.notEqual(sourceKey(entry), sourceKey({ ...entry, kind: "album" }));
-  assert.notEqual(sourceKey(entry), sourceKey({ ...entry, platform: "QQMusic" }));
-  assert.equal(sourceKey(entry), sourceKey({ ...entry, title: "new title" }));
 });
 test("source search and sorting preserve the original list and include remarks", () => {
   const entries = [

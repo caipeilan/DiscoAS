@@ -74,6 +74,13 @@ impl DesktopPreferences {
         let data = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
         crate::platforms::storage::atomic_write(path, &data).map_err(|e| e.to_string())
     }
+
+    pub fn load_with_warning_from_path(path: &Path) -> (Self, Option<String>) {
+        match Self::load_from_path(path) {
+            Ok(settings) => (settings, None),
+            Err(_) => (Self::default(), Some("错误：桌面设置读取失败".into())),
+        }
+    }
 }
 
 pub fn should_show_main(
@@ -86,6 +93,29 @@ pub fn should_show_main(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_preference_reads_report_a_warning_and_preserve_the_file() {
+        let path = std::env::temp_dir().join(format!(
+            "discoas-preferences-read-{}.json",
+            rand::random::<u64>()
+        ));
+        assert!(DesktopPreferences::load_with_warning_from_path(&path)
+            .1
+            .is_none());
+        for input in ["broken JSON", r#"{"browser_playback_mode":"unknown"}"#] {
+            std::fs::write(&path, input).unwrap();
+            let (settings, warning) = DesktopPreferences::load_with_warning_from_path(&path);
+            assert_eq!(settings, DesktopPreferences::default());
+            assert_eq!(warning.as_deref(), Some("错误：桌面设置读取失败"));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), input);
+        }
+        DesktopPreferences::default().save_to_path(&path).unwrap();
+        assert!(DesktopPreferences::load_with_warning_from_path(&path)
+            .1
+            .is_none());
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn decimal_minimize_wait_roundtrips_and_legacy_integer_wait_remains_compatible() {

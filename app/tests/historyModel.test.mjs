@@ -6,7 +6,7 @@ import ts from "typescript";
 const compiled = ts.transpileModule(fs.readFileSync(new URL("../src/features/history/historyModel.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { cacheHistoryCovers, filterHistory, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
+const { cacheHistoryCovers, filterHistory, historySearchText, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
   await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const record = (values = {}) => ({
   platform: "NeteaseCloudMusic", songId: "100", playlistId: "1", typename: "playlist", name: "中文歌曲",
@@ -171,7 +171,7 @@ async function historyController() {
   });
   globalThis.__historyTest = { react, bridge, platforms: [{ id: "NeteaseCloudMusic", label: "网易云音乐" }],
     currentLocale: () => "zh-CN", t: (message) => message, errorText: String,
-    cacheHistoryCovers, filterHistory, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata, retainedHistorySelection };
+    cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata, retainedHistorySelection };
   const { useHistory } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   return {
     load, repair, covers, edits, clearCount: () => clearCount,

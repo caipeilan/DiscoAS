@@ -7,13 +7,17 @@ const HISTORY_COVER_CACHE_CHARACTERS = 16 * 1024 * 1024;
 export const historyKey = (entry: Pick<HistoryEntry, "platform" | "songId">) => JSON.stringify([entry.platform, entry.songId]);
 export const historyIdentity = (entry: Pick<HistoryEntry, "platform" | "songId">) => ({ platform: entry.platform, songId: entry.songId });
 
-export function filterHistory(entries: HistoryEntry[], query: string, filter: HistoryFilter, labels: Record<string, string> = {}) {
+export function historySearchText(entry: HistoryEntry, labels: Record<string, string> = {}) {
+  return [entry.name, ...entry.artistNames, entry.songId, entry.platform, labels[entry.platform] || ""].join(" ").toLocaleLowerCase();
+}
+
+export function filterHistory(entries: HistoryEntry[], query: string, filter: HistoryFilter, labels: Record<string, string> = {}, searchIndex?: ReadonlyMap<HistoryEntry, string>) {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return entries.filter((entry) => {
     if (filter === "selected" && entry.selectedAt === null) return false;
     if (filter === "discovered" && entry.discoveredAt === null) return false;
-    const haystack = [entry.name, ...entry.artistNames, entry.songId, entry.platform, labels[entry.platform] || ""]
-      .join(" ").toLocaleLowerCase();
+    if (!terms.length) return true;
+    const haystack = searchIndex?.get(entry) ?? historySearchText(entry, labels);
     return terms.every((term) => haystack.includes(term));
   });
 }

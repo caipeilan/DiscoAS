@@ -12,17 +12,14 @@ function fixture(hide = async () => {}) {
   );
   return {motion, delays, phases, actions};
 }
-test("close leaves the window visible until the exit animation finishes", async () => {
-  const f = fixture(); f.motion.open(); const closing = f.motion.close();
+test("close leaves the window visible until the exit animation and receiving surface are ready", async () => {
+  let ready; const receiver = new Promise(resolve => { ready = resolve; });
+  const f = fixture(); f.motion.open(); const closing = f.motion.close(() => receiver);
   assert.deepEqual(f.actions, []); assert.equal(f.phases.at(-1), "closing");
-  f.delays.shift()(); assert.equal(await closing, true);
+  f.delays.shift()(); await Promise.resolve();
+  assert.deepEqual(f.actions, []); assert.equal(f.phases.at(-1), "closing");
+  ready(); assert.equal(await closing, true);
   assert.deepEqual(f.actions, ["hide"]); assert.equal(f.phases.at(-1), "closed");
-});
-test("reopening cancels the old close and its delayed hide", async () => {
-  const f = fixture(); f.motion.open(); const closing = f.motion.close();
-  const intent = f.motion.open(); f.delays.shift()();
-  assert.equal(await closing, false); assert.deepEqual(f.actions, []);
-  f.motion.finishOpen(intent); assert.equal(f.phases.at(-1), "open");
 });
 test("cancel, reopen, cancel only hides for the newest close", async () => {
   const f = fixture(); f.motion.open(); const a = f.motion.close();

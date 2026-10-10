@@ -114,9 +114,6 @@ fn read_legacy_cover(root: &Path, reference: &str) -> Result<Option<LegacyCover>
         .into_iter()
         .find(|candidate| candidate.is_file())
         .ok_or("旧版神秘歌曲封面不存在，请检查旧版图片路径后重试")?;
-    if std::fs::metadata(&source).map_err(|e| e.to_string())?.len() > 5 * 1024 * 1024 {
-        return Err("旧版封面图片超过 5 MB".into());
-    }
     let bytes = std::fs::read(source).map_err(|e| format!("旧版封面无法读取：{e}"))?;
     let extension = image_extension(&bytes)?;
     Ok(Some(LegacyCover {

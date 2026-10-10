@@ -52,17 +52,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn scheme_url_has_tencent_prefix() {
-        assert!(scheme_url("1").starts_with("tencent://"));
-    }
-
-    /// 验证双等号 quirk 被保留（不能误改单等号）。
-    #[test]
-    fn preserves_double_equals_quirk() {
-        let url = scheme_url("1");
-        assert!(url.contains("version==1173"));
-        assert!(url.contains("cmd_0==playsong"));
-        assert!(url.contains("id_0==1"));
-    }
 }

@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import { currentLocale, errorText, t } from "../i18n";
 import { call } from "../services/desktop";
 import { Select } from "./Select";
-import { fontOptions, normalizeSystemFonts, type SystemFont } from "./fontOptions";
+import { fontOptions, type SystemFont } from "./fontOptions";
 
 let fontRequest: Promise<SystemFont[]> | undefined;
 function installedFonts(): Promise<SystemFont[]> {
-  fontRequest ??= call<unknown>("get_system_fonts")
-    .then(normalizeSystemFonts)
+  fontRequest ??= call<SystemFont[]>("get_system_fonts")
     .catch((error) => {
       fontRequest = undefined;
       throw error;

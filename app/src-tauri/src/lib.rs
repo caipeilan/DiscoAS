@@ -135,11 +135,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _, event| {
+                .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed
                         && !app.state::<AtomicBool>().load(Ordering::Relaxed)
                     {
-                        show_overlay(app);
+                        if desktop::shortcuts::is_hand_shortcut(app, shortcut) {
+                            desktop::hand::shortcut(app);
+                        } else {
+                            show_overlay(app);
+                        }
                     }
                 })
                 .build(),
@@ -152,14 +156,15 @@ pub fn run() {
         .manage(services::spotify_setup::SpotifySetupService::default())
         .manage(browser_playback::BrowserPlaybackService::default())
         .manage(library::ShortcutRecording::default())
+        .manage(desktop::hand::HandState::default())
         .manage(AtomicBool::new(false))
         .manage(StartupPending(AtomicBool::new(true)))
         .manage(StartupShowMain(AtomicBool::new(true)))
         .setup(|app| {
             paths::init_user_data_dirs(app.handle())?;
             let setting = settings::music_setting::MusicSetting::load(app.handle())?;
-            let options =
-                desktop_preferences::DesktopPreferences::load(app.handle()).unwrap_or_default();
+            let (options, preferences_warning) =
+                desktop_preferences::DesktopPreferences::load_with_warning(app.handle())?;
             if options.spotify_playback_mode == "extension" {
                 if app
                     .state::<spotify_playback::PlaybackService>()
@@ -180,21 +185,26 @@ pub fn run() {
                 }
             }
             let background = std::env::args().any(|arg| arg == "--background");
-            let show_main_on_startup = desktop_preferences::should_show_main(
-                &options,
-                background,
-                !setting.playlist_albums.is_empty(),
-            );
+            let show_main_on_startup = preferences_warning.is_some()
+                || desktop_preferences::should_show_main(
+                    &options,
+                    background,
+                    !setting.playlist_albums.is_empty(),
+                );
             app.state::<StartupShowMain>()
                 .0
                 .store(show_main_on_startup, Ordering::Relaxed);
-            if let Err(error) = library::register_shortcut(app.handle(), &setting.shortcut_key) {
+            if let Err(error) = desktop::shortcuts::register_all(app.handle(), &setting) {
                 *app.state::<library::DesktopStatus>()
                     .shortcut_error
                     .lock()
                     .unwrap() = Some(error);
             }
             desktop::tray_menu::create(app.handle())?;
+            let hand_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = desktop::hand::refresh(&hand_app).await;
+            });
             let mut tray = TrayIconBuilder::with_id("discoas")
                 .tooltip("DiscoAS · 发现一首歌")
                 .show_menu_on_left_click(false)
@@ -227,6 +237,7 @@ pub fn run() {
                 let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
                     return;
                 };
+                desktop::hand::playback_result(&playback_app, &payload);
                 if payload["success"].as_bool() == Some(false) {
                     if let Some(error) = payload["error"].as_str() {
                         let visible = playback_app.get_webview_window("main").is_some_and(|w| {
@@ -275,6 +286,11 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         desktop::discovery_preview::dismiss_for_window_close(&app);
                     });
+                } else if window.label() == "hand" {
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        desktop::hand::hide(&app);
+                    });
                 } else {
                     let _ = window.hide();
                 }
@@ -287,7 +303,22 @@ pub fn run() {
             desktop::tray_menu::dismiss_tray_menu,
             desktop::tray_menu::tray_menu_action,
             commands::play_song,
-            commands::discover_songs,
+            desktop::hand::hand_ready,
+            desktop::hand::present_hand,
+            desktop::hand::hand_arrival_ready,
+            desktop::hand::set_hand_hit_regions,
+            desktop::hand::collect_hand_card,
+            desktop::hand::show_collected_hand_card,
+            desktop::hand::play_hand_card,
+            desktop::hand::discard_hand_card,
+            desktop::hand::clear_hand,
+            desktop::hand::reorder_hand,
+            desktop::hand::toggle_hand,
+            desktop::hand::toggle_hand_expanded,
+            desktop::hand::hide_hand,
+            desktop::hand::start_hand_preview,
+            desktop::hand::update_hand_preview,
+            desktop::hand::end_hand_preview,
             commands::discover_batch,
             commands::get_discovery_state,
             commands::replace_discovery_song,

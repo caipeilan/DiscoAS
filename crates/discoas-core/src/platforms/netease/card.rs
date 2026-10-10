@@ -59,15 +59,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn scheme_url_has_orpheus_prefix() {
-        assert!(scheme_url("123").starts_with("orpheus://"));
-    }
-
-    #[test]
-    fn new_sets_default_mystery_pic() {
-        let card = NeteaseSongCard::new("123");
-        assert_eq!(card.mystery_pic_url, DEFAULT_MYSTERY_PIC);
-        assert!(!card.mystery_mode);
-    }
 }

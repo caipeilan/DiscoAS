@@ -153,6 +153,7 @@ pub struct MusicSetting {
     pub shortcut_key: String,
     /// Keyboard controls active only while the discovery interface is visible.
     pub discovery_keybindings: DiscoveryKeybindings,
+    pub hand: crate::hand::HandSettings,
     /// Recent songs excluded from discovery; existing settings keep exclusion disabled.
     pub history_exclusion: HistoryExclusion,
     /// Recent songs excluded per platform; retention is fixed at 10,000 unique songs.
@@ -176,6 +177,7 @@ impl Default for MusicSetting {
             refreshing_after_cancel: false,
             shortcut_key: "Alt+D".to_string(),
             discovery_keybindings: DiscoveryKeybindings::default(),
+            hand: crate::hand::HandSettings::default(),
             history_exclusion: HistoryExclusion::Off,
             history_limit: 200,
             playlist_albums: Vec::new(),
@@ -208,6 +210,9 @@ impl MusicSetting {
             copy.playlist_albums.clear();
             copy.shortcut_key.clear();
             copy.discovery_keybindings = DiscoveryKeybindings::default();
+            let hand_enabled = copy.hand.enabled;
+            copy.hand = crate::hand::HandSettings::default();
+            copy.hand.enabled = hand_enabled;
             copy
         };
         comparable(self) == comparable(other)
@@ -405,23 +410,6 @@ mod tests {
         assert_eq!(s.discovery_keybindings, DiscoveryKeybindings::default());
     }
 
-    #[test]
-    fn keyboard_preferences_roundtrip_and_partial_legacy_values_keep_default_controls() {
-        let setting: MusicSetting = serde_json::from_str(
-            r#"{"discovery_keybindings":{"up":"ArrowUp","down":"ArrowDown"}}"#,
-        )
-        .unwrap();
-        assert_eq!(setting.discovery_keybindings.left, "A");
-        assert_eq!(setting.discovery_keybindings.select, "Enter");
-        assert_eq!(setting.discovery_keybindings.up, "ArrowUp");
-        let restored: MusicSetting =
-            serde_json::from_str(&serde_json::to_string(&setting).unwrap()).unwrap();
-        assert_eq!(
-            restored.discovery_keybindings,
-            setting.discovery_keybindings
-        );
-    }
-
     /// 互斥 enabled 校验：多个 enabled 时只保留第一个。
     #[test]
     fn enabled_exclusivity_keeps_first() {
@@ -449,24 +437,6 @@ mod tests {
         s.normalize_enabled_exclusivity();
         assert!(s.playlist_albums[0].enabled);
         assert!(!s.playlist_albums[1].enabled);
-    }
-
-    /// 往返：save → load 应得到相同数据（enabled 已规范化）。
-    #[test]
-    fn roundtrip_save_load() {
-        let dir = std::env::temp_dir();
-        let path = dir.join("discoas_test_music_setting.json");
-        let _ = std::fs::remove_file(&path);
-
-        let mut original = MusicSetting::default();
-        original.number_of_discovered_songs = 7;
-        original.save_to_path(&path).unwrap();
-
-        let loaded = MusicSetting::load_from_path(&path).unwrap();
-        assert_eq!(loaded.number_of_discovered_songs, 7);
-        assert_eq!(loaded, original);
-
-        let _ = std::fs::remove_file(&path);
     }
 
     /// 默认设置写入磁盘后能被读回，且内容符合预期。

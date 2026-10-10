@@ -15,7 +15,7 @@ const row = (songId, name = `Song ${songId}`) => ({ platform: "Spotify", songId,
 
 async function controller(initial = [row("a")]) {
   const slots = [], events = new Map(), calls = [], reads = [], mutations = [], covers = [];
-  let records = initial, cursor = 0, effects = [];
+  let records = initial, cursor = 0, effects = [], mutationSource;
   const React = {
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial;
       return [slots[i], (next) => { slots[i] = typeof next === "function" ? next(slots[i]) : next; }]; },
@@ -27,14 +27,18 @@ async function controller(initial = [row("a")]) {
       const old = slots[i]; slots[i] = { deps }; effects.push(() => { old?.cleanup?.(); slots[i].cleanup = effect(); }); } },
   };
   const bridge = {
-    call: async (name) => { calls.push(name);
+    call: async (name, args) => { calls.push(name);
       if (name === "get_discovery_history") return reads.length ? reads.shift().promise : records;
       if (name === "repair_discovery_history_metadata") return repair.promise;
-      if (name === "clear_discovery_history") { records = []; events.get("discovery-history-changed")?.(); return; }
+      if (name === "clear_discovery_history") { records = []; events.get("discovery-history-changed")?.({ source: args.source }); return; }
     },
     onDesktopEvent: async (event, handler) => { events.set(event, handler); return () => events.delete(event); },
     getHistoryCovers: async () => { calls.push("get_history_covers"); return covers.length ? covers.shift().promise : []; },
-    mutateDiscoveryHistory: async () => { calls.push("mutate_discovery_history"); return mutations.length ? mutations.shift().promise : records; },
+    mutateDiscoveryHistory: async (_mutation, source) => {
+      calls.push("mutate_discovery_history"); mutationSource = source;
+      const updated = await (mutations.length ? mutations.shift().promise : records);
+      events.get("discovery-history-changed")?.({ source }); return updated;
+    },
   };
   const repair = deferred();
   const environment = { React, bridge, model, types: { platforms: [{ id: "Spotify", label: "Spotify" }] },
@@ -47,7 +51,8 @@ async function controller(initial = [row("a")]) {
   const { useHistory } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   const render = () => { cursor = 0; effects = []; const result = useHistory(); effects.forEach((effect) => effect()); return result; };
   render(); await settle();
-  return { render, repair, calls, events, setRecords: (next) => { records = next; }, emit: () => events.get("discovery-history-changed")?.(),
+  return { render, repair, calls, events, setRecords: (next) => { records = next; }, emit: (change) => events.get("discovery-history-changed")?.(change),
+    mutationSource: () => mutationSource,
     nextRead: () => { const task = deferred(); reads.push(task); return task; },
     nextMutation: () => { const task = deferred(); mutations.push(task); return task; },
     nextCovers: () => { const task = deferred(); covers.push(task); return task; },
@@ -88,6 +93,18 @@ test("events during deletion are coalesced until mutation finishes, then read th
   assert.deepEqual(harness.render().entries.map((entry) => entry.songId), ["b"]);
   assert.equal(harness.render().mutating, false);
   assert.equal(harness.calls.filter((name) => name === "get_discovery_history").length, before + 1);
+  harness.unmount();
+});
+
+test("own edit notifications reuse the returned records, including notifications delivered after the reply", async () => {
+  const harness = await controller([row("a"), row("b")]);
+  const before = harness.calls.filter((name) => name === "get_discovery_history").length;
+  const mutation = harness.nextMutation();
+  const pending = harness.render().mutate([{ platform: "Spotify", songId: "a" }], "delete");
+  mutation.resolve([row("b")]); await pending; await settle();
+  harness.emit({ source: harness.mutationSource() }); await settle();
+  assert.deepEqual(harness.render().entries.map((entry) => entry.songId), ["b"]);
+  assert.equal(harness.calls.filter((name) => name === "get_discovery_history").length, before);
   harness.unmount();
 });
 

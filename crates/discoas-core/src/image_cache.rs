@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-const MAX_IMAGE: usize = 5 * 1024 * 1024;
 const DISK_BUDGET: u64 = 128 * 1024 * 1024;
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -19,9 +18,6 @@ static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 });
 
 fn image_mime(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.len() > MAX_IMAGE {
-        return None;
-    }
     Some(if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
     } else if bytes.starts_with(b"\xff\xd8\xff") {
@@ -54,46 +50,47 @@ pub fn read_library_cover(root: &Path, key: &str) -> Option<String> {
     read_local(&path).ok().and_then(|bytes| data_uri(&bytes))
 }
 fn read_local(path: &Path) -> Result<Vec<u8>, String> {
-    let size = std::fs::metadata(path)
-        .map_err(|_| "本地封面不可读取")?
-        .len();
-    if size > MAX_IMAGE as u64 {
-        return Err("封面超过 5 MB".into());
-    }
     std::fs::read(path).map_err(|_| "本地封面不可读取".into())
+}
+fn request_url(original: &str) -> String {
+    let Ok(mut url) = reqwest::Url::parse(original) else {
+        return original.into();
+    };
+    if !url
+        .host_str()
+        .is_some_and(|host| host == "music.126.net" || host.ends_with(".music.126.net"))
+    {
+        return original.into();
+    }
+    let pairs: Vec<_> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "param")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    url.set_query(None);
+    url.query_pairs_mut()
+        .extend_pairs(pairs)
+        .append_pair("param", "640y640");
+    url.into()
 }
 async fn download(url: &str) -> Result<Vec<u8>, String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return read_local(Path::new(url));
     }
-    let mut response = CLIENT
-        .get(url)
+    let bytes = CLIENT
+        .get(request_url(url))
         .send()
         .await
         .map_err(|_| "封面加载失败，请稍后重试")?
         .error_for_status()
-        .map_err(|_| "封面加载失败，请稍后重试")?;
-    if response
-        .content_length()
-        .is_some_and(|n| n > MAX_IMAGE as u64)
-    {
-        return Err("封面超过 5 MB".into());
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
         .map_err(|_| "封面加载失败，请稍后重试")?
-    {
-        if bytes.len() + chunk.len() > MAX_IMAGE {
-            return Err("封面超过 5 MB".into());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+        .bytes()
+        .await
+        .map_err(|_| "封面加载失败，请稍后重试")?;
     if image_mime(&bytes).is_none() {
         return Err("封面不是支持的图片格式".into());
     }
-    Ok(bytes)
+    Ok(bytes.to_vec())
 }
 
 pub async fn prepare_song_cover(cache: &Arc<Cache>, url: &str) -> Result<Option<String>, String> {
@@ -155,9 +152,12 @@ fn validate_cover(bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Validate the complete group first, then scan the cache directory once instead of once per card.
-pub fn save_library_covers(root: &Path, covers: &[(String, Vec<u8>)]) -> Result<(), String> {
+pub fn save_library_covers<B: AsRef<[u8]>>(
+    root: &Path,
+    covers: &[(String, B)],
+) -> Result<(), String> {
     for (_, bytes) in covers {
-        validate_cover(bytes)?;
+        validate_cover(bytes.as_ref())?;
     }
     if covers.is_empty() {
         return Ok(());
@@ -166,7 +166,7 @@ pub fn save_library_covers(root: &Path, covers: &[(String, Vec<u8>)]) -> Result<
     let mut keep = PathBuf::new();
     for (key, bytes) in covers {
         keep = disk_path(root, key);
-        crate::storage::atomic_write(&keep, bytes).map_err(|e| e.to_string())?;
+        crate::storage::atomic_write(&keep, bytes.as_ref()).map_err(|e| e.to_string())?;
     }
     prune(root, &keep, DISK_BUDGET).map_err(|e| e.to_string())
 }
@@ -217,6 +217,15 @@ mod tests {
         assert!(data_uri(b"\x89PNG\r\n\x1a\npayload")
             .unwrap()
             .starts_with("data:image/png;"));
+        let sized = request_url("https://p1.music.126.net/cover.jpg?tag=album&param=3000y3000");
+        assert_eq!(
+            sized,
+            "https://p1.music.126.net/cover.jpg?tag=album&param=640y640"
+        );
+        assert_eq!(
+            request_url("https://example.com/cover?size=full"),
+            "https://example.com/cover?size=full"
+        );
     }
 
     #[test]
@@ -234,7 +243,7 @@ mod tests {
         assert!(read_library_cover(&root, "a").is_some());
         assert!(read_library_cover(&root, "b").is_some());
         std::fs::write(root.join("keep.txt"), "unrelated").unwrap();
-        assert!(save_library_covers(&root, &[]).is_ok());
+        assert!(save_library_covers::<Vec<u8>>(&root, &[]).is_ok());
         assert!(root.join("keep.txt").is_file());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -290,14 +299,15 @@ mod tests {
                     }
                     count.fetch_add(1, Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(40));
-                    let body = b"\x89PNG\r\n\x1a\nfixture";
+                    let mut body = b"\x89PNG\r\n\x1a\nfixture".to_vec();
+                    body.resize(6 * 1024 * 1024, 0);
                     write!(
                         stream,
                         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                         body.len()
                     )
                     .unwrap();
-                    stream.write_all(body).unwrap();
+                    stream.write_all(&body).unwrap();
                 } else {
                     std::thread::sleep(Duration::from_millis(5));
                 }
@@ -310,6 +320,7 @@ mod tests {
             prepare_song_cover(&cache, &url)
         );
         let expected = a.unwrap().unwrap();
+        assert_eq!(cache.get_image(&url).await.unwrap().len(), 6 * 1024 * 1024);
         assert_eq!(b.unwrap().unwrap(), expected);
         assert_eq!(c.unwrap().unwrap(), expected);
         assert_eq!(
@@ -318,6 +329,20 @@ mod tests {
         );
         thread.join().unwrap();
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+        let root =
+            std::env::temp_dir().join(format!("discoas-large-cover-{}", rand::random::<u64>()));
+        let bytes = cache.get_image(&url).await.unwrap();
+        save_library_cover(&root, "large", &bytes).unwrap();
+        assert_eq!(read_library_cover(&root, "large").unwrap(), expected);
+        let path = disk_path(&root, "large");
+        assert_eq!(
+            prepare_song_cover(&Cache::new(), path.to_str().unwrap())
+                .await
+                .unwrap()
+                .unwrap(),
+            expected
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

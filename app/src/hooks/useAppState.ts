@@ -46,6 +46,9 @@ export function useAppState(floating: boolean, notice: Notice) {
   }, []);
   const [startup, setStartup] = useState(desktop);
   const [busy, setBusy] = useState("");
+  useEffect(() => {
+    if (!floating && state.desktopSettingsError) notice(errorText(state.desktopSettingsError), true);
+  }, [floating, state.desktopSettingsError, notice]);
   const reload = useCallback(async () => {
     if (!desktop) return;
     const version = ++snapshotVersion.current;
@@ -76,6 +79,7 @@ export function useAppState(floating: boolean, notice: Notice) {
     attach("client-window-result", (payload) => {
       if (payload.warning) notice(payload.warning, true);
     });
+    attach("hand-error", (error) => { if (!floating) notice(errorText(error), true); });
     // Playback failure is reported in the main window without reopening the floating discovery view.
     if (!floating) attach("playback-result", (payload) => {
       if (payload.error) isCurrentWindowVisible()

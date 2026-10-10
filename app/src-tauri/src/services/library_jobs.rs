@@ -50,12 +50,7 @@ impl LibraryJobs {
         registry.next = registry.next.wrapping_add(1);
         let revision = registry.next;
         let request_id = request_id.unwrap_or_else(|| format!("background-{revision}"));
-        if request_id.is_empty()
-            || request_id.len() > 128
-            || !request_id
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-        {
+        if request_id.is_empty() || request_id.len() > 128 {
             return Err("错误：请求标识无效".into());
         }
         if registry
@@ -156,9 +151,9 @@ mod tests {
     async fn cancellation_drops_network_work_and_cannot_cancel_committed_files() {
         let jobs = LibraryJobs::default();
         let mut job = jobs
-            .begin("source".into(), Some("request-1".into()))
+            .begin("source".into(), Some("发现 / 1: retry".into()))
             .unwrap();
-        assert!(jobs.cancel("request-1"));
+        assert!(jobs.cancel("发现 / 1: retry"));
         assert_eq!(
             job.run(std::future::pending::<Result<(), String>>())
                 .await

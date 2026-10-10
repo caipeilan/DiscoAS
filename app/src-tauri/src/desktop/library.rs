@@ -51,13 +51,13 @@ pub struct Snapshot {
     settings: MusicSetting,
     gui_settings: GuiSetting,
     desktop_settings: crate::desktop_preferences::DesktopPreferences,
+    desktop_settings_error: Option<String>,
     playlists: Vec<LibraryEntry>,
     data_path: String,
     legacy_data_path: Option<String>,
     shortcut_error: Option<String>,
     startup_refresh_error: Option<String>,
     version: String,
-    build_id: String,
 }
 
 pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
@@ -93,10 +93,13 @@ pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
             }
         })
         .collect();
+    let (desktop_settings, desktop_settings_error) =
+        crate::desktop_preferences::DesktopPreferences::snapshot(&app)?;
     Ok(Snapshot {
         settings,
         gui_settings: repository.load_gui()?,
-        desktop_settings: crate::desktop_preferences::DesktopPreferences::snapshot(&app)?,
+        desktop_settings,
+        desktop_settings_error,
         playlists,
         data_path: repository.root().display().to_string(),
         legacy_data_path: migration::legacy_candidate().map(|p| p.display().to_string()),
@@ -113,7 +116,6 @@ pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
             .unwrap()
             .clone(),
         version: app.package_info().version.to_string(),
-        build_id: env!("DISCOAS_BUILD_ID").into(),
     })
 }
 

@@ -3,7 +3,7 @@ import type { HistoryEntry } from "../../types";
 import { platforms } from "../../types";
 import { call, getHistoryCovers, mutateDiscoveryHistory, onDesktopEvent } from "../../services/desktop";
 import { currentLocale, errorText, t } from "../../i18n";
-import { cacheHistoryCovers, filterHistory, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata,
+import { cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata,
   retainedHistorySelection, type HistoryFilter } from "./historyModel";
 
 type Identity = { platform: string; songId: string };
@@ -31,13 +31,15 @@ export function useHistory() {
   const refreshPending = useRef(false);
   const repairAttempted = useRef(false);
   const request = useRef(0);
+  const changeSource = useRef(crypto.randomUUID());
   const selectAll = useRef<HTMLInputElement>(null);
   const locale = currentLocale();
   const labels = useMemo(() => Object.fromEntries(platforms.map((platform) => [platform.id, t(platform.label)])), [locale]);
-  const visible = useMemo(() => filterHistory(entries, query, filter, labels), [entries, query, filter, labels]);
-  const { pageCount, currentPage, rows } = historyPage(visible, page);
-  const selectedEntries = entries.filter((entry) => selected.has(historyKey(entry)));
-  const visibleSelectedCount = visible.filter((entry) => selected.has(historyKey(entry))).length;
+  const searchIndex = useMemo(() => new Map(entries.map((entry) => [entry, historySearchText(entry, labels)])), [entries, labels]);
+  const visible = useMemo(() => filterHistory(entries, query, filter, labels, searchIndex), [entries, query, filter, labels, searchIndex]);
+  const { pageCount, currentPage, rows } = useMemo(() => historyPage(visible, page), [visible, page]);
+  const selectedEntries = useMemo(() => selected.size ? entries.filter((entry) => selected.has(historyKey(entry))) : [], [entries, selected]);
+  const visibleSelectedCount = useMemo(() => selected.size ? visible.filter((entry) => selected.has(historyKey(entry))).length : 0, [visible, selected]);
   const allVisibleSelected = visible.length > 0 && visibleSelectedCount === visible.length;
 
   const applyRecords = useCallback((records: HistoryEntry[]) => {
@@ -82,7 +84,9 @@ export function useHistory() {
     let active = true;
     let unlisten: (() => void) | undefined;
     // Subscribe before reading, so writes during the initial request cannot be missed.
-    onDesktopEvent("discovery-history-changed", () => { if (active) void refresh(); }).then((remove) => {
+    onDesktopEvent("discovery-history-changed", (change) => {
+      if (active && change?.source !== changeSource.current) void refresh();
+    }).then((remove) => {
       if (!active) { remove(); return; }
       unlisten = remove;
       void refresh();
@@ -130,12 +134,13 @@ export function useHistory() {
     request.current++;
     setMutating(true); setRepairing(false); setError("");
     try {
-      const records = await mutateDiscoveryHistory({ identities, action, value });
+      const records = await mutateDiscoveryHistory({ identities, action, value }, changeSource.current);
       if (!mounted.current || stamp !== revision.current) return;
       applyRecords(records);
       setConfirming(null);
     } catch (failure) {
       if (mounted.current && stamp === revision.current) setError(errorText(failure));
+      refreshPending.current = true;
     } finally {
       busy.current = false;
       if (mounted.current && stamp === revision.current) setMutating(false);
@@ -149,11 +154,12 @@ export function useHistory() {
     request.current++;
     setMutating(true); setRepairing(false); setError("");
     try {
-      await call("clear_discovery_history");
+      await call("clear_discovery_history", { source: changeSource.current });
       if (!mounted.current || stamp !== revision.current) return;
       setEntries([]); setSelected(new Set()); setCovers(new Map()); setPage(0); setConfirming(null);
     } catch (failure) {
       if (mounted.current && stamp === revision.current) setError(errorText(failure));
+      refreshPending.current = true;
     } finally {
       busy.current = false;
       if (mounted.current && stamp === revision.current) setMutating(false);

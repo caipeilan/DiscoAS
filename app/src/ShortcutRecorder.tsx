@@ -5,9 +5,11 @@ import { call, desktop } from "./services/desktop";
 export function ShortcutRecorder({
   value,
   onChange,
+  label = t("全局快捷键"),
 }: {
   value: string;
   onChange: (value: string) => void;
+  label?: string;
 }) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState("");
@@ -66,7 +68,7 @@ export function ShortcutRecorder({
     <div className="shortcut-recorder" ref={root}>
       <input
         className="shortcut-input"
-        aria-label={t("全局快捷键")}
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Alt+D"

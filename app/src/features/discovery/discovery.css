@@ -78,7 +78,18 @@
 }
 :root .floating-content .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot[data-preview-hover="true"] .song-card { transform: translateY(calc(-6px * var(--card-scale, 1))); border-color: transparent; }
 @keyframes discovery-card-replacement { from { opacity: .25; scale: .98; } to { opacity: 1; scale: 1; } }
+:root .discovery-body[data-hand-mode] .song-card:disabled { opacity: 1; }
+.floating-shell.overlay-closing:has(.discovery-body[data-collecting]) {
+  opacity: 1; transform: translateY(0); transition: none;
+}
+.discovery-body[data-collecting] .song-card-slot:not([data-collected]),
+.discovery-body[data-collecting] > :not(.song-grid) {
+  opacity: 0; transition: opacity 220ms ease; pointer-events: none;
+}
+.discovery-body[data-collecting] .song-replace-button { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   :root .discovery-body .song-card[data-replaced="true"] { animation: none; }
   :root .discovery-body .song-card, :root .discovery-body .song-replace-button { transition: none; }
+  .discovery-body[data-collecting] .song-card-slot,
+  .discovery-body[data-collecting] > :not(.song-grid) { transition: none; }
 }

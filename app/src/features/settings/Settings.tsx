@@ -10,6 +10,7 @@ import { WeightingSettings } from "./WeightingSettings";
 import { SpotifySettings } from "./SpotifySettings";
 import { BrowserSettings } from "./BrowserSettings";
 import { KeyboardSettings } from "./KeyboardSettings";
+import { HandSettings } from "./HandSettings";
 import { useDiscoveryPreview } from "./useDiscoveryPreview";
 import "./settingsDiscovery.css";
 
@@ -172,6 +173,7 @@ export function Settings({
         <WeightingSettings value={draft.discovery_weighting} onChange={(value) => set("discovery_weighting", value)}
           songCount={enabledSource?.songCount || 0} sourceIdentity={enabledSource ? JSON.stringify([enabledSource.platform, enabledSource.kind, enabledSource.id]) : ""}
           drawCount={total} />
+        <HandSettings settings={draft} gui={guiDraft} onChange={(value) => set("hand", value)} />
         <section className="settings-section">
           <h2>{t("窗口与播放")}</h2>
           <SettingRow title={t("发现界面显示器")}>

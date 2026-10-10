@@ -11,6 +11,7 @@ pub mod platforms;
 pub mod settings;
 pub use platforms::storage;
 pub mod discovery_service;
+pub mod hand;
 pub mod history;
 pub mod image_cache;
 pub mod weighting;

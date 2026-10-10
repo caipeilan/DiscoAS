@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import type { DiscoveryState, GuiSettings, Song } from "../../types";
+import type { DiscoveryState, GuiSettings, Song, HandSettings, CollectedHandCard } from "../../types";
 import { call, desktop, discoverBatch, getDiscoveryState, replaceDiscoverySong, endDiscoveryPreview, listenDiscoveryState, listenPreviewPointer, listenPreviewKey, listenPreviewAppearance, listenPreviewClosed, onDesktopEvent, hideCurrentWindow, showCurrentWindow, isCurrentWindowVisible } from "../../services/desktop";
 import type { DesktopEvents } from "../../services/desktop";
 import { OverlayMotion } from "../../overlayMotion";
@@ -23,11 +23,12 @@ const songArgs = (song: Song) => ({
 });
 
 /** Owns discovery requests, cover readiness, playback, cancellation and overlay lifecycle. */
-export function useDiscovery({ floating, page, reload, notice }: {
+export function useDiscovery({ floating, page, reload, notice, hand }: {
   floating: boolean;
   page: RefObject<string>;
   reload: () => Promise<void>;
   notice: Notice;
+  hand?: HandSettings;
 }) {
   const [songs, setSongs] = useState<Song[]>([]);
   const songsRef = useRef<Song[]>([]);
@@ -72,6 +73,7 @@ export function useDiscovery({ floating, page, reload, notice }: {
   const [loading, setLoading] = useState(false);
   const [songError, setSongError] = useState("");
   const [playing, setPlaying] = useState("");
+  const [collecting, setCollecting] = useState("");
   const playingRef = useRef("");
   const [cancelling, setCancelling] = useState(false);
   const cancellingRef = useRef(false);
@@ -86,14 +88,12 @@ export function useDiscovery({ floating, page, reload, notice }: {
       hideCurrentWindow,
       showCurrentWindow,
       () =>
-        new Promise((resolve) =>
-          window.setTimeout(
-            resolve,
-            window.matchMedia("(prefers-reduced-motion: reduce)").matches
-              ? 0
-              : 220,
-          ),
-        ),
+        new Promise((resolve) => window.requestAnimationFrame(() => {
+          const transitions = document.querySelector(".floating-shell")?.getAnimations({ subtree: true })
+            .filter((animation) => animation instanceof CSSTransition
+              && ["opacity", "transform"].includes(animation.transitionProperty)) || [];
+          void Promise.all(transitions.map((animation) => animation.finished.catch(() => {}))).then(() => resolve());
+        })),
     );
   const loadingRef = useRef(false);
   const discoveryRequest = useRef(0);
@@ -102,6 +102,7 @@ export function useDiscovery({ floating, page, reload, notice }: {
     const revision = ++discoveryRequest.current;
     ++stateDelivery.current;
     setBatchRevision(revision);
+    setCollecting("");
     songsRef.current = [];
     if (clear) setSongs([]);
     return revision;
@@ -323,25 +324,42 @@ export function useDiscovery({ floating, page, reload, notice }: {
     ++stateDelivery.current;
     setPlaying(song.songId);
     playingRef.current = song.songId;
+    let collected: DiscoveryState | null = null;
     try {
-      await call("play_song", {
-        args: songArgs(song),
-      });
-      if (request === discoveryRequest.current) {
-        if (floating) await motion.current!.close();
-        if (request === discoveryRequest.current) commitSongs([]);
+      if (hand?.enabled) {
+        const element = Array.from(document.querySelectorAll<HTMLElement>(".song-card")).find((e) => e.dataset.songId === song.songId);
+        const rect = element?.getBoundingClientRect();
+        const next = await call<CollectedHandCard>("collect_hand_card", { args: songArgs(song), batchEpoch: statusRef.current.batchEpoch });
+        if (request !== discoveryRequest.current) return;
+        collected = next.discovery;
+        const keepOpen = hand.keep_discovery_open && next.discovery.songs.length > 0;
+        const receive = () => call("show_collected_hand_card", { id: next.id,
+          origin: rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null });
+        if (floating && !keepOpen) {
+          setCollecting(song.songId);
+          await motion.current!.close(receive);
+          if (request !== discoveryRequest.current) return;
+        } else await receive();
+        if (request !== discoveryRequest.current) return;
+        if (keepOpen) { commitState(next.discovery); return; }
+      } else {
+        await call("play_song", { args: songArgs(song) });
+        if (request === discoveryRequest.current && floating) await motion.current!.close();
       }
+      if (request === discoveryRequest.current) commitSongs([]);
       if (!floating)
         notice(
-          t("已唤起 {p0}。", { p0: t(platformInfo(song.platform).label) }),
+          hand?.enabled ? t("已加入手牌") : t("已唤起 {p0}。", { p0: t(platformInfo(song.platform).label) }),
         );
     } catch (e) {
+      if (collected && request === discoveryRequest.current) commitState(collected);
       notice(errorText(e), true);
     } finally {
+      setCollecting("");
       playingRef.current = "";
       setPlaying("");
     }
   };
-  return { songs, status, replacing, slotRevision, previewGui, previewPointer, previewKey, loading, songError, playing, cancelling,
+  return { songs, status, replacing, slotRevision, previewGui, previewPointer, previewKey, loading, songError, playing, collecting, cancelling,
     batchRevision, viewportWidth, overlayPhase, discover, cancel, play, replace };
 }

@@ -15,7 +15,6 @@ pub fn log_event(app: &tauri::AppHandle, context: &str, code: &str) {
 pub fn log_frontend_error(app: tauri::AppHandle, context: String) {
     const ALLOWED: &[&str] = &[
         "import_playlist",
-        "discover_songs",
         "play_song",
         "save_preferences",
         "save_gui_preferences",

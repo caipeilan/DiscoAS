@@ -12,10 +12,13 @@ impl DesktopPreferences {
     pub fn load(app: &tauri::AppHandle) -> Result<Self, String> {
         Self::load_from_path(&Self::path(app)?)
     }
-    pub fn snapshot(app: &tauri::AppHandle) -> Result<Self, String> {
-        let mut settings = Self::load(app)?;
+    pub fn load_with_warning(app: &tauri::AppHandle) -> Result<(Self, Option<String>), String> {
+        Ok(Self::load_with_warning_from_path(&Self::path(app)?))
+    }
+    pub fn snapshot(app: &tauri::AppHandle) -> Result<(Self, Option<String>), String> {
+        let (mut settings, warning) = Self::load_with_warning(app)?;
         settings.launch_at_login = crate::desktop::autostart::autostart_enabled()?;
-        Ok(settings)
+        Ok((settings, warning))
     }
 }
 

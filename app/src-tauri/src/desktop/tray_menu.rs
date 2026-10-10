@@ -10,6 +10,7 @@ use tokio::sync::oneshot;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GA_ROOT};
 
 use crate::settings::gui_setting::GuiSetting;
+use crate::settings::music_setting::{MusicSetting, MusicSettingDesktop};
 
 const LABEL: &str = "tray-menu";
 const EVENT: &str = "tray-menu-open";
@@ -25,8 +26,9 @@ pub(super) fn owns_keyboard() -> bool {
 pub struct TrayMenuSnapshot {
     generation: u64,
     gui: GuiSetting,
-    labels: [String; 5],
+    labels: [String; 6],
     paused: bool,
+    hand_enabled: bool,
 }
 
 #[derive(Clone)]
@@ -69,10 +71,11 @@ fn menu_is_foreground(hwnd: isize) -> bool {
     foreground as isize == hwnd || unsafe { GetAncestor(foreground, GA_ROOT) } as isize == hwnd
 }
 
-pub fn labels(language: &str) -> [&'static str; 5] {
+pub fn labels(language: &str) -> [&'static str; 6] {
     match language {
         "en_US" => [
             "Discover a song",
+            "Show hand",
             "Library and settings",
             "Pause global shortcut",
             "Restart DiscoAS",
@@ -80,6 +83,7 @@ pub fn labels(language: &str) -> [&'static str; 5] {
         ],
         "zh_TW" => [
             "發現一首歌",
+            "顯示手牌",
             "歌單與設定",
             "暫停全域快捷鍵",
             "重新啟動 DiscoAS",
@@ -87,6 +91,7 @@ pub fn labels(language: &str) -> [&'static str; 5] {
         ],
         _ => [
             "发现一首歌",
+            "显示手牌",
             "歌单与设置",
             "暂停全局快捷键",
             "重启 DiscoAS",
@@ -150,11 +155,23 @@ pub fn show_at(app: &tauri::AppHandle, cursor: PhysicalPosition<f64>) {
         if state.generation.load(Ordering::Acquire) != generation {
             return;
         }
+        let mut text = labels(&gui.language).map(str::to_owned);
+        if super::hand::visible(&app) {
+            text[1] = match gui.language.as_str() {
+                "en_US" => "Close hand",
+                "zh_TW" => "關閉手牌",
+                _ => "关闭手牌",
+            }
+            .into();
+        }
         let snapshot = TrayMenuSnapshot {
             generation,
-            labels: labels(&gui.language).map(str::to_owned),
+            labels: text,
             gui,
             paused: app.state::<AtomicBool>().load(Ordering::Relaxed),
+            hand_enabled: MusicSetting::load(&app)
+                .map(|s| s.hand.enabled)
+                .unwrap_or(false),
         };
         {
             let mut pending = state.pending.lock().unwrap();
@@ -356,6 +373,7 @@ pub fn dismiss_tray_menu(window: tauri::WebviewWindow, generation: u64) -> Resul
 #[serde(rename_all = "snake_case")]
 pub enum TrayAction {
     Discover,
+    Hand,
     Main,
     Pause,
     Restart,
@@ -378,6 +396,7 @@ pub fn tray_menu_action(
     dismiss(app);
     match action {
         TrayAction::Discover => crate::show_overlay(app),
+        TrayAction::Hand => super::hand::toggle(app),
         TrayAction::Main => crate::show_main(app),
         TrayAction::Pause => {
             app.state::<AtomicBool>().fetch_xor(true, Ordering::Relaxed);
@@ -478,7 +497,7 @@ mod tests {
     fn only_known_menu_actions_deserialize() {
         assert!(serde_json::from_str::<TrayAction>("\"restart\"").is_ok());
         assert!(serde_json::from_str::<TrayAction>("\"open_url\"").is_err());
-        assert_eq!(labels("en_US")[2], "Pause global shortcut");
+        assert_eq!(labels("en_US")[3], "Pause global shortcut");
         assert_eq!(labels("zh_TW")[0], "發現一首歌");
     }
 }

@@ -32,7 +32,7 @@ export default function App() {
   const pageRef = useRef(page);
   pageRef.current = page;
   const library = useLibrary(app, notice);
-  const discovery = useDiscovery({ floating, page: pageRef, reload: app.reload, notice });
+  const discovery = useDiscovery({ floating, page: pageRef, reload: app.reload, notice, hand: state.settings.hand });
   useAppearance(floating ? discovery.previewGui ?? state.guiSettings : guiDraft);
   const settings = useSettings(app, notice);
   const { songs, overlayPhase, viewportWidth, cancel, discover } = discovery;

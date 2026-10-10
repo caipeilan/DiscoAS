@@ -12,7 +12,7 @@ import type { PreviewKeyEvent } from "./useKeyboardSelection";
 import { setPreviewCloseRect } from "../../services/desktop";
 import "./discovery.css";
 
-export function DiscoveryView({ state, status, floating, loading, songError, songs, playing, replacing, slotRevision, previewGui, previewPointer, previewKey, cancelling, batchRevision, overlayPhase, busy = "", cancel, discover, play, replace, openOverlay, manageLibrary }: {
+export function DiscoveryView({ state, status, floating, loading, songError, songs, playing, collecting, replacing, slotRevision, previewGui, previewPointer, previewKey, cancelling, batchRevision, overlayPhase, busy = "", cancel, discover, play, replace, openOverlay, manageLibrary }: {
   state: AppState;
   status: DiscoveryState;
   floating: boolean;
@@ -20,6 +20,7 @@ export function DiscoveryView({ state, status, floating, loading, songError, son
   songError: string;
   songs: Song[];
   playing: string;
+  collecting: string;
   replacing: number | null;
   slotRevision: number[];
   previewGui: GuiSettings | null;
@@ -89,6 +90,7 @@ export function DiscoveryView({ state, status, floating, loading, songError, son
   }, [floating, gui, loading, overlayPhase, preview, songs, showBar]);
   return (
     <div className="discovery-body" ref={body} data-input-mode={inputMode} data-preview={preview || undefined}
+      data-hand-mode={state.settings.hand?.enabled || undefined} data-collecting={collecting || undefined}
       onPointerMove={pointerMove} onPointerDown={pointerDown} onPointerLeave={pointerLeave}
       style={{ "--replacement-scale": gui.replacement_button_size || 1, "--discovery-bar-scale": gui.discovery_bar_size || 1,
         "--discovery-columns": columns } as CSSProperties}>
@@ -165,9 +167,10 @@ export function DiscoveryView({ state, status, floating, loading, songError, son
         <div className="song-grid" ref={grid}>
           {songs.map((song, i) => (
             <div className="song-card-slot" key={i} data-preview-hover={preview && (selectedIndex === i || pointedIndex === i) || undefined}
-              data-replacing={replacing === i || undefined}>
+              data-replacing={replacing === i || undefined} data-collected={collecting === song.songId || undefined}>
               <button
                 className={`song-card ${song.mysteryMode ? "mystery-card" : ""} ${selectedIndex === i ? "keyboard-selected" : ""}`}
+                data-song-id={song.songId}
                 disabled={!active || replacing === i}
                 key={slotRevision[i] || 0}
                 data-replaced={Boolean(slotRevision[i]) || undefined}
@@ -176,7 +179,7 @@ export function DiscoveryView({ state, status, floating, loading, songError, son
                 onFocus={() => focusIndex(i)}
                 onClick={() => { if (!preview) void play(song); }}
                 aria-label={
-                  song.mysteryMode
+                  state.settings.hand?.enabled ? t("加入手牌") : song.mysteryMode
                     ? t("播放神秘歌曲")
                     : t("播放 {p0}", { p0: song.name })
                 }
