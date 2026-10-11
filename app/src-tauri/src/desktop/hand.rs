@@ -169,6 +169,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn drawing_surface_keeps_its_visible_origin_when_the_arrival_finishes() {
+        let from = Point {
+            x: -122.2,
+            y: 270.4,
+        };
+        let to = Point { x: 301.7, y: 800.2 };
+        let anchor = PhysicalPosition::new(-214, 170);
+        let (position, size) = drawing_surface_geometry(from, to, Some(anchor));
+        assert_eq!(position, anchor);
+        assert_eq!(size, PhysicalSize::new(516, 631));
+
+        // Once hidden, the same window can use a compact origin on its next opening.
+        let (position, size) = drawing_surface_geometry(from, to, None);
+        assert_eq!(position, PhysicalPosition::new(-123, 270));
+        assert_eq!(size, PhysicalSize::new(425, 531));
+
+        // An incoming path above/left of the existing canvas still remains drawable.
+        let (position, size) = drawing_surface_geometry(
+            Point {
+                x: -320.5,
+                y: 150.25,
+            },
+            to,
+            Some(anchor),
+        );
+        assert_eq!(position, PhysicalPosition::new(-321, 150));
+        assert_eq!(size, PhysicalSize::new(623, 651));
+    }
+
+    #[test]
     fn updates_only_serialize_changed_cards_and_share_prepared_artwork() {
         let card = |id: &str| {
             Arc::new(HandCard {
@@ -473,7 +503,9 @@ async fn open(
                 .ok_or("错误：手牌窗口不可用")?,
             &canvas,
             canvas.work_area,
-        )?;
+            false,
+        )
+        .await?;
     }
     if let Some(arrival) = &mut arrival {
         arrival.rect = Rect {
@@ -825,7 +857,13 @@ pub async fn set_hand_hit_regions(
     if !is_preview {
         if let Some(bounds) = drawing_bounds.or_else(|| drawing_extent(&rects)) {
             if *state.drawing_bounds.lock().unwrap() != Some(bounds) {
-                fit_card_surface(&window, &canvas, bounds)?;
+                fit_card_surface(
+                    &window,
+                    &canvas,
+                    bounds,
+                    state.card_visible.load(Ordering::Acquire),
+                )
+                .await?;
                 *state.drawing_bounds.lock().unwrap() = Some(bounds);
                 resized = true;
             }
@@ -870,10 +908,11 @@ fn drawing_extent(rects: &[Rect]) -> Option<Rect> {
     })
 }
 
-fn fit_card_surface(
+async fn fit_card_surface(
     window: &tauri::WebviewWindow,
     canvas: &Canvas,
     bounds: Rect,
+    keep_origin: bool,
 ) -> Result<(), String> {
     let from = canvas.physical(Point {
         x: bounds.left - 14.0,
@@ -883,14 +922,49 @@ fn fit_card_surface(
         x: bounds.left + bounds.width + 14.0,
         y: bounds.top + bounds.height + 14.0,
     });
-    place_surface(
+    let anchor = if keep_origin {
+        Some(
+            window
+                .inner_position()
+                .map_err(|_| "错误：无法定位手牌窗口")?,
+        )
+    } else {
+        None
+    };
+    let (origin, size) = drawing_surface_geometry(from, to, anchor);
+    // The reply must describe the applied position, not a queued move.
+    super::floating_window::place_confirmed(window, origin, size).await?;
+    let surface = canvas.surface(window)?;
+    // Clip the complete drawing envelope, not the IPC-delayed card rectangles.
+    // This trims unused space when the visible window keeps its original anchor.
+    apply_regions(
         window,
-        PhysicalPosition::new(from.x.floor() as i32, from.y.floor() as i32),
-        PhysicalSize::new(
-            (to.x.ceil() - from.x.floor()).max(1.0) as u32,
-            (to.y.ceil() - from.y.floor()).max(1.0) as u32,
-        ),
+        &[Rect {
+            left: (bounds.left - surface.left) * surface.scale,
+            top: (bounds.top - surface.top) * surface.scale,
+            width: bounds.width * surface.scale,
+            height: bounds.height * surface.scale,
+        }],
+        false,
     )
+}
+
+fn drawing_surface_geometry(
+    from: Point,
+    to: Point,
+    anchor: Option<PhysicalPosition<i32>>,
+) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+    let mut origin = PhysicalPosition::new(from.x.floor() as i32, from.y.floor() as i32);
+    if let Some(anchor) = anchor {
+        // Shrink the right/bottom extent without moving the visible cards' coordinate origin.
+        origin.x = origin.x.min(anchor.x);
+        origin.y = origin.y.min(anchor.y);
+    }
+    let size = PhysicalSize::new(
+        (to.x.ceil() - origin.x as f64).max(1.0) as u32,
+        (to.y.ceil() - origin.y as f64).max(1.0) as u32,
+    );
+    (origin, size)
 }
 
 #[tauri::command]
@@ -921,8 +995,8 @@ pub async fn save_hand_dock(
     Ok(())
 }
 
-/// Dock regions follow its compact shape. Card windows use the complete small
-/// drawing surface; the pointer observer independently controls click-through.
+/// Dock regions follow its compact shape; cards use their complete animation
+/// envelope. The pointer observer independently controls click-through.
 pub(super) fn apply_regions(
     window: &tauri::WebviewWindow,
     rects: &[Rect],

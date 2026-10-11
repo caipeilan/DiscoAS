@@ -255,11 +255,11 @@ pub fn raise_discovery(app: &tauri::AppHandle) {
     });
 }
 
-pub fn place(
+fn queue_place(
     window: &WebviewWindow,
     origin: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
-) -> Result<(), String> {
+) -> Result<Completion, String> {
     let handle = window.hwnd().map_err(|_| "错误：浮窗窗口不可用")?.0 as usize;
     dispatch(window, move |_| {
         let hwnd = handle as HWND;
@@ -288,7 +288,24 @@ pub fn place(
         }
         Ok(())
     })
-    .map(|_| ())
+}
+
+pub fn place(
+    window: &WebviewWindow,
+    origin: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+) -> Result<(), String> {
+    queue_place(window, origin, size).map(|_| ())
+}
+
+pub async fn place_confirmed(
+    window: &WebviewWindow,
+    origin: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+) -> Result<(), String> {
+    queue_place(window, origin, size)?
+        .await
+        .map_err(|_| "错误：浮窗窗口不可用")?
 }
 
 pub fn ignore_cursor(window: &WebviewWindow, ignore: bool) -> Result<(), String> {
