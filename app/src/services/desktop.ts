@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
-import type { LibraryProgress, DiscoveryState, Preferences, GuiSettings,
+import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch, Preferences, GuiSettings,
   HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint } from "../types";
 
 export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
@@ -50,6 +50,7 @@ export type DesktopCommand =
   | "open_log_folder"
   | "discover_batch"
   | "get_discovery_state"
+  | "get_discovery_preferences"
   | "replace_discovery_song"
   | "mutate_discovery_history"
   | "get_history_covers"
@@ -81,7 +82,6 @@ export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 export interface DesktopEvents {
   "hand-dock-state-changed": HandDockSnapshot;
   "hand-dock-moved": { generation: number; point: HandPoint; surface: HandSurface };
-  "hand-dock-position-changed": { generation: number; point: HandPoint };
   "hand-dock-hide": number;
   "hand-clear-requested": void;
   "hand-clear-finished": string | null;
@@ -98,12 +98,14 @@ export interface DesktopEvents {
   "library-changed": { discoveryInvalidated: boolean } | void;
   "library-progress": LibraryProgress;
   "startup-refresh-failed": void;
-  "gui-changed": void;
-  "desktop-changed": void;
+  "preferences-changed": PreferencePatch;
+  "gui-changed": PreferencePatch | void;
+  "desktop-changed": PreferencePatch | void;
   "cover-refresh-failed": void;
   "client-window-result": { platform: string; minimized: boolean; warning: string | null };
   "playback-result": { platform: string; songId: string; success: boolean; confirmed: boolean; error: string | null };
   "discovery-state-changed": DiscoveryState;
+  "discovery-status-changed": DiscoveryStatus;
   "discovery-history-changed": { source: string | null } | null;
   "preview-pointer": PreviewPointer;
   "preview-key": PreviewKey;
@@ -129,6 +131,7 @@ export const endDiscoveryPreview = () => call<void>("end_discovery_preview");
 export const setPreviewCloseRect = (rect: PreviewCloseRect) => call<void>("set_preview_close_rect", { rect });
 export const listenDiscoveryState = (handler: (state: DiscoveryState) => void) =>
   onDesktopEvent("discovery-state-changed", handler);
+export const listenDiscoveryStatus = (handler: (state: DiscoveryStatus) => void) => onDesktopEvent("discovery-status-changed", handler);
 export const listenPreviewPointer = (handler: (pointer: PreviewPointer) => void) =>
   onDesktopEvent("preview-pointer", handler);
 export const listenPreviewKey = (handler: (key: PreviewKey) => void) => onDesktopEvent("preview-key", handler);

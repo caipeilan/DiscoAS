@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AppState, Preferences, GuiSettings, DesktopPreferences } from "../types";
+import type { AppState, Preferences, GuiSettings, DesktopPreferences, PreferencePatch } from "../types";
 import { emptyState } from "../types";
 import { call, desktop, onDesktopEvent, isCurrentWindowVisible } from "../services/desktop";
 import type { DesktopCommand, DesktopEvents } from "../services/desktop";
@@ -44,6 +44,28 @@ export function useAppState(floating: boolean, notice: Notice) {
     savedDesktop.current = next.desktopSettings;
     setState(next);
   }, []);
+  const applyPatch = useCallback((patch: PreferencePatch) => {
+    if (patch.settings) {
+      const previous = savedSettings.current, next = patch.settings;
+      setDraft((draft) => samePreferences(draft, previous) ? next : { ...draft, playlist_albums: next.playlist_albums });
+      savedSettings.current = next;
+    }
+    if (patch.guiSettings) {
+      const previous = savedGui.current, next = patch.guiSettings;
+      setGuiDraft((draft) => sameGuiPreferences(draft, previous) ? next : draft);
+      savedGui.current = next;
+    }
+    if (patch.desktopSettings) {
+      const previous = savedDesktop.current, next = patch.desktopSettings;
+      setDesktopDraft((draft) => JSON.stringify(draft) === JSON.stringify(previous) ? next : draft);
+      savedDesktop.current = next;
+    }
+    setState((current) => ({ ...current,
+      ...(patch.settings ? { settings: patch.settings } : {}),
+      ...(patch.guiSettings ? { guiSettings: patch.guiSettings } : {}),
+      ...(patch.desktopSettings ? { desktopSettings: patch.desktopSettings, desktopSettingsError: null } : {}),
+    }));
+  }, []);
   const [startup, setStartup] = useState(desktop);
   const [busy, setBusy] = useState("");
   useEffect(() => {
@@ -52,9 +74,14 @@ export function useAppState(floating: boolean, notice: Notice) {
   const reload = useCallback(async () => {
     if (!desktop) return;
     const version = ++snapshotVersion.current;
+    const before = { settings: savedSettings.current, gui: savedGui.current, desktop: savedDesktop.current };
     const snapshot = await call<AppState>("get_app_state");
     // Event refreshes can finish out of order or after an explicit source/settings mutation.
-    if (version === snapshotVersion.current) applySnapshot(snapshot);
+    if (version === snapshotVersion.current) applySnapshot({ ...snapshot,
+      settings: savedSettings.current === before.settings ? snapshot.settings : savedSettings.current,
+      guiSettings: savedGui.current === before.gui ? snapshot.guiSettings : savedGui.current,
+      desktopSettings: savedDesktop.current === before.desktop ? snapshot.desktopSettings : savedDesktop.current,
+    });
   }, [applySnapshot]);
   useEffect(() => {
     reload()
@@ -71,8 +98,10 @@ export function useAppState(floating: boolean, notice: Notice) {
         if (active) removers.push(fn);
         else fn();
       });
-    for (const event of ["startup-refresh-failed", "gui-changed", "desktop-changed"] as const)
-      attach(event, () => reload().catch((e) => notice(errorText(e), true)));
+    attach("startup-refresh-failed", () => reload().catch((e) => notice(errorText(e), true)));
+    attach("preferences-changed", applyPatch);
+    for (const event of ["gui-changed", "desktop-changed"] as const)
+      attach(event, (patch) => patch ? applyPatch(patch) : void reload().catch((e) => notice(errorText(e), true)));
     attach("cover-refresh-failed", () => {
       notice(t("错误：封面加载失败"), true);
     });
@@ -90,7 +119,7 @@ export function useAppState(floating: boolean, notice: Notice) {
       active = false;
       removers.forEach((fn) => fn());
     };
-  }, [reload, notice]);
+  }, [reload, notice, applyPatch]);
   const action = async (
     key: string,
     command: DesktopCommand,
@@ -113,7 +142,7 @@ export function useAppState(floating: boolean, notice: Notice) {
   };
   return {
     state, draft, setDraft, guiDraft, setGuiDraft, desktopDraft, setDesktopDraft,
-    applySnapshot, reload, startup, busy, setBusy, action
+    applySnapshot, applyPatch, reload, startup, busy, setBusy, action
   };
 }
 

@@ -90,7 +90,7 @@ pub async fn save_preferences(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     settings: MusicSetting,
-) -> Result<Snapshot, String> {
+) -> Result<crate::desktop::preferences::PreferencePatch, String> {
     crate::desktop::preferences::save_preferences(app, cache, settings).await
 }
 
@@ -99,7 +99,7 @@ pub async fn save_gui_preferences(
     app: tauri::AppHandle,
     settings: GuiSetting,
     cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<Snapshot, String> {
+) -> Result<crate::desktop::preferences::PreferencePatch, String> {
     crate::desktop::preferences::save_gui_preferences(app, settings, cache).await
 }
 
@@ -119,4 +119,15 @@ pub fn open_data_folder(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn choose_mystery_cover(app: tauri::AppHandle) -> Result<Option<String>, String> {
     crate::desktop::dialogs::choose_mystery_cover(app).await
+}
+
+#[tauri::command]
+pub async fn get_discovery_preferences(
+    app: tauri::AppHandle,
+) -> Result<crate::desktop::preferences::DiscoveryPreferences, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::preferences::discovery_preferences(app)
+    })
+    .await
+    .map_err(|_| "错误：无法读取设置".to_string())?
 }

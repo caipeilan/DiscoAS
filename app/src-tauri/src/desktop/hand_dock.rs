@@ -1,5 +1,5 @@
 //! A small, independent window for the hand's Logo and controls.
-use super::hand::{Canvas, HandSnapshot, Point, Rect, Surface};
+use super::geometry::{Canvas, Point, Rect, Surface};
 use crate::settings::gui_setting::GuiSetting;
 use discoas_core::hand::HandSettings;
 use serde::Serialize;
@@ -13,14 +13,14 @@ const LABEL: &str = "hand-dock";
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
-    generation: u64,
-    count: usize,
-    settings: HandSettings,
-    gui: GuiSetting,
-    work_area: Rect,
-    work_areas: Vec<Rect>,
-    dock_point: Option<Point>,
-    expanded: bool,
+    pub(super) generation: u64,
+    pub(super) count: usize,
+    pub(super) settings: HandSettings,
+    pub(super) gui: GuiSetting,
+    pub(super) work_area: Rect,
+    pub(super) work_areas: Vec<Rect>,
+    pub(super) dock_point: Option<Point>,
+    pub(super) expanded: bool,
 }
 #[derive(Clone)]
 struct Layout {
@@ -33,11 +33,6 @@ pub struct Motion {
     generation: u64,
     point: Point,
     surface: Surface,
-}
-#[derive(Clone, Serialize)]
-struct PositionChange {
-    generation: u64,
-    point: Point,
 }
 #[derive(Default)]
 pub struct DockState {
@@ -121,13 +116,9 @@ async fn create(app: &tauri::AppHandle) -> Result<(), String> {
 
 pub(super) async fn sync(
     app: &tauri::AppHandle,
-    hand: &HandSnapshot,
+    mut snapshot: Snapshot,
     canvas: &Canvas,
 ) -> Result<(), String> {
-    if hand.preview {
-        hide(app, hand.generation);
-        return Ok(());
-    }
     if app.get_webview_window(LABEL).is_none() {
         create(app).await?;
     }
@@ -138,17 +129,14 @@ pub(super) async fn sync(
         .unwrap()
         .as_ref()
         .and_then(|s| s.dock_point);
-    let snapshot = Snapshot {
-        generation: hand.generation,
-        count: hand.cards.len(),
-        settings: hand.settings.clone(),
-        gui: hand.gui.clone(),
-        work_area: hand.work_area,
-        work_areas: canvas.work_areas.clone(),
-        dock_point: hand.dock_point.or(previous_point),
-        expanded: hand.expanded,
-    };
-    state.generation.store(hand.generation, Ordering::Release);
+    let previous_canvas = state.canvas.lock().unwrap().clone();
+    snapshot.dock_point = previous_point
+        .zip(previous_canvas)
+        .map(|(point, old)| visible_point(canvas, canvas.point(old.physical(point))))
+        .or_else(|| saved_point(app, canvas));
+    state
+        .generation
+        .store(snapshot.generation, Ordering::Release);
     state.visible.store(true, Ordering::Release);
     *state.canvas.lock().unwrap() = Some(canvas.clone());
     *state.snapshot.lock().unwrap() = Some(snapshot.clone());
@@ -211,11 +199,6 @@ pub(super) fn moved(app: &tauri::AppHandle, generation: u64, point: Point) {
     if let Some(snapshot) = snapshot {
         let _ = app.emit_to(LABEL, "hand-dock-state-changed", snapshot);
     }
-    let _ = app.emit_to(
-        "hand",
-        "hand-dock-position-changed",
-        PositionChange { generation, point },
-    );
 }
 
 #[tauri::command]
@@ -278,7 +261,7 @@ pub async fn position_hand_dock(
             .scale_factor()
             .map_err(|_| "错误：无法读取显示器信息")?,
     });
-    super::hand::place_surface(&window, PhysicalPosition::new(x, y), size)?;
+    super::floating_window::place_confirmed(&window, PhysicalPosition::new(x, y), size).await?;
     let surface = canvas.surface(&window)?;
     if let Some(layout) = state.layout.lock().unwrap().as_mut() {
         layout.native_scale = canvas.scale / surface.scale;
@@ -318,7 +301,7 @@ pub async fn set_hand_dock_hit_regions(
         .collect();
     let old = state.region.lock().unwrap().clone();
     if old.as_ref() != Some(&(generation, physical.clone())) {
-        super::hand::apply_regions(&window, &rects, false)?;
+        super::geometry::apply_regions(&window, &rects, false)?;
         *state.region.lock().unwrap() = Some((generation, physical));
     }
     if !window.is_visible().map_err(|_| "错误：手牌浮窗不可用")? {
@@ -364,4 +347,58 @@ pub async fn begin_hand_dock_drag(app: tauri::AppHandle, generation: u64) -> Res
         x: origin.x as f64 + layout.logo_offset.x,
         y: origin.y as f64 + layout.logo_offset.y,
     }))
+}
+
+fn dock_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(crate::paths::user_data_dir(app)
+        .map_err(|e| e.to_string())?
+        .join("hand/dock.json"))
+}
+pub(super) fn saved_point(app: &tauri::AppHandle, canvas: &Canvas) -> Option<Point> {
+    let path = dock_path(app).ok()?;
+    let physical: Point = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let point = canvas.point(physical);
+    Some(visible_point(canvas, point))
+}
+fn visible_point(canvas: &Canvas, point: Point) -> Point {
+    if canvas
+        .work_areas
+        .iter()
+        .any(|area| area.contains(point.x, point.y))
+    {
+        return point;
+    }
+    // A disconnected monitor should not leave the control outside the remaining desktop.
+    let area = canvas.work_area;
+    Point {
+        x: point.x.clamp(area.left + 8.0, area.left + area.width - 8.0),
+        y: point.y.clamp(area.top + 8.0, area.top + area.height - 8.0),
+    }
+}
+
+#[tauri::command]
+pub async fn save_hand_dock(
+    app: tauri::AppHandle,
+    generation: u64,
+    point: Point,
+) -> Result<(), String> {
+    let state = app.state::<DockState>();
+    if state.generation.load(Ordering::Acquire) != generation {
+        return Ok(());
+    }
+    let canvas = state
+        .canvas
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("错误：手牌窗口不可用")?;
+    let path = dock_path(&app)?;
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec(&canvas.physical(point)).map_err(|e| e.to_string())?;
+    discoas_core::storage::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
+    if let Some(snapshot) = state.snapshot.lock().unwrap().as_mut() {
+        snapshot.dock_point = Some(point);
+    }
+    moved(&app, generation, point);
+    Ok(())
 }

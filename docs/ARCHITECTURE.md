@@ -49,7 +49,9 @@
 | 前端桌面命令、事件或窗口调用 | `app/src/services/desktop.ts` |
 | 调试版独立数据目录与原生 QA | `app/src-tauri/src/paths.rs` 的 `DISCOAS_TEST_ROOT` 分支 |
 
-`App.tsx` 只组合页面和控制导航。`app/src-tauri/src/commands.rs`、`library.rs`、`desktop_preferences.rs` 保留现有命令名，负责接入；旧 `core/`、`platforms/` 路径中的少量文件是转发入口，业务实现以独立库为准。
+`main.tsx` 按窗口用途延迟加载入口。`App.tsx` 组合主窗口页面与导航；`features/discovery/DiscoverWindow.tsx` 单独组合发现浮窗，只读取歌曲和外观设置。手牌、Logo 浮窗与托盘菜单各自加载自己的视图。`app/src-tauri/src/commands.rs`、`library.rs`、`desktop_preferences.rs` 保留现有命令名，负责接入；旧 `core/`、`platforms/` 路径中的少量文件是转发入口，业务实现以独立库为准。
+
+手牌前端的 `HandWindow.tsx` 负责渲染，`useHandController.ts` 管理快照与操作，`useHandInput.ts` 管理输入，`useHandMotion.ts` 管理动画，`useHandSurface.ts` 管理原生布局确认和绘制区域。静止卡片的矩形由 `regionUpdates.ts` 缓存，运动中的卡片测量至最后一帧；区域提交一次只执行一个请求，并合并期间的新状态。桌面对应 `hand_actions.rs`（持久操作与播放）、`hand.rs`（窗口生命周期）、`hand_input.rs`（原生观察）、`geometry.rs`（坐标、DPI 与绘制范围）和 `hand_dock.rs`（独立浮窗及位置保存）。普通卡牌窗口不接收浮窗位置事件，拖动浮窗不重建卡片；预览中的控制条仍由预览视图显示。
 
 ## 依赖规则
 
@@ -87,7 +89,11 @@
 
 ## 发现状态、替换与预览
 
-`discover_batch` / `get_discovery_state` 返回 `DiscoveryStateDto`，前端对应 `DiscoveryState`：`songs`、`batchEpoch`、`remainingSongs`、`replacementsRemaining`、`exclusionEnabled`、`replacementEnabled`、`preview`。状态仅通过 `discovery-state-changed` 在操作锁内同步，歌曲和封面随状态一起发送。歌曲设置保留 snake_case，跨桌面的 DTO 使用 camelCase，不能混用字段形式。
+`discover_batch` / `get_discovery_state` 返回 `DiscoveryStateDto`，前端对应 `DiscoveryState`：`songs`、`batchEpoch`、`remainingSongs`、`replacementsRemaining`、`exclusionEnabled`、`replacementEnabled`、`preview`。批次或元数据改变时，在操作锁内发送完整 `discovery-state-changed`；仅计数、排除与预算改变时发送不含 `songs` 的 `discovery-status-changed`。核心分别维护批次 epoch 和元数据 revision，同身份的详情修复仍触发完整更新。前端按 epoch 合并解码期间收到的轻量状态，不重启未变卡片的动画。歌曲设置保留 snake_case，跨桌面的 DTO 使用 camelCase。
+
+`get_discovery_preferences` 只返回歌曲和外观设置。三类保存命令返回并通过对应事件发送 `PreferencePatch`，只携带本次保存的设置组，不读取歌单摘要和封面。主窗口按组保留未保存草稿；全量读取期间收到保存结果时，保留已保存的组并接受其它来源数据。普通发现设置变化只有涉及手牌、按键或秘密封面时才刷新手牌窗口。
+
+卡池计数通过歌单 ID 视图读取，跳过完整 `tracks_info`；已有 JSON 快照以借用方式解析 ID，避免克隆整份元数据。即时抽取和尺寸预览使用同一份 `SamplingInputs` 同时获得候选与剩余数量；预加载批次展示时重新计算排除，反映准备后新增的历史与手牌。
 
 `replace_discovery_song` 接收完整来源身份与 `batchEpoch`。锁内获取替换票据，锁外准备元数据和封面，再持锁复核来源、当前批次、卡片位置、已移出身份与剩余预算并提交。失败或过时的替换不消耗次数，成功只替换指定位置并更新状态；神秘位置仍保持隐藏，替补也可再替换。预算默认 1，0 关闭，每次发现最多 100 次。启用预加载去重时，替补不能与后续预加载同时占用同一身份。
 
@@ -196,6 +202,7 @@ npm run tauri dev
 | 前端类型或界面 | `npx tsc --noEmit`；相关页面、浅深色及窗口尺寸 |
 | 手牌布局 | `npm run test:hand:layout` |
 | 手牌动画 | `npm run test:hand:motion`；实际入手、展开收纳、打出和弃牌画面 |
+| 手牌测量与区域提交 | `node --test tests/handRegions.test.mjs`；静止时停止测量、拖动期间合并提交 |
 | 发现与本地选歌 | 按修改选择 `test:discovery`、`test:keyboard`、`test:motion` |
 | 封面、来源、歌单、历史 | 按修改选择 `test:covers`、`test:source`、`test:library`、`test:history` |
 | 设置、控件、数值、主题 | 按修改选择 `test:preferences`、`test:controls`、`test:numeric`、`test:theme` |
@@ -203,7 +210,7 @@ npm run tauri dev
 | 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
 | Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |
 
-`test:hand` 只组合手牌布局与动画，不附带发现或播放测试。主窗口自绘控制单独验证最小化、最大化／还原、拖动、边缘缩放和关闭收至托盘；原生窗口改动核验任务栏、显示缩放、焦点与透明区域穿透。性能对比只覆盖被改动的交互和静止状态。完整交付前编译 Windows NSIS 安装包，复用已经完成的相关检查。
+`test:hand` 组合手牌布局、动画与区域提交测试。`test:preferences` 包含分组保存、部分失败与迟到快照合并。主窗口自绘控制单独验证最小化、最大化／还原、拖动、边缘缩放和关闭收至托盘；原生窗口改动核验任务栏、显示缩放、焦点与透明区域穿透。性能对比只覆盖被改动的交互和静止状态。完整交付前编译 Windows NSIS 安装包，复用已经完成的相关检查。
 
 `--offline` 要求 Rust 依赖已缓存在本机；首次下载依赖时可省略。公网探针只在核验平台变化时单独运行。独立核心的离线示例不读写已有用户数据。
 

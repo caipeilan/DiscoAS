@@ -2,7 +2,7 @@ use crate::core::cache::Cache;
 use crate::settings::music_setting::{MusicSetting, MusicSettingDesktop};
 use discoas_core::discovery_service::DiscoveryService;
 use std::sync::Arc;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 pub use discoas_core::model::{
     DiscoveryStateDto, HistoryIdentity, HistoryMutationDto, PlaySongArgs,
@@ -87,7 +87,7 @@ pub async fn play_song(
             })
         })
         .cloned();
-    crate::desktop::hand::clear_pending(&app);
+    crate::desktop::hand_actions::clear_pending(&app);
     crate::desktop::playback::dispatch(&app, &args, card.as_ref(), url).await?;
     match service.record_selection(&args).await {
         Ok(()) => {
@@ -101,15 +101,32 @@ pub async fn play_song(
     Ok(())
 }
 
-/// Invoke while retaining Cache::operation so an older event cannot overwrite a newer batch.
+/// Publication state stores only a content revision, never a second copy of covers.
+#[derive(Default)]
+pub struct DiscoveryPublication(std::sync::Mutex<Option<(u64, u64)>>);
+
+fn emit_complete(app: &tauri::AppHandle, cache: &Cache, state: &DiscoveryStateDto) {
+    *app.state::<DiscoveryPublication>().0.lock().unwrap() = Some(cache.current_batch_revision());
+    let _ = app.emit("discovery-state-changed", state);
+}
+
+/// Invoke under operation: count changes need no repeated card/image payload.
 pub(crate) async fn publish_discovery_state(app: &tauri::AppHandle, cache: &Arc<Cache>) {
     if crate::desktop::discovery_preview::isolated(app) {
         return;
     }
-    if let Ok(service) = discovery_service(app, cache) {
-        if let Ok(state) = service.get_state().await {
-            let _ = app.emit("discovery-state-changed", state);
-        }
+    let Ok(service) = discovery_service(app, cache) else {
+        return;
+    };
+    let Ok(status) = service.get_status().await else {
+        return;
+    };
+    let revision = cache.current_batch_revision();
+    if *app.state::<DiscoveryPublication>().0.lock().unwrap() == Some(revision) {
+        let _ = app.emit("discovery-status-changed", status);
+    } else {
+        let songs = cache.current_batch.lock().await.clone().unwrap_or_default();
+        emit_complete(app, cache, &status.with_songs(songs));
     }
 }
 
@@ -130,7 +147,7 @@ pub async fn discover_batch(
         .discover_in_operation(force.unwrap_or(false), &guard)
         .await?;
     if batch.newly_selected {
-        let _ = app.emit("discovery-state-changed", batch.state.clone());
+        emit_complete(&app, cache.inner(), &batch.state);
         spawn_preload(app, cache.inner().clone());
     }
     Ok(batch.state)
@@ -174,7 +191,7 @@ pub async fn replace_discovery_song(
     let state = service
         .commit_replacement_in_operation(prepared, &guard)
         .await?;
-    let _ = app.emit("discovery-state-changed", state.clone());
+    emit_complete(&app, cache.inner(), &state);
     spawn_preload(app, cache.inner().clone());
     Ok(state)
 }

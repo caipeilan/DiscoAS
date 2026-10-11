@@ -1,4 +1,9 @@
-//! Held-card commands and a transparent desktop surface with native hit testing.
+//! Card-window lifecycle, prepared snapshots and discovery-to-hand presentation.
+use super::{
+    geometry::{apply_regions, fit_card_surface, Canvas, Point, Rect, Surface},
+    hand_actions::store,
+    hand_input::{activate_keyboard, observe_pointer, stop_keyboard},
+};
 use crate::{
     core::cache::Cache,
     settings::{
@@ -7,12 +12,10 @@ use crate::{
     },
 };
 use discoas_core::{
-    discovery_service::DiscoveryService,
-    hand::{HandCard, HandSettings, HandStore, StoredHandCard},
+    hand::{HandCard, HandSettings, StoredHandCard},
     image_cache::{library_key, read_library_cover},
-    model::PlaySongArgs,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -21,75 +24,6 @@ use std::sync::{
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "hand";
-#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-pub struct Rect {
-    pub left: f64,
-    pub top: f64,
-    pub width: f64,
-    pub height: f64,
-}
-impl Rect {
-    fn contains(self, x: f64, y: f64) -> bool {
-        x >= self.left
-            && y >= self.top
-            && x <= self.left + self.width
-            && y <= self.top + self.height
-    }
-}
-#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-pub struct Point {
-    pub x: f64,
-    pub y: f64,
-}
-#[derive(Clone, Copy, Serialize)]
-pub struct Surface {
-    pub(super) left: f64,
-    pub(super) top: f64,
-    pub(super) width: f64,
-    pub(super) height: f64,
-    pub(super) scale: f64,
-}
-#[derive(Clone)]
-pub(super) struct Canvas {
-    origin: PhysicalPosition<i32>,
-    size: PhysicalSize<u32>,
-    pub(super) scale: f64,
-    work_area: Rect,
-    pub(super) work_areas: Vec<Rect>,
-}
-impl Canvas {
-    pub(super) fn point(&self, physical: Point) -> Point {
-        Point {
-            x: (physical.x - self.origin.x as f64) / self.scale,
-            y: (physical.y - self.origin.y as f64) / self.scale,
-        }
-    }
-    pub(super) fn physical(&self, point: Point) -> Point {
-        Point {
-            x: self.origin.x as f64 + point.x * self.scale,
-            y: self.origin.y as f64 + point.y * self.scale,
-        }
-    }
-    pub(super) fn surface(&self, window: &tauri::WebviewWindow) -> Result<Surface, String> {
-        let origin = window
-            .inner_position()
-            .map_err(|_| "错误：无法定位手牌窗口")?;
-        let scale = window
-            .scale_factor()
-            .map_err(|_| "错误：无法读取显示器信息")?;
-        let point = self.point(Point {
-            x: origin.x as f64,
-            y: origin.y as f64,
-        });
-        Ok(Surface {
-            left: point.x,
-            top: point.y,
-            width: self.size.width as f64 / self.scale,
-            height: self.size.height as f64 / self.scale,
-            scale: self.scale / scale,
-        })
-    }
-}
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Arrival {
@@ -106,7 +40,7 @@ pub struct HandSnapshot {
     card_order: Option<Vec<String>>,
     pub(super) settings: HandSettings,
     pub(super) gui: GuiSetting,
-    keys: discoas_core::settings::discovery_keybindings::DiscoveryKeybindings,
+    pub(super) keys: discoas_core::settings::discovery_keybindings::DiscoveryKeybindings,
     pub(super) work_area: Rect,
     work_areas: Vec<Rect>,
     pub(super) dock_point: Option<Point>,
@@ -125,17 +59,13 @@ pub struct HandVisibility {
 }
 #[derive(Serialize)]
 pub struct CollectedHandCard {
-    id: String,
-    discovery: crate::commands::DiscoveryStateDto,
-}
-struct Pending {
-    index: usize,
-    card: StoredHandCard,
+    pub(super) id: String,
+    pub(super) discovery: crate::commands::DiscoveryStateDto,
 }
 #[derive(PartialEq)]
-struct HitRegions {
-    rects: Vec<Rect>,
-    dragging: bool,
+pub(super) struct HitRegions {
+    pub(super) rects: Vec<Rect>,
+    pub(super) dragging: bool,
 }
 #[derive(Clone)]
 struct PreparedCard {
@@ -145,58 +75,28 @@ struct PreparedCard {
 #[derive(Default)]
 pub struct HandState {
     serial: tokio::sync::Mutex<()>,
-    generation: AtomicU64,
+    pub(super) generation: AtomicU64,
     ready: AtomicBool,
     visible: AtomicBool,
-    card_visible: AtomicBool,
-    keyboard_active: AtomicBool,
-    pointer_generation: AtomicU64,
-    expanded: AtomicBool,
+    pub(super) card_visible: AtomicBool,
+    pub(super) keyboard_active: AtomicBool,
+    pub(super) pointer_generation: AtomicU64,
+    pub(super) expanded: AtomicBool,
     dismissed: AtomicBool,
-    session: Mutex<Option<HandSnapshot>>,
-    canvas: Mutex<Option<Canvas>>,
+    pub(super) session: Mutex<Option<HandSnapshot>>,
+    pub(super) canvas: Mutex<Option<Canvas>>,
     preview_restore: Mutex<Option<(bool, bool)>>,
-    regions: Mutex<Option<HitRegions>>,
+    pub(super) regions: Mutex<Option<HitRegions>>,
+    pub(super) regions_revision: AtomicU64,
     drawing_bounds: Mutex<Option<Rect>>,
-    pending: Mutex<Option<Pending>>,
     prepared: Mutex<HashMap<String, PreparedCard>>,
     arrival_ready: Mutex<Option<(String, tokio::sync::oneshot::Sender<Result<(), String>>)>>,
-    keyboard_generation: Arc<AtomicU64>,
-    keyboard_counter: AtomicU64,
+    pub(super) keyboard_generation: Arc<AtomicU64>,
+    pub(super) keyboard_counter: AtomicU64,
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn drawing_surface_keeps_its_visible_origin_when_the_arrival_finishes() {
-        let from = Point {
-            x: -122.2,
-            y: 270.4,
-        };
-        let to = Point { x: 301.7, y: 800.2 };
-        let anchor = PhysicalPosition::new(-214, 170);
-        let (position, size) = drawing_surface_geometry(from, to, Some(anchor));
-        assert_eq!(position, anchor);
-        assert_eq!(size, PhysicalSize::new(516, 631));
-
-        // Once hidden, the same window can use a compact origin on its next opening.
-        let (position, size) = drawing_surface_geometry(from, to, None);
-        assert_eq!(position, PhysicalPosition::new(-123, 270));
-        assert_eq!(size, PhysicalSize::new(425, 531));
-
-        // An incoming path above/left of the existing canvas still remains drawable.
-        let (position, size) = drawing_surface_geometry(
-            Point {
-                x: -320.5,
-                y: 150.25,
-            },
-            to,
-            Some(anchor),
-        );
-        assert_eq!(position, PhysicalPosition::new(-321, 150));
-        assert_eq!(size, PhysicalSize::new(623, 651));
-    }
 
     #[test]
     fn updates_only_serialize_changed_cards_and_share_prepared_artwork() {
@@ -252,30 +152,23 @@ mod tests {
     }
 }
 
-fn store(app: &tauri::AppHandle) -> Result<HandStore, String> {
-    Ok(HandStore::new(
-        crate::paths::user_data_dir(app).map_err(|e| e.to_string())?,
-    ))
-}
-fn service(app: &tauri::AppHandle) -> Result<DiscoveryService, String> {
-    Ok(DiscoveryService::new(
-        crate::paths::user_data_dir(app).map_err(|e| e.to_string())?,
-        app.state::<Arc<Cache>>().inner().clone(),
-    ))
-}
 pub fn visible(app: &tauri::AppHandle) -> bool {
     app.state::<HandState>().visible.load(Ordering::Acquire)
 }
-fn preview(app: &tauri::AppHandle) -> bool {
+pub(super) fn update_order(app: &tauri::AppHandle, ids: &[String]) {
+    if let Some(session) = app.state::<HandState>().session.lock().unwrap().as_mut() {
+        session
+            .cards
+            .sort_by_key(|card| ids.iter().position(|id| id == &card.id));
+    }
+}
+pub(super) fn preview(app: &tauri::AppHandle) -> bool {
     app.state::<HandState>()
         .session
         .lock()
         .unwrap()
         .as_ref()
         .is_some_and(|s| s.preview)
-}
-pub fn clear_pending(app: &tauri::AppHandle) {
-    app.state::<HandState>().pending.lock().unwrap().take();
 }
 async fn cards(app: &tauri::AppHandle, music: &MusicSetting) -> Result<Vec<Arc<HandCard>>, String> {
     let root = crate::paths::user_data_dir(app).map_err(|e| e.to_string())?;
@@ -422,38 +315,6 @@ fn position_surface(app: &tauri::AppHandle, reposition: bool) -> Result<Canvas, 
     Ok(canvas)
 }
 
-pub(super) fn place_surface(
-    window: &tauri::WebviewWindow,
-    origin: PhysicalPosition<i32>,
-    size: PhysicalSize<u32>,
-) -> Result<(), String> {
-    super::floating_window::place(window, origin, size)
-}
-
-fn dock_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(crate::paths::user_data_dir(app)
-        .map_err(|e| e.to_string())?
-        .join("hand/dock.json"))
-}
-fn dock_point(app: &tauri::AppHandle, canvas: &Canvas) -> Option<Point> {
-    let path = dock_path(app).ok()?;
-    let physical: Point = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    let point = canvas.point(physical);
-    if canvas
-        .work_areas
-        .iter()
-        .any(|area| area.contains(point.x, point.y))
-    {
-        return Some(point);
-    }
-    // A disconnected monitor should not leave the control outside the remaining desktop.
-    let area = canvas.work_area;
-    Some(Point {
-        x: point.x.clamp(area.left + 8.0, area.left + area.width - 8.0),
-        y: point.y.clamp(area.top + 8.0, area.top + area.height - 8.0),
-    })
-}
-
 async fn open(
     app: &tauri::AppHandle,
     focus: bool,
@@ -564,7 +425,11 @@ async fn open(
         keys: music.discovery_keybindings,
         work_area: canvas.work_area,
         work_areas: canvas.work_areas.clone(),
-        dock_point: dock_point(app, &canvas),
+        dock_point: if is_preview {
+            super::hand_dock::saved_point(app, &canvas)
+        } else {
+            None
+        },
         surface,
         preview: is_preview,
         focus,
@@ -580,11 +445,30 @@ async fn open(
         state.dismissed.store(false, Ordering::Release);
     }
     *state.regions.lock().unwrap() = None;
+    state.regions_revision.fetch_add(1, Ordering::Release);
     *state.drawing_bounds.lock().unwrap() = None;
     let was_preview = preview(app);
     stop_keyboard(app);
     *state.session.lock().unwrap() = Some(snapshot.clone());
-    super::hand_dock::sync(app, &snapshot, &canvas).await?;
+    if is_preview {
+        super::hand_dock::hide(app, generation);
+    } else {
+        super::hand_dock::sync(
+            app,
+            super::hand_dock::Snapshot {
+                generation,
+                count: snapshot.cards.len(),
+                settings: snapshot.settings.clone(),
+                gui: snapshot.gui.clone(),
+                work_area: snapshot.work_area,
+                work_areas: snapshot.work_areas.clone(),
+                dock_point: None,
+                expanded,
+            },
+            &canvas,
+        )
+        .await?;
+    }
     if was_preview && !is_preview {
         let _ = app.emit("hand-preview-closed", ());
     }
@@ -666,7 +550,25 @@ async fn set_expanded(app: &tauri::AppHandle, expanded: bool, focus: bool) -> Re
     stop_keyboard(app);
     let snapshot = state.session.lock().unwrap().clone();
     if let Some(snapshot) = snapshot {
-        super::hand_dock::sync(app, &snapshot, &canvas).await?;
+        if snapshot.preview {
+            super::hand_dock::hide(app, generation);
+        } else {
+            super::hand_dock::sync(
+                app,
+                super::hand_dock::Snapshot {
+                    generation,
+                    count: snapshot.cards.len(),
+                    settings: snapshot.settings.clone(),
+                    gui: snapshot.gui.clone(),
+                    work_area: snapshot.work_area,
+                    work_areas: snapshot.work_areas.clone(),
+                    dock_point: None,
+                    expanded,
+                },
+                &canvas,
+            )
+            .await?;
+        }
     }
     app.emit_to(
         LABEL,
@@ -693,6 +595,7 @@ pub fn hide(app: &tauri::AppHandle) {
     state.keyboard_active.store(false, Ordering::Release);
     state.expanded.store(false, Ordering::Release);
     *state.regions.lock().unwrap() = None;
+    state.regions_revision.fetch_add(1, Ordering::Release);
     stop_keyboard(app);
     let generation = state.generation.fetch_add(1, Ordering::AcqRel) + 1;
     super::hand_dock::hide(app, generation);
@@ -879,6 +782,7 @@ pub async fn set_hand_hit_regions(
         before.left != surface.left || before.top != surface.top || before.scale != surface.scale;
     if state.regions.lock().unwrap().as_ref() != Some(&next) {
         *state.regions.lock().unwrap() = Some(next);
+        state.regions_revision.fetch_add(1, Ordering::Release);
     }
     if changed {
         if let Some(snapshot) = state.session.lock().unwrap().as_mut() {
@@ -908,135 +812,6 @@ fn drawing_extent(rects: &[Rect]) -> Option<Rect> {
     })
 }
 
-async fn fit_card_surface(
-    window: &tauri::WebviewWindow,
-    canvas: &Canvas,
-    bounds: Rect,
-    keep_origin: bool,
-) -> Result<(), String> {
-    let from = canvas.physical(Point {
-        x: bounds.left - 14.0,
-        y: bounds.top - 14.0,
-    });
-    let to = canvas.physical(Point {
-        x: bounds.left + bounds.width + 14.0,
-        y: bounds.top + bounds.height + 14.0,
-    });
-    let anchor = if keep_origin {
-        Some(
-            window
-                .inner_position()
-                .map_err(|_| "错误：无法定位手牌窗口")?,
-        )
-    } else {
-        None
-    };
-    let (origin, size) = drawing_surface_geometry(from, to, anchor);
-    // The reply must describe the applied position, not a queued move.
-    super::floating_window::place_confirmed(window, origin, size).await?;
-    let surface = canvas.surface(window)?;
-    // Clip the complete drawing envelope, not the IPC-delayed card rectangles.
-    // This trims unused space when the visible window keeps its original anchor.
-    apply_regions(
-        window,
-        &[Rect {
-            left: (bounds.left - surface.left) * surface.scale,
-            top: (bounds.top - surface.top) * surface.scale,
-            width: bounds.width * surface.scale,
-            height: bounds.height * surface.scale,
-        }],
-        false,
-    )
-}
-
-fn drawing_surface_geometry(
-    from: Point,
-    to: Point,
-    anchor: Option<PhysicalPosition<i32>>,
-) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
-    let mut origin = PhysicalPosition::new(from.x.floor() as i32, from.y.floor() as i32);
-    if let Some(anchor) = anchor {
-        // Shrink the right/bottom extent without moving the visible cards' coordinate origin.
-        origin.x = origin.x.min(anchor.x);
-        origin.y = origin.y.min(anchor.y);
-    }
-    let size = PhysicalSize::new(
-        (to.x.ceil() - origin.x as f64).max(1.0) as u32,
-        (to.y.ceil() - origin.y as f64).max(1.0) as u32,
-    );
-    (origin, size)
-}
-
-#[tauri::command]
-pub async fn save_hand_dock(
-    app: tauri::AppHandle,
-    generation: u64,
-    point: Point,
-) -> Result<(), String> {
-    let state = app.state::<HandState>();
-    let _serial = state.serial.lock().await;
-    if state.generation.load(Ordering::Acquire) != generation || preview(&app) {
-        return Ok(());
-    }
-    let canvas = state
-        .canvas
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or("错误：手牌窗口不可用")?;
-    let path = dock_path(&app)?;
-    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    let bytes = serde_json::to_vec(&canvas.physical(point)).map_err(|e| e.to_string())?;
-    discoas_core::storage::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
-    if let Some(snapshot) = state.session.lock().unwrap().as_mut() {
-        snapshot.dock_point = Some(point);
-    }
-    super::hand_dock::moved(&app, generation, point);
-    Ok(())
-}
-
-/// Dock regions follow its compact shape; cards use their complete animation
-/// envelope. The pointer observer independently controls click-through.
-pub(super) fn apply_regions(
-    window: &tauri::WebviewWindow,
-    rects: &[Rect],
-    full_surface: bool,
-) -> Result<(), String> {
-    use windows_sys::Win32::Graphics::Gdi::{
-        CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, RGN_OR,
-    };
-    let hwnd = window.hwnd().map_err(|_| "错误：手牌窗口不可用")?.0;
-    unsafe {
-        if full_surface {
-            SetWindowRgn(hwnd, std::ptr::null_mut(), 1);
-            return Ok(());
-        }
-        let scale = window
-            .scale_factor()
-            .map_err(|_| "错误：无法读取显示器信息")?;
-        let region = CreateRectRgn(0, 0, 0, 0);
-        if region.is_null() {
-            return Err("错误：无法设置手牌区域".into());
-        }
-        for rect in rects {
-            // Include the card's soft shadow and the short distance traversed between frames.
-            let part = CreateRectRgn(
-                ((rect.left - 14.0) * scale).floor() as i32,
-                ((rect.top - 14.0) * scale).floor() as i32,
-                ((rect.left + rect.width + 14.0) * scale).ceil() as i32,
-                ((rect.top + rect.height + 14.0) * scale).ceil() as i32,
-            );
-            CombineRgn(region, region, part, RGN_OR);
-            DeleteObject(part);
-        }
-        if SetWindowRgn(hwnd, region, 1) == 0 {
-            DeleteObject(region);
-            return Err("错误：无法设置手牌区域".into());
-        }
-        // Windows owns the region after a successful SetWindowRgn.
-    }
-    Ok(())
-}
 #[tauri::command]
 pub fn hide_hand(app: tauri::AppHandle) {
     app.state::<HandState>()
@@ -1059,26 +834,6 @@ pub async fn toggle_hand_expanded(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn toggle_hand(app: tauri::AppHandle) {
     toggle(&app);
-}
-#[tauri::command]
-pub async fn collect_hand_card(
-    app: tauri::AppHandle,
-    args: PlaySongArgs,
-    batch_epoch: u64,
-    cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<CollectedHandCard, String> {
-    let _operation = cache.operation.lock().await;
-    if super::discovery_preview::isolated(&app) || preview(&app) {
-        return Err("错误：预览中不能收牌".into());
-    }
-    let card = service(&app)?.collect_hand_card(&args, batch_epoch).await?;
-    let _ = app.emit("discovery-history-changed", ());
-    crate::commands::publish_discovery_state(&app, cache.inner()).await;
-    crate::commands::spawn_preload(app.clone(), cache.inner().clone());
-    Ok(CollectedHandCard {
-        id: card.id,
-        discovery: service(&app)?.get_state().await?,
-    })
 }
 #[tauri::command]
 pub async fn show_collected_hand_card(
@@ -1139,98 +894,6 @@ pub async fn show_collected_hand_card(
     Ok(())
 }
 #[tauri::command]
-pub async fn play_hand_card(
-    app: tauri::AppHandle,
-    id: String,
-    cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<(), String> {
-    if preview(&app) || super::discovery_preview::isolated(&app) {
-        return Err("错误：预览中不能播放歌曲".into());
-    }
-    let (_, initial) = store(&app)?.get(&id)?;
-    let args = initial.playback_args();
-    let url = if args.platform == discoas_core::platforms::names::KUWO {
-        discoas_core::platforms::kuwo::native_playback_url(&args.song_id)
-            .await
-            .map_err(|e| crate::services::request_errors::short_error(&e.to_string()))?
-    } else {
-        discoas_core::platforms::build_scheme_url(&args).map_err(|e| e.to_string())?
-    };
-    let _operation = cache.operation.lock().await;
-    if preview(&app)
-        || !MusicSetting::load(&app)
-            .map_err(|e| e.to_string())?
-            .hand
-            .enabled
-    {
-        return Err("错误：手牌模式未开启".into());
-    }
-    let (index, card) = store(&app)?.get(&id)?;
-    *app.state::<HandState>().pending.lock().unwrap() = Some(Pending {
-        index,
-        card: card.clone(),
-    });
-    if let Err(error) = super::playback::dispatch(&app, &args, Some(&card.song), url).await {
-        clear_pending(&app);
-        return Err(error);
-    }
-    store(&app)?.remove(&id)?;
-    changed(&app, cache.inner()).await?;
-    Ok(())
-}
-async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {
-    service(app)?.sync_hand_exclusions().await?;
-    refresh(app).await?;
-    crate::commands::publish_discovery_state(app, cache).await;
-    crate::commands::spawn_preload(app.clone(), cache.clone());
-    Ok(())
-}
-#[tauri::command]
-pub async fn discard_hand_card(
-    app: tauri::AppHandle,
-    id: String,
-    cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<(), String> {
-    let _operation = cache.operation.lock().await;
-    if preview(&app) {
-        return Err("错误：预览中不能修改手牌".into());
-    }
-    store(&app)?.remove(&id)?;
-    changed(&app, cache.inner()).await
-}
-#[tauri::command]
-pub async fn clear_hand(
-    app: tauri::AppHandle,
-    cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<(), String> {
-    let _operation = cache.operation.lock().await;
-    if preview(&app) {
-        return Err("错误：预览中不能修改手牌".into());
-    }
-    clear_pending(&app);
-    store(&app)?.clear()?;
-    changed(&app, cache.inner()).await
-}
-#[tauri::command]
-pub async fn reorder_hand(
-    app: tauri::AppHandle,
-    ids: Vec<String>,
-    cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<(), String> {
-    let _operation = cache.operation.lock().await;
-    if preview(&app) {
-        return Err("错误：预览中不能修改手牌".into());
-    }
-    store(&app)?.reorder(&ids)?;
-    // The hand already animates this order locally; keep its snapshot without reloading covers.
-    if let Some(session) = app.state::<HandState>().session.lock().unwrap().as_mut() {
-        session
-            .cards
-            .sort_by_key(|card| ids.iter().position(|id| id == &card.id));
-    }
-    Ok(())
-}
-#[tauri::command]
 pub async fn start_hand_preview(
     app: tauri::AppHandle,
     settings: MusicSetting,
@@ -1266,230 +929,4 @@ pub async fn end_hand_preview(app: tauri::AppHandle) {
             }
         }
     }
-}
-
-pub fn playback_result(app: &tauri::AppHandle, result: &serde_json::Value) {
-    let result = result.clone();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let cache = app.state::<Arc<Cache>>();
-        let _operation = cache.operation.lock().await;
-        let pending = {
-            let state = app.state::<HandState>();
-            let mut pending = state.pending.lock().unwrap();
-            if !pending.as_ref().is_some_and(|p| {
-                result["platform"].as_str() == Some(&p.card.song.platform)
-                    && result["songId"].as_str() == Some(&p.card.song.song_id)
-            }) {
-                return;
-            }
-            pending.take()
-        };
-        if result["success"].as_bool() != Some(false) || result["error"].as_str().is_none() {
-            return;
-        }
-        if let Some(pending) = pending {
-            let response = store(&app).and_then(|s| s.restore(pending.index, pending.card));
-            if let Err(e) = response {
-                let _ = app.emit("hand-error", e);
-            } else {
-                let _ = changed(&app, cache.inner()).await;
-            }
-        }
-        let _ = app.emit("hand-error", result["error"].as_str().unwrap());
-    });
-}
-fn observe_pointer(app: tauri::AppHandle, generation: u64) {
-    if app
-        .state::<HandState>()
-        .pointer_generation
-        .swap(generation, Ordering::AcqRel)
-        == generation
-    {
-        return;
-    }
-    tauri::async_runtime::spawn(async move {
-        use windows_sys::Win32::{
-            Foundation::POINT, UI::WindowsAndMessaging::GetPhysicalCursorPos,
-        };
-        let Some(window) = app.get_webview_window(LABEL) else {
-            return;
-        };
-        let Some(canvas) = app.state::<HandState>().canvas.lock().unwrap().clone() else {
-            return;
-        };
-        let mut last = None;
-        let mut intercepting = unsafe {
-            let hwnd = window.hwnd().unwrap().0 as windows_sys::Win32::Foundation::HWND;
-            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT,
-            };
-            GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT == 0
-        };
-        let is_preview = preview(&app);
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
-            let state = app.state::<HandState>();
-            if state.generation.load(Ordering::Acquire) != generation
-                || !state.card_visible.load(Ordering::Acquire)
-                || state.pointer_generation.load(Ordering::Acquire) != generation
-            {
-                break;
-            }
-            let mut cursor = POINT { x: 0, y: 0 };
-            if unsafe { GetPhysicalCursorPos(&mut cursor) } == 0 {
-                continue;
-            }
-            let pointer = (
-                (cursor.x - canvas.origin.x) as f64 / canvas.scale,
-                (cursor.y - canvas.origin.y) as f64 / canvas.scale,
-            );
-            let (hit, dragging) =
-                state
-                    .regions
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .map_or((false, false), |r| {
-                        (
-                            r.dragging
-                                || r.rects
-                                    .iter()
-                                    .any(|rect| rect.contains(pointer.0, pointer.1)),
-                            r.dragging,
-                        )
-                    });
-            // Reuse the pointer observer for click-through instead of clipping
-            // drawing to an IPC-delayed animation frame. Preview reports only
-            // its close button; regular mode reports the interactive cards.
-            if hit != intercepting {
-                let _ = super::floating_window::ignore_cursor(&window, !hit);
-                intercepting = hit;
-            }
-            if last != Some(pointer) {
-                if !dragging {
-                    let _ = app.emit_to(LABEL, "hand-pointer", (pointer.0, pointer.1, is_preview));
-                }
-                last = Some(pointer);
-            }
-        }
-        let _ = app
-            .state::<HandState>()
-            .pointer_generation
-            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire);
-    });
-}
-
-fn stop_keyboard(app: &tauri::AppHandle) {
-    let token = app
-        .state::<HandState>()
-        .keyboard_generation
-        .swap(0, Ordering::SeqCst);
-    if token != 0 {
-        super::preview_keyboard::uninstall(app, token);
-    }
-}
-async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), String> {
-    let state = app.state::<HandState>();
-    if !visible(app)
-        || (!preview(app)
-            && (!state.card_visible.load(Ordering::Acquire)
-                || !state.keyboard_active.load(Ordering::Acquire)))
-        || !state.expanded.load(Ordering::Acquire)
-        || state.keyboard_generation.load(Ordering::SeqCst) != 0
-    {
-        return Ok(());
-    }
-    let Some((keys, is_preview)) = state
-        .session
-        .lock()
-        .unwrap()
-        .as_ref()
-        .filter(|s| s.preview || !s.cards.is_empty())
-        .map(|s| (s.keys.clone(), s.preview))
-    else {
-        return Ok(());
-    };
-    if !is_preview && super::discovery_preview::active(app) {
-        return Ok(());
-    }
-    let token = state.keyboard_counter.fetch_add(1, Ordering::SeqCst) + 1 | (1 << 63);
-    if state
-        .keyboard_generation
-        .compare_exchange(0, token, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Ok(());
-    }
-    let receiver = match super::preview_keyboard::install(
-        app,
-        token,
-        state.keyboard_generation.clone(),
-        keys,
-        if is_preview {
-            super::preview_keyboard::InputMode::Preview
-        } else {
-            super::preview_keyboard::InputMode::Hand
-        },
-    )
-    .await
-    {
-        Ok(receiver) => receiver,
-        Err(e) => {
-            if state.keyboard_generation.load(Ordering::SeqCst) != token || !visible(app) {
-                return Ok(());
-            }
-            let _ = state.keyboard_generation.compare_exchange(
-                token,
-                0,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            );
-            return Err(e);
-        }
-    };
-    observe_keyboard(app.clone(), token, receiver);
-    Ok(())
-}
-fn observe_keyboard(
-    app: tauri::AppHandle,
-    token: u64,
-    mut input: super::preview_keyboard::InputReceiver,
-) {
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let key = tokio::select! {
-                biased;
-                deactivated = input.deactivated.recv() => {
-                    if deactivated.is_some() {
-                        let state = app.state::<HandState>();
-                        if state.keyboard_generation.compare_exchange(token, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                            state.keyboard_active.store(false, Ordering::Release);
-                        }
-                    }
-                    break;
-                },
-                exit = input.exit.recv() => {
-                    if exit.is_none() { break; }
-                    if app.state::<HandState>().keyboard_generation.load(Ordering::SeqCst) == token { let _ = app.emit_to(LABEL, "hand-escape", ()); }
-                    continue;
-                },
-                key = input.keys.recv() => match key { Some(k) => k, None => break },
-            };
-            if app
-                .state::<HandState>()
-                .keyboard_generation
-                .load(Ordering::SeqCst)
-                != token
-            {
-                break;
-            }
-            let _ = app.emit_to(LABEL, "hand-key", key.event);
-        }
-        let _ = app
-            .state::<HandState>()
-            .keyboard_generation
-            .compare_exchange(token, 0, Ordering::SeqCst, Ordering::SeqCst);
-        super::preview_keyboard::uninstall(&app, token);
-    });
 }

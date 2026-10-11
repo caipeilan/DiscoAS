@@ -1,7 +1,7 @@
 {
   "name": "discoas",
   "private": true,
-  "version": "2.0.3",
+  "version": "2.0.4",
   "type": "module",
   "scripts": {
     "icons": "node scripts/build-icons.mjs",
@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:preferences": "tsc src/shortcut.ts src/i18n.ts src/translations.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/preferences.test.mjs tests/appStateFlow.test.mjs",
+    "test:preferences": "tsc src/shortcut.ts src/i18n.ts src/translations.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/preferences.test.mjs tests/appStateFlow.test.mjs tests/settingsSaveFlow.test.mjs",
     "test:covers": "tsc src/prepareCovers.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/covers.test.mjs",
     "test:source": "node --test tests/sourceInput.test.mjs",
     "test:browser": "node --test ../extensions/browser/bridge.test.mjs",
@@ -25,7 +25,7 @@
     "release:windows": "node scripts/build-windows-release.mjs",
     "test:spotify": "node --test ../extensions/spotify/bridge.test.mjs",
     "test:tray": "node --test tests/trayMenuModel.test.mjs",
-    "test:hand": "node --test tests/handLayout.test.mjs tests/handMotion.test.mjs",
+    "test:hand": "node --test tests/handLayout.test.mjs tests/handMotion.test.mjs tests/handRegions.test.mjs",
     "test:hand:layout": "node --test tests/handLayout.test.mjs",
     "test:hand:motion": "node --test tests/handMotion.test.mjs",
     "test:installer": "node --test tests/installerPolicy.test.mjs"

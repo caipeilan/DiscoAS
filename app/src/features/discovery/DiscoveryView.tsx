@@ -13,7 +13,7 @@ import { setPreviewCloseRect } from "../../services/desktop";
 import "./discovery.css";
 
 export function DiscoveryView({ state, status, floating, loading, songError, songs, playing, collecting, replacing, slotRevision, previewGui, previewPointer, previewKey, cancelling, batchRevision, overlayPhase, busy = "", cancel, discover, play, replace, openOverlay, manageLibrary }: {
-  state: AppState;
+  state: Pick<AppState, "settings" | "guiSettings"> & { playlists: Array<{ platform: string; enabled: boolean }> };
   status: DiscoveryState;
   floating: boolean;
   loading: boolean;

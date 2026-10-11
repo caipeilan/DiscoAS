@@ -129,6 +129,7 @@ pub struct Cache {
     /// Changes whenever the displayed batch is replaced or released, including reuse
     /// after cancellation. Separate from the generation of queued preload work.
     current_batch_epoch: AtomicU64,
+    batch_metadata_revision: AtomicU64,
     /// 图片缓存：URL → bytes。对照旧版 `_image_cache`。
     images: Mutex<ImageCache>,
     details: Mutex<DetailCache>,
@@ -155,6 +156,7 @@ impl Default for Cache {
             generation: AtomicU64::new(0),
             generation_changes: watch::channel(0).0,
             current_batch_epoch: AtomicU64::new(0),
+            batch_metadata_revision: AtomicU64::new(0),
             images: Mutex::new(ImageCache::default()),
             details: Mutex::new(DetailCache::default()),
             detail_requests: Mutex::new(HashMap::new()),
@@ -198,6 +200,16 @@ impl Cache {
     pub fn current_batch_epoch(&self) -> u64 {
         self.current_batch_epoch.load(Ordering::SeqCst)
     }
+    /// Content revision also changes when details are repaired within the same batch.
+    pub fn current_batch_revision(&self) -> (u64, u64) {
+        (self.current_batch_epoch(), self.batch_metadata_revision.load(Ordering::SeqCst))
+    }
+
+    pub async fn update_current_batch_metadata(&self, songs: Vec<SongCardDto>) {
+        *self.current_batch.lock().await = Some(songs);
+        self.batch_metadata_revision.fetch_add(1, Ordering::SeqCst);
+    }
+
     pub async fn invalidate(&self) {
         // 与预加载写入共用锁，确保更新设置后旧批次不会重新进入缓存。
         let mut batches = self.song_batches.lock().await;

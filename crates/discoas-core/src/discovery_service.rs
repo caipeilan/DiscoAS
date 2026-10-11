@@ -57,6 +57,17 @@ struct SamplingInputs {
     excluded: HashSet<String>,
     weights: HashMap<String, f64>,
 }
+impl SamplingInputs {
+    fn remaining(&self) -> u32 {
+        self.playlist
+            .song_ids
+            .iter()
+            .filter(|id| !id.is_empty() && !self.excluded.contains(*id))
+            .collect::<HashSet<_>>()
+            .len()
+            .min(u32::MAX as usize) as u32
+    }
+}
 
 #[derive(Clone)]
 pub struct DiscoveryService {
@@ -147,11 +158,16 @@ impl DiscoveryService {
         Ok(())
     }
 
-    async fn prepare(&self, setting: &MusicSetting) -> Result<Vec<SongCardDto>, String> {
-        self.prepare_with_timeout(setting, BATCH_PREPARATION_TIMEOUT)
-            .await
+    async fn prepare(&self, setting: &MusicSetting) -> Result<(Vec<SongCardDto>, u32), String> {
+        let inputs = self.sampling_inputs(setting)?;
+        let remaining = inputs.remaining();
+        let songs = self
+            .prepare_inputs(setting, BATCH_PREPARATION_TIMEOUT, inputs)
+            .await?;
+        Ok((songs, remaining))
     }
 
+    #[cfg(test)]
     async fn prepare_with_timeout(
         &self,
         setting: &MusicSetting,
@@ -346,7 +362,9 @@ impl DiscoveryService {
                     let setting = self.settings()?;
                     let songs = self.repair_failed_batch(&setting, songs).await?;
                     // Metadata repair keeps the same identities, display round and budget.
-                    *self.cache.current_batch.lock().await = Some(songs.clone());
+                    self.cache
+                        .update_current_batch_metadata(songs.clone())
+                        .await;
                     songs
                 } else {
                     songs
@@ -368,6 +386,7 @@ impl DiscoveryService {
             Default::default()
         };
         let mut restored = false;
+        let mut prepared_remaining = None;
         let songs = loop {
             match self.cache.pop_batch().await {
                 Some(batch) => {
@@ -391,7 +410,11 @@ impl DiscoveryService {
                         }
                     }
                 }
-                None => break self.prepare(&setting).await?,
+                None => {
+                    let (songs, remaining) = self.prepare(&setting).await?;
+                    prepared_remaining = Some(remaining);
+                    break songs;
+                }
             }
         };
         if restored {
@@ -399,10 +422,18 @@ impl DiscoveryService {
         } else {
             self.cache.set_current_batch(songs.clone()).await;
         }
+        let remaining = match prepared_remaining {
+            Some(count) => count,
+            None => self.remaining_for(&setting)?,
+        };
+        let state = self
+            .status_for(&setting, remaining)
+            .await
+            .with_songs(songs.clone());
         Ok(DiscoveryBatch {
             songs,
             newly_selected: true,
-            state: self.get_state().await?,
+            state,
         })
     }
 
@@ -482,7 +513,16 @@ impl DiscoveryService {
         if !setting.playlist_albums.iter().any(|source| source.enabled) {
             return Ok(0);
         }
-        let (source, _, playlist) = self.source_snapshot(setting)?;
+        let source = setting
+            .playlist_albums
+            .iter()
+            .find(|source| source.enabled)
+            .unwrap();
+        let kind = TypeName::parse(&source.typename).map_err(|e| e.to_string())?;
+        let playlist = self
+            .store
+            .load_playlist(&source.name, &source.playlist_album_id, kind)
+            .map_err(|_| "本地歌单缓存不可用，请到歌单页更新此歌单".to_string())?;
         let excluded = self.excluded_song_ids(setting, &source.name)?;
         Ok(playlist
             .song_ids
@@ -493,8 +533,33 @@ impl DiscoveryService {
             .min(u32::MAX as usize) as u32)
     }
 
-    pub async fn get_state(&self) -> Result<DiscoveryStateDto, String> {
+    pub async fn get_status(&self) -> Result<crate::model::DiscoveryStatusDto, String> {
         let setting = self.settings()?;
+        Ok(self
+            .status_for(&setting, self.remaining_for(&setting)?)
+            .await)
+    }
+
+    async fn status_for(
+        &self,
+        setting: &MusicSetting,
+        remaining: u32,
+    ) -> crate::model::DiscoveryStatusDto {
+        let used = self.cache.discovery_session.lock().await.replacement_used;
+        crate::model::DiscoveryStatusDto {
+            batch_epoch: self.cache.current_batch_epoch(),
+            remaining_songs: remaining,
+            replacements_remaining: setting.replacement_limit.saturating_sub(used),
+            exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
+                && setting.history_limit > 0
+                || setting.hand.enabled,
+            replacement_enabled: setting.replacement_limit > 0,
+            preview: false,
+        }
+    }
+
+    pub async fn get_state(&self) -> Result<DiscoveryStateDto, String> {
+        let status = self.get_status().await?;
         let songs = self
             .cache
             .current_batch
@@ -502,18 +567,7 @@ impl DiscoveryService {
             .await
             .clone()
             .unwrap_or_default();
-        let used = self.cache.discovery_session.lock().await.replacement_used;
-        Ok(DiscoveryStateDto {
-            songs,
-            batch_epoch: self.cache.current_batch_epoch(),
-            remaining_songs: self.remaining_for(&setting)?,
-            replacements_remaining: setting.replacement_limit.saturating_sub(used),
-            exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
-                && setting.history_limit > 0
-                || setting.hand.enabled,
-            replacement_enabled: setting.replacement_limit > 0,
-            preview: false,
-        })
+        Ok(status.with_songs(songs))
     }
 
     /// A draft preview samples independently and never enters the real discovery lifecycle.
@@ -523,11 +577,11 @@ impl DiscoveryService {
     ) -> Result<DiscoveryStateDto, String> {
         let mut setting = setting.clone();
         setting.normalize_preferences();
-        let songs = self.prepare(&setting).await?;
+        let (songs, remaining) = self.prepare(&setting).await?;
         Ok(DiscoveryStateDto {
             songs,
             batch_epoch: 0,
-            remaining_songs: self.remaining_for(&setting)?,
+            remaining_songs: remaining,
             replacements_remaining: setting.replacement_limit,
             exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
                 && setting.history_limit > 0
@@ -1488,6 +1542,7 @@ mod tests {
         cache.discovery_session.lock().await.replacement_used = 1;
         cache.discovery_session.lock().await.round_displayed = true;
         let epoch = cache.current_batch_epoch();
+        let content_revision = cache.current_batch_revision();
         let reopened = service.discover(false).await.unwrap();
         assert!(!reopened.newly_selected);
         assert_eq!(reopened.songs.len(), ids.len());
@@ -1506,6 +1561,7 @@ mod tests {
         assert_eq!(reopened.songs[1].artist_names, vec!["???"]);
         assert!(reopened.songs[1].real_metadata.is_some());
         assert_eq!(cache.current_batch_epoch(), epoch);
+        assert_ne!(cache.current_batch_revision(), content_revision);
         assert_eq!(cache.discovery_session.lock().await.replacement_used, 1);
         assert!(cache.discovery_session.lock().await.round_displayed);
         assert!(service.history().unwrap().is_empty());
@@ -2480,6 +2536,35 @@ mod tests {
             service.discover(true).await.err().unwrap(),
             "歌单没有可发现的歌曲，请更新歌单或选择其他歌单"
         );
+    }
+
+    #[tokio::test]
+    async fn lightweight_status_keeps_the_batch_revision_and_replacement_budget() {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source();
+        fixture.exclusion(HistoryExclusion::Discovered, 1);
+        let cache = Cache::new();
+        let service = fixture.service(cache.clone());
+        let batch = service.discover(false).await.unwrap();
+        let revision = cache.current_batch_revision();
+        cache.discovery_session.lock().await.replacement_used = 1;
+        service
+            .record_discovery_displayed(&identities(&batch.songs))
+            .await
+            .unwrap();
+        let status = service.get_status().await.unwrap();
+        assert_eq!(status.remaining_songs, 1);
+        assert_eq!(status.replacements_remaining, 0);
+        assert_eq!(cache.current_batch_revision(), revision);
+        assert!(serde_json::to_value(&status)
+            .unwrap()
+            .get("songs")
+            .is_none());
+        let complete = service.get_state().await.unwrap();
+        assert_eq!(complete.remaining_songs, status.remaining_songs);
+        assert_eq!(complete.songs.len(), batch.songs.len());
+        assert!(complete.songs[0].cover_data_uri.is_some());
     }
 
     #[tokio::test]

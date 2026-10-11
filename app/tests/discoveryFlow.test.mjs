@@ -92,6 +92,7 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
     replaceDiscoverySong: (args, batchEpoch) => bridge.call("replace_discovery_song", { args, batchEpoch }),
     endDiscoveryPreview: () => bridge.call("end_discovery_preview"),
     listenDiscoveryState: (handler) => bridge.onDesktopEvent("discovery-state-changed", handler),
+    listenDiscoveryStatus: (handler) => bridge.onDesktopEvent("discovery-status-changed", handler),
     listenPreviewPointer: (handler) => bridge.onDesktopEvent("preview-pointer", handler),
     listenPreviewKey: (handler) => bridge.onDesktopEvent("preview-key", handler),
     listenPreviewAppearance: (handler) => bridge.onDesktopEvent("preview-appearance", handler),
@@ -368,11 +369,42 @@ test("history-only status updates retain replacement card identity and do not re
   const replaced = render();
   const song = replaced.songs[0];
   assert.deepEqual(replaced.slotRevision, [1]);
-  await harness.emit("discovery-state-changed", { ...harness.currentState(), remainingSongs: 99 });
+  const { songs: _songs, ...status } = harness.currentState();
+  await harness.emit("discovery-status-changed", { ...status, remainingSongs: 99 });
   assert.equal(render().songs[0], song);
   assert.deepEqual(render().slotRevision, [1]);
   assert.equal(render().status.remainingSongs, 99);
   assert.equal(harness.preparedBatches.length, 2, "status-only events must not decode the same cover again");
+});
+
+test("status arriving during cover decoding is committed with the matching batch", async () => {
+  const harness = controller({ desktop: true }); const render = await harness.mount();
+  harness.ready.resolve(); await render().discover();
+  const before = render().songs[0], old = harness.currentState();
+  const cover = harness.nextCovers();
+  const delivery = harness.emit("discovery-state-changed", { ...old,
+    songs: [{ ...old.songs[0], name: "Repaired song", coverDataUri: "new-cover" }] });
+  const { songs: _songs, ...status } = old;
+  await harness.emit("discovery-status-changed", { ...status, remainingSongs: 42 });
+  assert.equal(render().songs[0], before);
+  cover.resolve(); await delivery;
+  assert.equal(render().songs[0].name, "Repaired song");
+  assert.equal(render().status.remainingSongs, 42);
+  await harness.emit("discovery-state-changed", { ...old,
+    songs: render().songs, remainingSongs: 43 });
+  assert.equal(render().status.remainingSongs, 43, "old status cannot override a newer complete delivery");
+  await harness.emit("discovery-status-changed", { ...status, batchEpoch: old.batchEpoch - 1, remainingSongs: 0 });
+  assert.equal(render().status.remainingSongs, 43);
+});
+
+test("saved preference patches keep card identity without rereading the app snapshot", async () => {
+  const harness = controller({ desktop: true }); const render = await harness.mount();
+  harness.ready.resolve(); await render().discover(); const before = render();
+  await harness.emit("preferences-changed", { discoveryInvalidated: false });
+  await new Promise(setImmediate);
+  assert.equal(render().songs[0], before.songs[0]);
+  assert.equal(harness.reloads(), 0);
+  assert.equal(harness.preparedBatches.length, 1);
 });
 
 test("a decoding state event cannot overwrite the replacement that finished later", async () => {

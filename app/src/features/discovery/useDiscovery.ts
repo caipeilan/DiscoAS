@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import type { DiscoveryState, GuiSettings, Song, HandSettings, CollectedHandCard } from "../../types";
-import { call, desktop, discoverBatch, getDiscoveryState, replaceDiscoverySong, endDiscoveryPreview, listenDiscoveryState, listenPreviewPointer, listenPreviewKey, listenPreviewAppearance, listenPreviewClosed, onDesktopEvent, hideCurrentWindow, showCurrentWindow, isCurrentWindowVisible } from "../../services/desktop";
+import type { DiscoveryState, DiscoveryStatus, GuiSettings, Song, HandSettings, CollectedHandCard } from "../../types";
+import { call, desktop, discoverBatch, getDiscoveryState, replaceDiscoverySong, endDiscoveryPreview, listenDiscoveryState, listenDiscoveryStatus, listenPreviewPointer, listenPreviewKey, listenPreviewAppearance, listenPreviewClosed, onDesktopEvent, hideCurrentWindow, showCurrentWindow, isCurrentWindowVisible } from "../../services/desktop";
 import type { DesktopEvents } from "../../services/desktop";
 import { OverlayMotion } from "../../overlayMotion";
 import type { OverlayPhase } from "../../overlayMotion";
@@ -34,6 +34,7 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
   const songsRef = useRef<Song[]>([]);
   const [status, setStatus] = useState<DiscoveryState>(emptyDiscovery);
   const statusRef = useRef<DiscoveryState>(emptyDiscovery);
+  const pendingStatus = useRef<DiscoveryStatus | null>(null);
   const [slotRevision, setSlotRevision] = useState<number[]>([]);
   const [replacing, setReplacing] = useState<number | null>(null);
   const replacingRef = useRef<number | null>(null);
@@ -45,7 +46,9 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
     const previous = songsRef.current;
     const batch = next.songs.map((song, i) => sameSong(song, previous[i]) ? previous[i] : song);
     songsRef.current = batch;
-    const prepared = { ...next, songs: batch };
+    const latest = pendingStatus.current;
+    const prepared = { ...next, ...(latest?.batchEpoch === next.batchEpoch && latest.preview === next.preview ? latest : {}), songs: batch };
+    pendingStatus.current = null;
     statusRef.current = prepared;
     setStatus(prepared);
     if (!next.preview) {
@@ -101,6 +104,7 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
   const invalidateBatch = useCallback((clear = true) => {
     const revision = ++discoveryRequest.current;
     ++stateDelivery.current;
+    pendingStatus.current = null;
     setBatchRevision(revision);
     setCollecting("");
     songsRef.current = [];
@@ -186,20 +190,20 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
     if (!desktop) return;
     let active = true;
     const removers: Array<() => void> = [];
-    const attach = <E extends "library-changed" | "show-overlay" | "cancel-overlay">(event: E, handler: (payload: DesktopEvents[E]) => void) =>
+    const attach = <E extends "library-changed" | "preferences-changed" | "show-overlay" | "cancel-overlay">(event: E, handler: (payload: DesktopEvents[E]) => void) =>
       onDesktopEvent(event, handler).then((fn) => {
         if (active) removers.push(fn);
         else fn();
       });
-    attach("library-changed", (change) => {
+    const configurationChanged = (change: { discoveryInvalidated?: boolean } | void, readPreferences = true) => {
       if (change?.discoveryInvalidated === false) {
         // Unrelated sources, remarks and shortcuts do not reset the visible batch or keyboard focus.
-        reload().catch((e) => notice(errorText(e), true));
+        if (readPreferences) reload().catch((e) => notice(errorText(e), true));
         return;
       }
       const request = invalidateBatch();
       const pending = discoveryPending.current;
-      Promise.all([reload(), pending])
+      Promise.all([readPreferences ? reload() : Promise.resolve(), pending])
         .then(() => {
           if (
             request === discoveryRequest.current &&
@@ -210,7 +214,19 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
             discover();
         })
         .catch((e) => notice(errorText(e), true));
-    });
+    };
+    attach("library-changed", configurationChanged);
+    attach("preferences-changed", (change) => configurationChanged(change, false));
+    listenDiscoveryStatus((payload) => {
+      if (!active) return;
+      pendingStatus.current = payload;
+      const previous = statusRef.current;
+      if (payload.batchEpoch !== previous.batchEpoch || payload.preview !== previous.preview
+        || playingRef.current || cancellingRef.current || replacingRef.current !== null || loadingRef.current) return;
+      const next = { ...previous, ...payload };
+      statusRef.current = next;
+      setStatus(next);
+    }).then((fn) => { if (active) removers.push(fn); else fn(); });
     listenDiscoveryState(async (payload) => {
       if (!active || loadingRef.current || replacingRef.current !== null || playingRef.current || cancellingRef.current) return;
       if (payload.preview && floating && !motion.current!.visible) {
@@ -225,6 +241,7 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
         return;
       const request = discoveryRequest.current;
       const delivery = ++stateDelivery.current;
+      pendingStatus.current = null;
       const prepared = await prepareBatch(payload.songs);
       if (
         active && request === discoveryRequest.current && delivery === stateDelivery.current &&

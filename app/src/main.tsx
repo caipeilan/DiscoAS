@@ -1,11 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
 import { StartupScreen } from "./StartupScreen";
-import { TrayMenu } from "./features/tray/TrayMenu";
-import { HandWindow } from "./features/hand/HandWindow";
-import { HandDockWindow } from "./features/hand/HandDockWindow";
 import appLogo from "../../assets/DiscoAS.svg";
+
+const App = React.lazy(() => import("./App"));
+const DiscoverWindow = React.lazy(() => import("./features/discovery/DiscoverWindow"));
+const TrayMenu = React.lazy(() => import("./features/tray/TrayMenu").then((m) => ({ default: m.TrayMenu })));
+const HandWindow = React.lazy(() => import("./features/hand/HandWindow").then((m) => ({ default: m.HandWindow })));
+const HandDockWindow = React.lazy(() => import("./features/hand/HandDockWindow").then((m) => ({ default: m.HandDockWindow })));
 
 const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
 if (favicon) favicon.href = appLogo;
@@ -20,6 +22,7 @@ document.documentElement.classList.toggle(
 
 function Root() {
   const [startupDone, setStartupDone] = React.useState(view !== "splash");
+  if (view === "discover") return <DiscoverWindow />;
   if (view === "tray") return <TrayMenu />;
   if (view === "hand") return <HandWindow />;
   if (view === "hand-dock") return <HandDockWindow />;
@@ -32,6 +35,6 @@ function Root() {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <Root />
+    <React.Suspense fallback={null}><Root /></React.Suspense>
   </React.StrictMode>,
 );

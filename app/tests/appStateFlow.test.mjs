@@ -90,3 +90,31 @@ test("a fresh snapshot still preserves unsaved discovery and appearance drafts",
   assert.equal(app.guiDraft.font_family, "unsaved");
   harness.unmount();
 });
+
+test("group patches retain library covers and unsaved drafts in other groups", async () => {
+  const h = await controller(); const before = h.render();
+  before.setDraft(draft => ({ ...draft, number_of_discovered_songs: 8 }));
+  before.setDesktopDraft(draft => ({ ...draft, minimize_delay_seconds: 12.34 }));
+  const gui = { ...before.state.guiSettings, font_family: "saved-font" };
+  h.render().applyPatch({ guiSettings: gui }); const next = h.render();
+  assert.equal(next.state.playlists, before.state.playlists);
+  assert.equal(next.state.settings, before.state.settings);
+  assert.equal(next.guiDraft, gui);
+  assert.equal(next.draft.number_of_discovered_songs, 8);
+  assert.equal(next.desktopDraft.minimize_delay_seconds, 12.34);
+  h.unmount();
+});
+
+test("a patch during a full read preserves the save and still accepts refreshed library data", async () => {
+  const h = await controller();
+  const pending = h.nextRead(), refresh = h.render().reload();
+  const saved = { ...h.render().state.settings, shortcut_key: "new-key" };
+  h.render().applyPatch({ settings: saved });
+  pending.resolve(snapshot("refreshed-library")); await refresh;
+  const next = h.render();
+  assert.equal(next.state.settings, saved);
+  assert.equal(next.draft.shortcut_key, "new-key");
+  assert.equal(next.state.playlists[0].title, "refreshed-library");
+  assert.equal(next.state.guiSettings.font_family, "refreshed-library");
+  h.unmount();
+});

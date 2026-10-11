@@ -76,7 +76,7 @@ impl Playlist {
         id: &str,
         source: &serde_json::Value,
     ) -> AppResult<Self> {
-        let data: PlaylistJson = serde_json::from_value(source.clone())?;
+        let data: PlaylistJson = PlaylistJson::deserialize(source)?;
         Ok(Self {
             platform: platform.to_string(),
             playlist_type: kind,
@@ -99,8 +99,8 @@ impl Playlist {
                 path.display()
             )));
         }
-        let content = std::fs::read_to_string(path)?;
-        let data: PlaylistJson = serde_json::from_str(&content)?;
+        let file = std::fs::File::open(path)?;
+        let data: PlaylistJson = serde_json::from_reader(std::io::BufReader::new(file))?;
         Ok(Self {
             platform: platform.to_string(),
             playlist_type,

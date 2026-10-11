@@ -50,6 +50,25 @@ pub struct DiscoveryStateDto {
     pub preview: bool,
 }
 
+/// Lightweight updates carry no song metadata or image bytes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryStatusDto {
+    pub batch_epoch: u64,
+    pub remaining_songs: u32,
+    pub replacements_remaining: u32,
+    pub exclusion_enabled: bool,
+    pub replacement_enabled: bool,
+    pub preview: bool,
+}
+impl DiscoveryStatusDto {
+    pub fn with_songs(self, songs: Vec<SongCardDto>) -> DiscoveryStateDto {
+        DiscoveryStateDto { songs, batch_epoch: self.batch_epoch, remaining_songs: self.remaining_songs,
+            replacements_remaining: self.replacements_remaining, exclusion_enabled: self.exclusion_enabled,
+            replacement_enabled: self.replacement_enabled, preview: self.preview }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryIdentity {

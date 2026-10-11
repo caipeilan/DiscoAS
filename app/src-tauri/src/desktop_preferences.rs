@@ -27,7 +27,7 @@ pub async fn save_desktop_preferences(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<crate::core::cache::Cache>>,
     settings: DesktopPreferences,
-) -> Result<crate::library::Snapshot, String> {
+) -> Result<crate::desktop::preferences::PreferencePatch, String> {
     crate::desktop::preferences::save_desktop_preferences(app, cache, settings).await
 }
 

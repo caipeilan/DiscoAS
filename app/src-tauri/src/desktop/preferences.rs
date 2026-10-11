@@ -8,16 +8,41 @@ use crate::{
 };
 use tauri::{Emitter, Manager};
 
-use super::{
-    library::{changed_with_invalidation, get_app_state, repository, Snapshot},
-    shortcuts,
-};
+use super::{library::repository, shortcuts};
+
+/// Only the persisted group is returned; playlist summaries and covers stay in their owner.
+#[derive(Default, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferencePatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<MusicSetting>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gui_settings: Option<GuiSetting>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    desktop_settings: Option<DesktopPreferences>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    discovery_invalidated: Option<bool>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryPreferences {
+    settings: MusicSetting,
+    gui_settings: GuiSetting,
+}
+pub fn discovery_preferences(app: tauri::AppHandle) -> Result<DiscoveryPreferences, String> {
+    let repository = repository(&app)?;
+    Ok(DiscoveryPreferences {
+        settings: repository.load_settings()?,
+        gui_settings: repository.load_gui()?,
+    })
+}
 
 pub async fn save_preferences(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     settings: MusicSetting,
-) -> Result<Snapshot, String> {
+) -> Result<PreferencePatch, String> {
     if app
         .state::<shortcuts::ShortcutRecording>()
         .active
@@ -30,33 +55,48 @@ pub async fn save_preferences(
     let old = repository.load_settings()?;
     let settings = preferences::prepare_music_preferences(&old, settings)?;
     shortcuts::save_preferences(&app, &repository, &old, &settings)?;
-    changed_with_invalidation(
-        &app,
-        cache.inner(),
-        preferences::discovery_preferences_changed(&old, &settings),
-    )
-    .await;
-    super::hand::refresh(&app).await?;
-    get_app_state(app)
+    let invalidated = preferences::discovery_preferences_changed(&old, &settings);
+    let hand_changed = old.hand != settings.hand
+        || old.discovery_keybindings != settings.discovery_keybindings
+        || old.mystery_song_cover != settings.mystery_song_cover;
+    if invalidated {
+        cache.invalidate().await;
+        crate::commands::publish_discovery_state(&app, cache.inner()).await;
+        crate::commands::spawn_preload(app.clone(), cache.inner().clone());
+    }
+    let patch = PreferencePatch {
+        settings: Some(settings),
+        discovery_invalidated: Some(invalidated),
+        ..Default::default()
+    };
+    let _ = app.emit("preferences-changed", &patch);
+    if hand_changed {
+        super::hand::refresh(&app).await?;
+    }
+    Ok(patch)
 }
 
 pub async fn save_gui_preferences(
     app: tauri::AppHandle,
     settings: GuiSetting,
     cache: tauri::State<'_, Arc<Cache>>,
-) -> Result<Snapshot, String> {
+) -> Result<PreferencePatch, String> {
     let _guard = cache.operation.lock().await;
-    preferences::save_gui_preferences(&repository(&app)?.gui_path(), settings)?;
-    let _ = app.emit("gui-changed", ());
+    preferences::save_gui_preferences(&repository(&app)?.gui_path(), settings.clone())?;
+    let patch = PreferencePatch {
+        gui_settings: Some(settings),
+        ..Default::default()
+    };
+    let _ = app.emit("gui-changed", &patch);
     super::hand::refresh(&app).await?;
-    get_app_state(app)
+    Ok(patch)
 }
 
 pub async fn save_desktop_preferences(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     settings: DesktopPreferences,
-) -> Result<Snapshot, String> {
+) -> Result<PreferencePatch, String> {
     let _guard = cache.operation.lock().await;
     let path = repository(&app)?
         .root()
@@ -87,7 +127,11 @@ pub async fn save_desktop_preferences(
         super::diagnostics::log_event(&app, "save_desktop_preferences", "registry_failed");
         return Err(error);
     }
-    let _ = app.emit("desktop-changed", ());
+    let patch = PreferencePatch {
+        desktop_settings: Some(settings.clone()),
+        ..Default::default()
+    };
+    let _ = app.emit("desktop-changed", &patch);
     if !settings.minimize_after_playback
         || old.minimize_delay_seconds != settings.minimize_delay_seconds
     {
@@ -99,5 +143,5 @@ pub async fn save_desktop_preferences(
     } else {
         crate::spotify_setup::start_automatic_setup(&app);
     }
-    get_app_state(app)
+    Ok(patch)
 }

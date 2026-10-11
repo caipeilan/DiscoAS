@@ -326,3 +326,7 @@ export const emptyState: AppState = {
   desktopSettingsError: null,
   startupRefreshError: null,
 };
+
+export type DiscoveryStatus = Omit<DiscoveryState, "songs">;
+export interface DiscoveryPreferences { settings: Preferences; guiSettings: GuiSettings }
+export type PreferencePatch = Partial<Pick<AppState, "settings" | "guiSettings" | "desktopSettings">> & { discoveryInvalidated?: boolean };

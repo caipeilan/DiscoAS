@@ -148,6 +148,7 @@ pub fn run() {
                 .build(),
         )
         .manage(core::cache::Cache::new())
+        .manage(commands::DiscoveryPublication::default())
         .manage(desktop::discovery_preview::PreviewState::default())
         .manage(library::DesktopStatus::default())
         .manage(services::library_jobs::LibraryJobs::default())
@@ -156,6 +157,7 @@ pub fn run() {
         .manage(browser_playback::BrowserPlaybackService::default())
         .manage(library::ShortcutRecording::default())
         .manage(desktop::hand::HandState::default())
+        .manage(desktop::hand_actions::HandActionsState::default())
         .manage(desktop::hand_dock::DockState::default())
         .manage(AtomicBool::new(false))
         .manage(StartupPending(AtomicBool::new(true)))
@@ -240,7 +242,7 @@ pub fn run() {
                 let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
                     return;
                 };
-                desktop::hand::playback_result(&playback_app, &payload);
+                desktop::hand_actions::playback_result(&playback_app, &payload);
                 if payload["success"].as_bool() == Some(false) {
                     if let Some(error) = payload["error"].as_str() {
                         let visible = playback_app.get_webview_window("main").is_some_and(|w| {
@@ -314,13 +316,13 @@ pub fn run() {
             desktop::hand_dock::hand_dock_ready,
             desktop::hand_dock::position_hand_dock,
             desktop::hand_dock::set_hand_dock_hit_regions,
-            desktop::hand::save_hand_dock,
-            desktop::hand::collect_hand_card,
+            desktop::hand_dock::save_hand_dock,
+            desktop::hand_actions::collect_hand_card,
             desktop::hand::show_collected_hand_card,
-            desktop::hand::play_hand_card,
-            desktop::hand::discard_hand_card,
-            desktop::hand::clear_hand,
-            desktop::hand::reorder_hand,
+            desktop::hand_actions::play_hand_card,
+            desktop::hand_actions::discard_hand_card,
+            desktop::hand_actions::clear_hand,
+            desktop::hand_actions::reorder_hand,
             desktop::hand::toggle_hand,
             desktop::hand::toggle_hand_expanded,
             desktop::hand::hide_hand,
@@ -329,6 +331,7 @@ pub fn run() {
             desktop::hand::end_hand_preview,
             commands::discover_batch,
             commands::get_discovery_state,
+            library::get_discovery_preferences,
             commands::replace_discovery_song,
             commands::mutate_discovery_history,
             commands::get_history_covers,
