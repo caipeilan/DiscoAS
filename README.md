@@ -24,8 +24,8 @@
 
 ## 所以，怎么用上呢？
 
-能看到右边的Release吗？就从那下载。
-目前仅支持Win64系统。
+能看到右边的Release吗？就从那下载最新版本的就行。
+目前仅支持Win 64系统喵。
 
 ---
 
@@ -42,7 +42,7 @@
 - YouTube（通过网页）
 - Bilibili（通过网页）
 
-这个小项目本身没有播放器功能，就只是通过Scheme唤起本地应用（更别说什么播放权限、地区限制了），所以还请先安装你所使用的音乐平台对应的桌面软件捏。
+这个小项目本身没有播放器功能，就只是唤起本地应用而已（更别说什么播放权限、地区限制了），所以还请先安装你所使用的音乐平台对应的桌面软件捏。
 
 ---
 
@@ -53,7 +53,9 @@
 原项目的1.X.X版本使用PyQT实现，现已使用Tauri+React进行重构。旧版本的Python代码现已清除。
 ```
 
-环境准备参见 [Tauri Windows 开发环境](https://v2.tauri.app/start/prerequisites/#windows)。需 Node.js/npm、Rust MSVC 工具链、Windows C++构建工具和WebView2，在仓库根目录执行：
+环境准备参见 [Tauri Windows 开发环境](https://v2.tauri.app/start/prerequisites/#windows)。
+需Node.js、Rust MSVC、Windows C++和WebView2。
+在仓库根目录执行：
 
 ```powershell
 cd app
@@ -88,12 +90,10 @@ npm run test:keyboard
 npm run test:history
 node --test ../extensions/spotify/bridge.test.mjs
 node --test ../extensions/browser/bridge.test.mjs
-cargo test --manifest-path ../crates/discoas-core/Cargo.toml --offline
+cargo test --manifest-path ../crates/discoas-core/Cargo.toml 
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo test --manifest-path src-tauri/Cargo.toml --lib --offline
+cargo test --manifest-path src-tauri/Cargo.toml --lib 
 ```
-
-`--offline` 要求Rust依赖已在本机缓存，首次准备依赖时可省略。
 
 ## 数据放在哪？
 
