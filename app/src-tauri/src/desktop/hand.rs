@@ -693,7 +693,7 @@ pub async fn present_hand(
             let result = (|| -> Result<(), String> {
                 super::floating_window::ignore_cursor(&w, true)?;
                 super::floating_window::show(&w, true)?;
-                super::hand_dock::raise(&ui_app);
+                super::floating_window::raise_discovery(&ui_app);
                 Ok(())
             })();
             let _ = sender.send(result);

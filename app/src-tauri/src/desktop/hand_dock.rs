@@ -49,11 +49,18 @@ pub struct DockState {
 pub(super) use super::floating_window::show as show_window;
 
 async fn create(app: &tauri::AppHandle) -> Result<(), String> {
+    let hand = app
+        .get_webview_window("hand")
+        .ok_or("错误：手牌窗口不可用")?;
     let window = WebviewWindowBuilder::new(
         app,
         LABEL,
         WebviewUrl::App("index.html?view=hand-dock".into()),
     )
+    // Native ownership keeps the dock above cards across show, drag and hit-test
+    // changes. Both remain independent top-level windows with separate visibility.
+    .owner(&hand)
+    .map_err(|_| "错误：无法设置手牌浮窗层级")?
     .title("DiscoAS · 手牌浮窗")
     .decorations(false)
     .transparent(true)
@@ -160,29 +167,6 @@ pub(super) fn hide(app: &tauri::AppHandle, generation: u64) {
             }
         }
     });
-}
-pub(super) fn raise(app: &tauri::AppHandle) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    };
-    if let Some(window) = app.get_webview_window(LABEL) {
-        if window.is_visible().unwrap_or(false) {
-            if let Ok(hwnd) = window.hwnd() {
-                unsafe {
-                    SetWindowPos(
-                        hwnd.0,
-                        HWND_TOPMOST,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                    );
-                }
-            }
-        }
-    }
-    super::floating_window::raise_discovery(app);
 }
 pub(super) fn moved(app: &tauri::AppHandle, generation: u64, point: Point) {
     let state = app.state::<DockState>();
