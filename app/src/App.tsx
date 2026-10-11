@@ -3,6 +3,7 @@ import { About } from "./About";
 import { Sidebar } from "./components/Sidebar";
 import type { Page } from "./components/Sidebar";
 import { Toast } from "./components/Toast";
+import { MainWindowFrame } from "./components/MainWindowFrame";
 import { LibraryView } from "./features/library/LibraryView";
 import { ImportDialog } from "./features/library/ImportDialog";
 import { RemoveDialog } from "./features/library/RemoveDialog";
@@ -64,7 +65,7 @@ export default function App() {
   };
   const normalCount = state.settings.number_of_discovered_songs;
   const mysteryCount = state.settings.have_mystery_song ? state.settings.num_of_mystery_song : 0;
-  return (
+  const body = (
     <div className={floating ? `floating-shell overlay-${overlayPhase}` : "app-shell"}>
       {!floating && <Sidebar page={page} playlistCount={state.playlists.length} navigate={navigate} version={state.version} />}
       <main
@@ -121,4 +122,5 @@ export default function App() {
       {library.editing && <RemarkDialog key={`${library.editing.platform}-${library.editing.kind}-${library.editing.id}`} entry={library.editing} busy={busy === "remark"} close={library.closeRemark} save={library.saveRemark} />}
     </div>
   );
+  return floating ? body : <MainWindowFrame onError={(error) => notice(errorText(error), true)}>{body}</MainWindowFrame>;
 }

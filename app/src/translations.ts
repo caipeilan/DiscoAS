@@ -1,5 +1,8 @@
 // Source Chinese is the stable message key. Each pair is Traditional Chinese and English.
 export const translations: Record<string, [string, string]> = {
+  "最小化": ["最小化", "Minimize"],
+  "最大化": ["最大化", "Maximize"],
+  "还原窗口": ["還原視窗", "Restore window"],
   "手牌模式": ["手牌模式", "Hand mode"],
   "进入手牌时揭晓神秘歌曲": ["進入手牌時揭曉神秘歌曲", "Reveal mystery songs when collected"],
   "收牌后保留发现界面": ["收牌後保留發現介面", "Keep discovery open after collecting"],

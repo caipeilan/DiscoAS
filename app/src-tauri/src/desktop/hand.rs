@@ -123,11 +123,6 @@ pub struct HandVisibility {
     focus: bool,
     surface: Surface,
 }
-#[derive(Clone, Copy, Serialize)]
-pub struct SurfaceChange {
-    generation: u64,
-    surface: Surface,
-}
 #[derive(Serialize)]
 pub struct CollectedHandCard {
     id: String,
@@ -155,6 +150,7 @@ pub struct HandState {
     visible: AtomicBool,
     card_visible: AtomicBool,
     keyboard_active: AtomicBool,
+    pointer_generation: AtomicU64,
     expanded: AtomicBool,
     dismissed: AtomicBool,
     session: Mutex<Option<HandSnapshot>>,
@@ -747,7 +743,7 @@ pub async fn present_hand(
         .is_some_and(|s| !s.cards.is_empty());
     let show =
         is_preview || show_cards.unwrap_or(has_cards && state.expanded.load(Ordering::Acquire));
-    state.card_visible.store(show, Ordering::Release);
+    let was_visible = state.card_visible.swap(show, Ordering::AcqRel);
     if !show {
         super::floating_window::show(&w, false)?;
         stop_keyboard(&app);
@@ -755,20 +751,21 @@ pub async fn present_hand(
     }
     // The small native surface already fits the complete animation path. Keep
     // its drawing region stable; cursor interception follows the card hit boxes.
-    apply_regions(&w, &[], true)?;
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    let ui_app = app.clone();
-    app.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
-            super::floating_window::ignore_cursor(&w, true)?;
-            super::floating_window::show(&w, true)?;
-            super::hand_dock::raise(&ui_app);
-            Ok(())
-        })();
-        let _ = sender.send(result);
-    })
-    .map_err(|_| "错误：手牌窗口不可用")?;
-    receiver.await.map_err(|_| "错误：手牌窗口不可用")??;
+    if !was_visible {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let ui_app = app.clone();
+        app.run_on_main_thread(move || {
+            let result = (|| -> Result<(), String> {
+                super::floating_window::ignore_cursor(&w, true)?;
+                super::floating_window::show(&w, true)?;
+                super::hand_dock::raise(&ui_app);
+                Ok(())
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|_| "错误：手牌窗口不可用")?;
+        receiver.await.map_err(|_| "错误：手牌窗口不可用")??;
+    }
     drop(_serial);
     if state.expanded.load(Ordering::Acquire) || is_preview {
         activate_keyboard(&app).await?;
@@ -849,14 +846,6 @@ pub async fn set_hand_hit_regions(
         if let Some(snapshot) = state.session.lock().unwrap().as_mut() {
             snapshot.surface = surface;
         }
-        let _ = app.emit_to(
-            LABEL,
-            "hand-surface-changed",
-            SurfaceChange {
-                generation,
-                surface,
-            },
-        );
     }
     Ok(Some(surface))
 }
@@ -1237,6 +1226,14 @@ pub fn playback_result(app: &tauri::AppHandle, result: &serde_json::Value) {
     });
 }
 fn observe_pointer(app: tauri::AppHandle, generation: u64) {
+    if app
+        .state::<HandState>()
+        .pointer_generation
+        .swap(generation, Ordering::AcqRel)
+        == generation
+    {
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         use windows_sys::Win32::{
             Foundation::POINT, UI::WindowsAndMessaging::GetPhysicalCursorPos,
@@ -1248,13 +1245,20 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
             return;
         };
         let mut last = None;
-        let mut intercepting = false;
+        let mut intercepting = unsafe {
+            let hwnd = window.hwnd().unwrap().0 as windows_sys::Win32::Foundation::HWND;
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT,
+            };
+            GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT == 0
+        };
         let is_preview = preview(&app);
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(16)).await;
             let state = app.state::<HandState>();
             if state.generation.load(Ordering::Acquire) != generation
                 || !state.card_visible.load(Ordering::Acquire)
+                || state.pointer_generation.load(Ordering::Acquire) != generation
             {
                 break;
             }
@@ -1295,6 +1299,10 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
                 last = Some(pointer);
             }
         }
+        let _ = app
+            .state::<HandState>()
+            .pointer_generation
+            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire);
     });
 }
 

@@ -88,7 +88,6 @@ export interface DesktopEvents {
   "hand-busy-changed": boolean;
   "hand-state-changed": HandSnapshot;
   "hand-visibility-changed": HandVisibility;
-  "hand-surface-changed": { generation: number; surface: HandSurface };
   "hand-hide": number;
   "hand-escape": void;
   "hand-pointer": [number, number, boolean];
@@ -139,6 +138,36 @@ export const listenPreviewClosed = (handler: () => void) => onDesktopEvent("prev
 
 /** The only module that depends on Tauri's browser bridge. */
 export const desktop = isTauri();
+
+export async function mainWindowAction(action: "minimize" | "maximize" | "close" | "drag"): Promise<void> {
+  if (!desktop) return;
+  const window = getCurrentWindow();
+  if (action === "minimize") await window.minimize();
+  else if (action === "maximize") await window.toggleMaximize();
+  else if (action === "close") await window.close();
+  else await window.startDragging();
+}
+
+export async function watchMainWindowState(
+  changed: (state: { maximized: boolean; focused: boolean }) => void,
+  failed: (error: unknown) => void,
+): Promise<() => void> {
+  if (!desktop) return () => {};
+  const window = getCurrentWindow();
+  let state = { maximized: false, focused: true };
+  let stopped = false, resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  const update = (next: typeof state) => {
+    if (!stopped && (next.maximized !== state.maximized || next.focused !== state.focused)) { state = next; changed(next); }
+  };
+  const stopResize = await window.onResized(() => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { void window.isMaximized().then((maximized) => update({ ...state, maximized })).catch(failed); }, 80);
+  });
+  const stopFocus = await window.onFocusChanged(({ payload }) => update({ ...state, focused: payload }));
+  const [maximized, focused] = await Promise.all([window.isMaximized(), window.isFocused()]);
+  update({ maximized, focused });
+  return () => { stopped = true; clearTimeout(resizeTimer); stopResize(); stopFocus(); };
+}
 
 export const requestHandClear = () => emitTo("hand", "hand-clear-requested");
 export const notifyHandClear = (error: string | null) => emitTo("hand-dock", "hand-clear-finished", error);

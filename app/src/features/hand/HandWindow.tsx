@@ -7,10 +7,11 @@ import { currentLocale, errorText, setLanguage, t } from "../../i18n";
 import { keybindingFromEvent } from "../settings/discoveryKeybindings";
 import { Cover } from "../../components/Cover";
 import { Icon } from "../../Icon";
-import { handCardSize, mergeHandCards, handLayout, canPlayDrag, reorderIndex, reorderCards, hoverHandIndex, type CardPose } from "./handLayout";
+import { handCardSize, mergeHandCards, handLayout, raisedHandPose, canPlayDrag, reorderIndex, reorderCards, hoverHandIndex, type CardPose } from "./handLayout";
 import { HandDock } from "./HandDock";
 import { defaultDockPoint, floatingDockRect, type DockPoint } from "./floatingDock";
 import { arrivalDrawingBounds, combineHandBounds, handPoseBounds } from "./handDrawingBounds";
+import { animateHandMotion, releaseHandMotion, handRestTransform } from "./handMotion";
 import "../../App.css";
 import "./hand.css";
 
@@ -22,7 +23,7 @@ const fallback: HandSnapshot = {
 interface Drag { id: string; index: number; playable: boolean; pointerId: number; startX: number; startY: number; dx: number; dy: number; pose: CardPose; element: HTMLElement }
 type Flying = { card: HandCard; pose: CardPose; complete: () => void };
 type Discarding = { card: HandCard; pose: CardPose; delay: number; complete: () => void };
-const restTransform = "translate(-50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) translate(var(--card-x, 0px), var(--card-y, 0px)) rotate(var(--drag-angle, var(--hand-angle, 0deg))) scale(var(--hand-card-scale, 1))";
+const restTransform = handRestTransform;
 const sameRect = (a: HandRect | null | undefined, b: HandRect | null | undefined) => a === b || !!a && !!b &&
   a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
 const sameSurface = (a: HandSurface | undefined, b: HandSurface | undefined) => sameRect(a, b) && a?.scale === b?.scale;
@@ -73,6 +74,7 @@ export function HandWindow() {
   const hoverRef = useRef(hover); hoverRef.current = hover;
   const active = inputMode === "keyboard" ? selected : hover;
   const cards = useMemo(() => drag ? reorderCards(snapshot.cards, drag.id, drag.index) : snapshot.cards, [snapshot.cards, drag?.id, drag?.index]);
+  const cardIndices = useMemo(() => new Map(cards.map((card, index) => [card.id, index])), [cards]);
   const activeIndex = cards.findIndex((c) => c.id === active);
   const cardSize = handCardSize(snapshot.gui.font_size);
   const restPoses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, -1, snapshot.gui.font_size), [cards.length, snapshot.settings, snapshot.workArea, snapshot.gui.font_size]);
@@ -87,8 +89,15 @@ export function HandWindow() {
   const posesRef = useRef(poses); posesRef.current = poses;
   const layoutDrawingBounds = useMemo(() => {
     const all = [...restPoses];
-    for (let index = 0; index < cards.length; index++)
-      all.push(...handLayout(cards.length, snapshot.settings, snapshot.workArea, index, snapshot.gui.font_size));
+    restPoses.forEach((pose, index) => {
+      all.push(raisedHandPose(pose, snapshot.settings.side, snapshot.workArea));
+      const shift = 16 * pose.width / 156;
+      for (const direction of [index > 0 ? 1 : 0, index < cards.length - 1 ? -1 : 0]) {
+        if (direction) all.push({ ...pose,
+          x: pose.x + (snapshot.settings.side === "bottom" ? shift * direction : 0),
+          y: pose.y + (snapshot.settings.side !== "bottom" ? shift * direction : 0) });
+      }
+    });
     const folded = restPoses.map((pose) => ({ ...pose, angle: snapshot.settings.side === "left" ? -20 : snapshot.settings.side === "right" ? 20 : 0,
       scale: .75, x: pose.x + (snapshot.settings.side === "left" ? -pose.width : snapshot.settings.side === "right" ? pose.width : 0),
       y: pose.y + (snapshot.settings.side === "bottom" ? pose.height : 0) }));
@@ -176,7 +185,9 @@ export function HandWindow() {
     const flights = targets.map((card, index) => new Promise<void>((complete) => {
       const element = stage.current?.querySelector<HTMLElement>(`[data-hand-id="${card.id}"]`);
       if (!element) { complete(); return; }
-      discardingRef.current.push({ card, pose: readPose(element), delay: Math.min(index * 15, 75), complete });
+      const pose = readPose(element);
+      releaseHandMotion(element);
+      discardingRef.current.push({ card, pose, delay: Math.min(index * 15, 75), complete });
     }));
     setDiscarding([...discardingRef.current]);
     return Promise.all(flights);
@@ -226,6 +237,8 @@ export function HandWindow() {
     busyRef.current = card.id; setBusy(card.id); setError("");
     let flight: Promise<unknown> = name === "discard_hand_card" ? animateDiscard([card]) : Promise.resolve();
     if (name === "play_hand_card" && pose && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const element = stage.current?.querySelector<HTMLElement>(`[data-hand-id="${card.id}"]`);
+      if (element) releaseHandMotion(element);
       flight = new Promise<void>((complete) => {
         flyingRef.current = { card, pose, complete }; setFlying(flyingRef.current);
       });
@@ -290,15 +303,12 @@ export function HandWindow() {
   useEffect(() => {
     mounted.current = true;
     let cancelled = false; const cleanups: Array<() => void> = [];
-    const listen = async <E extends "hand-state-changed" | "hand-visibility-changed" | "hand-surface-changed" | "hand-dock-position-changed" | "hand-clear-requested" | "hand-hide" | "hand-pointer" | "hand-key" | "hand-error" | "hand-escape">(event: E, handler: Parameters<typeof onDesktopEvent<E>>[1]) => {
+    const listen = async <E extends "hand-state-changed" | "hand-visibility-changed" | "hand-dock-position-changed" | "hand-clear-requested" | "hand-hide" | "hand-pointer" | "hand-key" | "hand-error" | "hand-escape">(event: E, handler: Parameters<typeof onDesktopEvent<E>>[1]) => {
       const stop = await onDesktopEvent(event, handler); if (cancelled) stop(); else cleanups.push(stop);
     };
     void Promise.all([
       listen("hand-state-changed", accept),
       listen("hand-visibility-changed", (value) => accept({ ...current.current, ...value, arrival: null })),
-      listen("hand-surface-changed", ({ generation, surface }) => {
-        if (generation === accepted.current) void applySurface(surface);
-      }),
       listen("hand-dock-position-changed", (value) => {
         if (value.generation !== accepted.current) return;
         current.current = { ...current.current, dockPoint: value.point }; setSnapshot(current.current); setDockPoint(value.point);
@@ -431,11 +441,11 @@ export function HandWindow() {
     arrivalPlayed.current = snapshot.generation;
     const x = arrival.rect.left + arrival.rect.width / 2;
     const y = arrival.rect.top + arrival.rect.height / 2;
-    const animation = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? null : element.animate([
+    const animation = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? null : animateHandMotion(element, [
       { transform: `translate(-50%, -50%) translate(${x}px, ${y}px) rotate(0deg) scale(${arrival.rect.width / pose.width})`, opacity: 1 },
       { transform: `translate(-50%, -50%) translate(${x*.45+pose.x*.55}px, ${y*.7+pose.y*.3-80}px) rotate(${pose.angle-8}deg) scale(.8)`, offset: .55 },
       { transform: restTransform, opacity: 1 },
-    ], { duration: 480, easing: "cubic-bezier(.22,.75,.24,1)", fill: "none" });
+    ], { duration: 480, easing: "cubic-bezier(.22,.75,.24,1)" });
     animation?.pause();
     if (animation) animation.currentTime = 0;
     const motion = { generation: snapshot.generation, element, animation };
@@ -448,7 +458,7 @@ export function HandWindow() {
     };
     if (animation) void animation.finished.then(finishArrival, finishArrival);
     return () => {
-      animation?.cancel();
+      releaseHandMotion(element);
       if (arrivalMotion.current === motion) {
         arrivalMotion.current = null;
         arrivalDrawing.current = null;
@@ -467,7 +477,7 @@ export function HandWindow() {
       const pose = poses[snapshot.cards.findIndex((c) => c.id === id)];
       const dx = snapshot.settings.side === "left" ? 150 : snapshot.settings.side === "right" ? -150 : 0;
       const dy = snapshot.settings.side === "bottom" ? -150 : 0;
-      element.animate([{ transform: `translate(-50%,-50%) translate(${pose.x+dx}px,${pose.y+dy}px) scale(.85)`, opacity: .4 },
+      animateHandMotion(element, [{ transform: `translate(-50%,-50%) translate(${pose.x+dx}px,${pose.y+dy}px) scale(.85)`, opacity: .4 },
         { transform: restTransform, opacity: 1 }], { duration: 360, easing: "cubic-bezier(.18,.9,.28,1.15)" });
     });
   }, [snapshot, busy, flying, phase]);
@@ -506,7 +516,13 @@ export function HandWindow() {
     cancelDrag();
   };
   const surface = snapshot.surface;
-  const visibleCards = [...snapshot.cards, ...discarding.filter((item) => !snapshot.cards.some((card) => card.id === item.card.id)).map((item) => item.card)];
+  const discardById = useMemo(() => new Map(discarding.map((item) => [item.card.id, item])), [discarding]);
+  const visibleCards = useMemo(() => {
+    const visible = new Map(snapshot.cards.map((card) => [card.id, card]));
+    discarding.forEach((item) => { if (!visible.has(item.card.id)) visible.set(item.card.id, item.card); });
+    if (flying && !visible.has(flying.card.id)) visible.set(flying.card.id, flying.card);
+    return [...visible.values()];
+  }, [snapshot.cards, discarding, flying]);
   return <div ref={stage} tabIndex={-1} className={`hand-stage hand-${phase}`} data-side={snapshot.settings.side} data-preview={snapshot.preview || undefined}
     data-hidden={hidden || undefined} data-expanded={snapshot.expanded} data-input-mode={inputMode}
     style={{ "--hand-card-height": `${cardSize.height}px`, width: surface?.width, height: surface?.height,
@@ -527,24 +543,25 @@ export function HandWindow() {
     {error && <div className="hand-error" role="alert" data-hand-hit style={{ left: toolbar.left,
       top: Math.max(snapshot.workArea.top+8, toolbar.top - 48) }} onClick={() => setError("")}>{error}</div>}
     {cardsMounted && visibleCards.map((card) => {
-      const removing = discarding.find((item) => item.card.id === card.id);
-      const i = cards.findIndex((candidate) => candidate.id === card.id);
-      const pose = removing?.pose ?? poses[i]; const held = !removing && drag?.id === card.id ? drag : null;
+      const removing = discardById.get(card.id);
+      const flyingCard = flying?.card.id === card.id ? flying : null;
+      const i = cardIndices.get(card.id) ?? -1;
+      const pose = removing?.pose ?? flyingCard?.pose ?? poses[i]; const held = !removing && !flyingCard && drag?.id === card.id ? drag : null;
       const playing = !!held && held.playable;
       const style = { "--hand-x": `${held ? held.pose.x : pose.x}px`, "--hand-y": `${held ? held.pose.y : pose.y}px`, width: pose.width, height: pose.height,
         "--hand-base-scale": pose.width / 156,
-        zIndex: held ? 1000 : active === card.id ? 500 : i+1,
+        zIndex: flyingCard ? 1200 : held ? 1000 : active === card.id ? 500 : i+1,
         "--card-x": `${held ? held.dx : 0}px`, "--card-y": `${held ? held.dy : 0}px`,
         "--hand-angle": `${held ? 0 : pose.angle}deg`,
         "--hand-card-scale": held ? 1.12 : pose.scale, "--hand-order": i, "--discard-delay": `${removing?.delay ?? 0}ms`,
       } as CSSProperties;
-      return <div key={card.id} data-hand-id={card.id} data-hand-hit className={`hand-card${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${playing ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${!removing && (busy === card.id || flying?.card.id === card.id) ? " hand-pending" : ""}`}
+      return <div key={card.id} data-hand-id={card.id} data-hand-hit className={`hand-card${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${playing ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? " hand-flying" : ""}${!removing && !flyingCard && busy === card.id ? " hand-pending" : ""}`}
         role="button" tabIndex={-1} aria-label={card.song.mysteryMode ? t("神秘歌曲") : card.song.name} aria-disabled={snapshot.preview || !!busy}
-        style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) removing?.complete(); }} onPointerDown={(e) => {
+        style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); } }} onPointerDown={(e) => {
           if (e.button !== 0 || snapshot.preview || busyRef.current || (e.target as HTMLElement).closest("button")) return;
           e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
           const visualPose = readPose(e.currentTarget);
-          e.currentTarget.focus({ preventScroll: true }); e.currentTarget.getAnimations().forEach((animation) => animation.cancel());
+          e.currentTarget.focus({ preventScroll: true }); releaseHandMotion(e.currentTarget); e.currentTarget.getAnimations().forEach((animation) => animation.cancel());
           const point = toCanvas(e.clientX, e.clientY);
           const held: Drag = { id: card.id, index: snapshot.cards.findIndex((c) => c.id === card.id), playable: false, pointerId: e.pointerId, startX: point.x, startY: point.y, dx: 0, dy: 0, pose: visualPose, element: e.currentTarget };
           dragDrawing.current = handPoseBounds(visualPose);
@@ -568,11 +585,5 @@ export function HandWindow() {
         </div>{card.mysteryRevealed && snapshot.arrival?.id === card.id && <div className="hand-card-back"><div className="hand-card-face"><div className="hand-art"><Cover url="" data={snapshot.arrival.mysteryCover} prepared mystery label={t("神秘歌曲")} /></div><strong>???</strong><span>???</span></div></div>}</div>
       </div>;
     })}
-    {flying && <div className="hand-card hand-flying" data-hand-hit
-      onAnimationEnd={(event) => { if (event.target === event.currentTarget) finishFlight(); }}
-      style={{ left: flying.pose.x, top: flying.pose.y, width: flying.pose.width, height: flying.pose.height, "--hand-base-scale": flying.pose.width / 156,
-        "--hand-angle": `${flying.pose.angle}deg`, "--hand-card-scale": flying.pose.scale } as CSSProperties}>
-      <div className="hand-card-face"><HandCardContent card={flying.card} /></div>
-    </div>}
   </div>;
 }

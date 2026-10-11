@@ -45,6 +45,7 @@
 | 多页面共用的界面组件 | `app/src/components/` |
 | 日夜主题、共用颜色和旧默认浮窗配色兼容 | `app/src/styles/tokens.css`、`app/src/App.css`、`app/src/features/discovery/themePalette.ts` |
 | 应用快照同步、草稿保留和通知 | `app/src/hooks/` |
+| 主窗口自绘顶栏与窗口控制 | `app/src/components/MainWindowFrame.tsx`、`mainWindow.css`、`app/src/services/desktop.ts`、`app/src-tauri/capabilities/main-window.json` |
 | 前端桌面命令、事件或窗口调用 | `app/src/services/desktop.ts` |
 | 调试版独立数据目录与原生 QA | `app/src-tauri/src/paths.rs` 的 `DISCOAS_TEST_ROOT` 分支 |
 
@@ -108,13 +109,13 @@ Windows 预览让卡片和背景穿透；右上退出按钮是唯一临时接受
 
 `hand/cards.json` 保存独立身份、原平台播放参数和真实元数据，不存封面 data URI；前端投影按收牌时的揭晓选项隐藏信息。切换或删除来源、重新启动或关闭模式均保留手牌。持有身份按平台 / 歌曲排除发现和替补，收牌使旧预加载准备失效；打出和弃牌重新计算持有集合。历史排除继续独立生效。打出通过共用 `desktop/playback.rs` 唤起客户端，不再记录选择或重复减权。明确播放失败将卡片放回原位置；普通协议的唤起成功沿用现有播放接口含义。
 
-手牌使用两个独立的原生窗口：`hand` 只绘制卡牌，`hand-dock` 只显示 Logo、数量和清空操作。布局沿用桌面画布坐标，卡牌原生窗口只覆盖手牌的绘制范围；入手与拖动临时扩大范围，动画结束后收回，收纳或最后一张牌消失后隐藏。浮窗使用固定的小窗口，伸缩只改变内容和绘制区域，拖动使用 Windows 原生窗口移动。`desktop/hand_dock.rs` 与 `HandDockWindow.tsx` 负责浮窗，不接收歌曲封面；`desktop/hand.rs` 与 `HandWindow.tsx` 处理卡牌、持有状态和播放。`desktop/floating_window.rs` 统一透明窗口的框架可见性与原生无边框处理，过滤底层框架重加的标题栏样式，并禁止非客户区绘制。手牌与 Logo 浮窗采用非激活交互，显示和鼠标操作保留外部程序焦点。前端 `surface` 描述窗口相对桌面画布的偏移与 DPI 比例，改变后先提交布局，再显示。`SetWindowRgn` 保留动画卡片的实际绘制范围，鼠标捕获负责区域外的拖动输入，空白桌面保持穿透。`handDrawingBounds.ts` 提前计算静止、悬停、收纳与完整入手路径，避免逐帧调整原生窗口尺寸；入手动画开始、结束和取消时均主动更新区域。
+手牌使用两个独立的原生窗口：`hand` 只绘制卡牌，`hand-dock` 只显示 Logo、数量和清空操作。布局沿用桌面画布坐标，卡牌原生窗口只覆盖手牌的绘制范围；入手与拖动临时扩大范围，动画结束后收回，收纳或最后一张牌消失后隐藏。浮窗使用固定的小窗口，伸缩只改变内容和绘制区域，拖动使用 Windows 原生窗口移动。`desktop/hand_dock.rs` 与 `HandDockWindow.tsx` 负责浮窗，不接收歌曲封面；`desktop/hand.rs` 与 `HandWindow.tsx` 处理卡牌、持有状态和播放。`desktop/floating_window.rs` 统一透明窗口的框架可见性与原生无边框处理，过滤底层框架重加的标题栏样式，并禁止非客户区绘制。手牌与 Logo 浮窗采用非激活交互，显示和鼠标操作保留外部程序焦点。前端 `surface` 描述窗口相对桌面画布的偏移与 DPI 比例，改变后先提交布局，再显示。卡牌小窗口保留完整绘制区域，唯一的指针观察任务按卡牌命中范围切换穿透；鼠标捕获负责区域外拖动。已显示的窗口更新卡牌时不再次显示或重置绘制区域；尺寸调整只通过命令回复同步前端坐标。`handDrawingBounds.ts` 提前计算静止、悬停、收纳与完整入手路径，避免逐帧调整原生窗口尺寸；入手动画开始、结束和取消时均主动更新区域。
 
 手牌按键复用发现方向键和确认键，另支持 Delete 弃牌；Esc 取消卡牌拖动，否则收纳，预览中则退出预览。快捷键或托盘展开可单独进入键盘选牌状态，普通收牌和鼠标展开不接管按键。原生 Hook 仅消费已识别的手牌按键，其它输入继续传给外部程序；前台窗口变化后的下一次按键立即透传并退出接管，不轮询前台状态。尺寸预览继续观察按键并全部透传。发现窗口按所选显示器的工作区定位，采用无边框普通窗口，排除任务栏占用；每次唤出重新读取工作区，层级高于手牌和 Logo 浮窗。
 
 手牌分为展开、收纳、完全关闭三种状态。独立 Logo 浮窗可以拖到任意显示器的位置，靠近边缘时允许部分藏到屏幕外，贴边侧圆角平滑变为直角；位置以物理坐标保存在 `hand/dock.json`，只在松手时写入。收纳时只显示圆形 Logo，展开时按所在半屏延伸成显示“手牌 X/Y”和删除按钮的长条。展开、收纳均固定 Logo 圆心，跨越半屏时先缩回圆形，再向另一侧延伸；快速往返只更新目标方向，在圆形时采用最后的位置，不排队播放。数量和删除按钮在缩回时隐藏、延伸时淡入，Logo 始终跟随指针。`HandDock.tsx` 与 `floatingDock.ts` 负责交互和几何，卡牌布局继续由 `handLayout.ts` 处理。点击 Logo 或按手牌快捷键切换展开／收纳，快捷键展开有牌手牌时进入键盘选牌状态；托盘完全关闭两个窗口。`hand-visibility-changed` 复用卡牌快照，`hand-dock-state-changed` 只携带数量、布局、外观和位置；浮窗拖动的 `hand-dock-moved` 不触发卡牌重绘，松手后同步浮窗位置；卡牌布局不避让浮窗。清空按钮通过前端手牌事件调用原清空操作，保留逐张消失动画与操作锁。收纳动画完成后卸载卡片、隐藏卡牌窗口并停止原生指针和按键观察；空手牌保留浮窗。背景刷新保留收纳状态，手动关闭后不因常驻设置重新打开；收进新卡时自动展开并播放收牌动画。布局预览临时隐藏独立浮窗，沿用穿透画布内的退出按钮，退出后恢复此前状态与浮窗位置。
 
-展开和调位动画使用 CSS transform，收牌与回牌的最后一帧使用同一组布局变量。拖动位置按动画帧直接更新，只有插入位置或可打出状态改变时才更新 React；卡片内容单独复用。松手后提交顺序并更新原生快照，避免重新读取整副手牌的封面；取消拖动恢复原排列。打出动画在松手时捕获卡片实际位置、角度和缩放，原地缩小淡出，不等待播放结果才启动；播放失败后恢复手牌。弃牌和清空立即提交原操作，保留正在消失的卡片节点，在原位置轻微缩小、下移、淡出，清空时使用短暂错峰。神秘揭晓的背面沿用来源发现卡片已准备的封面，支持用户自定义图片。边缘距离允许 -500–500px，负值只改变靠边偏移，不改变卡片尺寸或沿边位置。悬停或键盘选中的卡片按放大后的尺寸完整移入工作区；取消选中后恢复原有布局。收牌、展开、打出、弃牌、回牌、取消及神秘揭晓遵从减弱动画设置。
+展开和调位动画使用 CSS transform；`handMotion.ts` 让收牌与回牌动画独占变换，结束或中断时先保留当前可见帧，再交回最新布局。打出复用原卡牌节点和已解码封面。悬停、调位和收纳的绘制包围范围按卡牌逐张计算，不为每个悬停位置重算整副布局。拖动位置按动画帧直接更新，只有插入位置或可打出状态改变时才更新 React；卡片内容单独复用。松手后提交顺序并更新原生快照，避免重新读取整副手牌的封面；取消拖动恢复原排列。打出动画在松手时捕获卡片实际位置、角度和缩放，原地缩小淡出，不等待播放结果才启动；播放失败后恢复手牌。弃牌和清空立即提交原操作，保留正在消失的卡片节点，在原位置轻微缩小、下移、淡出，清空时使用短暂错峰。神秘揭晓的背面沿用来源发现卡片已准备的封面，支持用户自定义图片。边缘距离允许 -500–500px，负值只改变靠边偏移，不改变卡片尺寸或沿边位置。悬停或键盘选中的卡片按放大后的尺寸完整移入工作区；取消选中后恢复原有布局。收牌、展开、打出、弃牌、回牌、取消及神秘揭晓遵从减弱动画设置。
 
 命中区域在布局变化及实际动画期间更新，按物理像素对齐并合并重复结果，动画结束后停止测量。原生绘制范围覆盖完整动画路径，不用迟到的逐帧矩形裁切画面；已有指针观察根据卡牌命中切换穿透，空白区域可以操作背后的程序。拖动期间沿路径扩展绘制范围，指针捕获接收窗口外的拖动；原生层跳过相同区域并暂停重复指针事件。封面缓存共享只读字节，不在每次读取时复制整张图片；总缓存预算用于淘汰旧图，单张封面不再按 5 MB 拒绝。网易云下载请求使用 640×640 参数，Spotify 从返回的图片列表优先选取不超过 640px 的版本；已有 QQ、酷狗和汽水封面请求沿用各自的缩略图尺寸。
 
@@ -136,6 +137,8 @@ Logo 的矢量源为根 `assets/DiscoAS.svg`：黄、蓝、红从左至右叠放
 
 当前界面采用紧凑、灰白层级的桌面主题：侧栏和列表以中性背景、细分隔线区分层级，青色用于主要操作、状态及键盘焦点。所有页面与挂到 body 的菜单共用 `styles/tokens.css` 的日夜语义颜色；面板和菜单不使用玻璃或背景模糊。`discovery/themePalette.ts` 只将完整匹配旧默认值的卡片 / 退出配色映射到新主题，自定义组整组保留，不能借主题更新改写已保存的数据。发现反馈放在 `features/discovery/discovery.css`：鼠标轻微抬起，键盘单一 2px 焦点框，卡片边框透明以免形成双框；替换按钮同步移动。卡片不允许选中文字或拖动封面。几何、五列上限、信息条独立定位和预览行为保持原约定。
 
+主窗口使用自绘 `MainWindowFrame`：紧凑固定顶栏、右侧最小化／最大化／还原／关闭按钮，空白顶栏支持原生拖动与双击最大化；关闭调用原窗口关闭事件并收至托盘。Tauri 保留边缘缩放、贴靠和最大化工作区计算，主窗口不接入透明浮窗的非激活适配。窗口状态按事件同步，连续缩放合并查询，不持续轮询。
+
 设置标题和保存按钮使用 `.settings-topbar` 固定在主内容滚动区域顶部，sticky inset 抵消主内容响应式顶部内距；日夜、字号和界面缩放共用原外观状态。顶栏层级低于 body 帮助浮层，不应用页面进入的位移动画。更改顶栏时应核验滚到本地数据仍可见且可保存，不能在顶栏上方露出正文。
 
 浏览器扩展按 `ExtensionBrowser` 导出 Chromium / Firefox 清单，`export_browser_extension` 和 `open_browser_extension_folder` 的 browser 参数可省略，默认 Chromium。Firefox 115+ 使用持久模块后台，Chromium 116+ 使用 MV3 worker，共用绑定页、自动续播和请求隔离。DTO 保留旧 `extensionPath`，新增 `extensionPaths` 和经过认证的 `connectedBrowser`；UI 的浏览器选择只决定准备目录与教程，不能误将另一浏览器的连接显示为已连接。Firefox Origin 是严格 UUID，仍需私有 token；Logo 图像与主程序字节相同，旧 Chromium 根目录保持兼容。
@@ -156,7 +159,7 @@ Spicetify 私有配置与状态必须分开：移除子进程 SPICETIFY_STATE，
 
 权重连续参数与客户端最小化等待时间使用 f64，旧整数 JSON 仍兼容；抽样和减权恢复全过程保留小数，权重最低 1。歌曲数、批数、发现轮次仍是整数。`components/numberInput.ts` 区分两类数值，`NumberField` 的小数模式使用文本输入、范围验证和自定义步进；字号、等待时间和连续权重支持小数，方向键 / 步进按钮按 ±1 调整并保留小数部分。非有限值和越界值不能进入后端设置。
 
-手动更新通过 `desktop/updates.rs` → `services/updates.rs` 请求本项目公开 GitHub Releases；只响应用户点击，不在启动或后台轮询。`release/` 只输出普通和完整两种 Windows x64 安装包，NSIS 提供简体、繁体、英语。安装器先检查 Windows 10 1809 及以上的 AMD64 客户端系统，再处理 WebView2；通过 NSIS `VersionCompare` 选择系统级或当前用户较新的运行时，最低要求为 `109.0.0.0`。普通包按需下载，完整包由 `tauri.full.conf.json` 嵌入微软 WebView2 离线安装器。
+手动更新通过 `desktop/updates.rs` → `services/updates.rs` 请求本项目公开 GitHub Releases；只响应用户点击，不在启动或后台轮询。`release/` 只输出普通和完整两种 Windows x64 安装包，NSIS 提供简体、繁体、英语。安装器先检查 Windows 10 1809 及以上的 AMD64 客户端系统，再处理 WebView2；通过 NSIS `VersionCompare` 选择系统级或当前用户较新的运行时，最低要求为 `109.0.0.0`。普通包按需下载，完整包在生成的 NSIS 脚本中嵌入微软 WebView2 离线安装器。
 
 必要的设置说明通过可悬停、聚焦或点击的圆形问号展开，空说明不产生按钮；键盘选歌、启动与后台运行、本地数据三个分区不显示说明或问号。`HelpHint` 使用同一个 `0 0 24 24` viewBox 中的圆圈、路径和圆点，不使用文字拼接，外尺寸为 `14px × --font-scale`，随界面 zoom 整体缩放；`currentColor` 延续日夜和悬停颜色。帮助按钮保留可访问名称与浮层关联，SVG 隐藏于辅助技术；触发器的 10px 基准字体只用于维持帮助浮层的原文字比例。设置 `fieldset` 内文字 / 数字输入的额外 `:focus-visible` outline 局部取消，按钮、滑块、下拉触发器及挂到 body 的搜索输入仍保留键盘反馈。外观和按键恢复按钮共用 `appearance-actions` 与 `button secondary`。浏览器和 Spicetify 安装教程使用 `features/settings/InstallationGuide.tsx`，准备后自动展开；复制操作通过 `services/desktop.ts`，失败时不能显示已复制。
 
@@ -186,37 +189,27 @@ npm run tauri dev
 
 ## 验证和打包
 
-在 `app/` 中执行：
+先列本次对应检查，再按改动文件或功能选择执行。以下是入口，不是每次必须全跑的清单；外观和动画修改先展示预览、完成样式确认，再执行相关检查。修改共享逻辑时覆盖受影响的调用方。
 
-```powershell
-cargo test --manifest-path ../crates/discoas-core/Cargo.toml --offline
-cargo run --manifest-path ../crates/discoas-core/Cargo.toml --offline --example local_discovery
-cargo test --manifest-path src-tauri/Cargo.toml --lib --offline
-npm run build
-npm run test:motion
-npm run test:preferences
-npm run test:covers
-npm run test:discovery
-npm run test:spotify
-npm run test:browser
-npm run test:source
-npm run test:controls
-npm run test:library
-npm run test:keyboard
-npm run test:history
-npm run test:theme
-npm run test:numeric
-npm run test:updates
-npm run test:tray
-npm run test:hand
-npm run test:installer
-```
+| 修改范围 | 对应检查（在 `app/` 执行） |
+| --- | --- |
+| 前端类型或界面 | `npx tsc --noEmit`；相关页面、浅深色及窗口尺寸 |
+| 手牌布局 | `npm run test:hand:layout` |
+| 手牌动画 | `npm run test:hand:motion`；实际入手、展开收纳、打出和弃牌画面 |
+| 发现与本地选歌 | 按修改选择 `test:discovery`、`test:keyboard`、`test:motion` |
+| 封面、来源、歌单、历史 | 按修改选择 `test:covers`、`test:source`、`test:library`、`test:history` |
+| 设置、控件、数值、主题 | 按修改选择 `test:preferences`、`test:controls`、`test:numeric`、`test:theme` |
+| 托盘、更新、安装器 | 按修改选择 `test:tray`、`test:updates`、`test:installer` |
+| 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
+| Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |
 
-`--offline` 要求 Rust 依赖已缓存在本机；首次下载依赖时可省略。按改动范围选择检查，公网探针默认忽略，只在需要核验平台变化时单独运行。独立核心的离线示例不读写已有用户数据。
+`test:hand` 只组合手牌布局与动画，不附带发现或播放测试。主窗口自绘控制单独验证最小化、最大化／还原、拖动、边缘缩放和关闭收至托盘；原生窗口改动核验任务栏、显示缩放、焦点与透明区域穿透。性能对比只覆盖被改动的交互和静止状态。完整交付前编译 Windows NSIS 安装包，复用已经完成的相关检查。
+
+`--offline` 要求 Rust 依赖已缓存在本机；首次下载依赖时可省略。公网探针只在核验平台变化时单独运行。独立核心的离线示例不读写已有用户数据。
 
 在 `app/` 执行 `npm run release:windows -- --normal-only` 可生成普通安装包。准备微软 WebView2 x64 离线安装器后，通过环境变量 `DISCOAS_WEBVIEW2_INSTALLER` 指定文件路径，再执行 `npm run release:windows` 生成普通和完整两种安装包，输出位于仓库根 `release/`；该目录不进入源码仓库。
 
-WebView2 准备脚本核对微软签名，通过微软下载重定向定位 Tauri 缓存目录；本地安装器大小无需与当前最新版相同，安装阶段仍检查最低运行时版本。
+WebView2 准备脚本核对本地安装器的微软签名。普通包完成后，构建脚本复用当次生成的 NSIS 脚本和同一应用文件，将完整包的运行时安装方式改为内置本地离线文件；生成完整包无需访问微软下载节点。两种包保留相同图标、语言和安装行为，安装阶段仍检查最低运行时版本。
 
 原生 QA 可在调试构建设置 `DISCOAS_TEST_ROOT` 为一个已存在的绝对目录，`paths.rs` 将应用根及其 `user_data/` 指向该隔离目录；无效路径直接报错。此分支仅在 `debug_assertions` 编译，正式 Release / NSIS 不读取该变量，也不构成便携数据模式。测试应预置专用来源、偏好与封面，不借用仓库根或系统应用数据；结束时保留或清理的对象只限明确创建的测试文件。
 

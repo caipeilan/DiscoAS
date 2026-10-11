@@ -19,27 +19,43 @@ const cli = path.join(app, "node_modules/@tauri-apps/cli/tauri.js");
 const bundle = path.join(app, "src-tauri/target/release/bundle/nsis", `DiscoAS_${version}_x64-setup.exe`);
 const executable = path.join(app, "src-tauri/target/release/discoas.exe");
 
-function run(command, arguments_) {
-  const result = spawnSync(command, arguments_, { cwd: app, stdio: "inherit", windowsHide: true });
+function run(command, arguments_, cwd = app) {
+  const result = spawnSync(command, arguments_, { cwd, stdio: "inherit", windowsHide: true });
   if (result.error || result.status !== 0) throw result.error || new Error(`${command} exited with ${result.status}`);
 }
-async function build(full) {
+async function build() {
   const command = [cli, "build", "--bundles", "nsis"];
-  if (full) command.push("--config", "src-tauri/tauri.full.conf.json");
   run(process.execPath, command);
   const bytes = await fs.readFile(executable);
   const pe = bytes.readUInt32LE(0x3c);
   if (bytes.subarray(pe, pe + 4).toString("binary") !== "PE\0\0" || bytes.readUInt16LE(pe + 4) !== 0x8664)
     throw new Error("Desktop executable is not AMD64.");
-  const name = `DiscoAS_${version}_x64-setup${full ? "-full" : ""}.exe`;
-  await fs.copyFile(bundle, path.join(output, name));
-  console.log(`Prepared ${name}`);
+  if (!fullOnly) {
+    const name = `DiscoAS_${version}_x64-setup.exe`;
+    await fs.copyFile(bundle, path.join(output, name));
+    console.log(`Prepared ${name}`);
+  }
 }
-if (!fullOnly) await build(false);
+await build();
 if (!normalOnly) {
-  const source = process.env.DISCOAS_WEBVIEW2_INSTALLER || path.join(repository, ".local-release/MicrosoftEdgeWebView2RuntimeInstallerX64.exe");
-  // A complete, official file must be prepared before the full bundle can be built.
+  const source = path.resolve(process.env.DISCOAS_WEBVIEW2_INSTALLER || path.join(repository, ".local-release/MicrosoftEdgeWebView2RuntimeInstallerX64.exe"));
+  // Reuse the local installer and this build's generated NSIS script without a download lookup.
   run("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
     path.join(app, "scripts/prepare-webview2.ps1"), "-SourcePath", source]);
-  await build(true);
+  const generated = path.join(app, "src-tauri/target/release/nsis/x64");
+  const offline = path.join(app, "src-tauri/target/release/nsis/x64-full");
+  await fs.mkdir(offline, { recursive: true });
+  for (const filename of await fs.readdir(generated)) {
+    if (filename.endsWith(".nsh")) await fs.copyFile(path.join(generated, filename), path.join(offline, filename));
+  }
+  const script = (await fs.readFile(path.join(generated, "installer.nsi"), "utf8"))
+    .replace('!define INSTALLWEBVIEW2MODE "downloadBootstrapper"', '!define INSTALLWEBVIEW2MODE "offlineInstaller"')
+    .replace('!define WEBVIEW2INSTALLERPATH ""', `!define WEBVIEW2INSTALLERPATH "${source}"`);
+  const installerScript = path.join(offline, "installer.nsi");
+  await fs.writeFile(installerScript, script, "utf8");
+  const compiler = path.join(process.env.LOCALAPPDATA, "tauri/NSIS/makensis.exe");
+  run(compiler, ["/V2", "/INPUTCHARSET", "UTF8", installerScript], offline);
+  const name = `DiscoAS_${version}_x64-setup-full.exe`;
+  await fs.copyFile(path.join(offline, "nsis-output.exe"), path.join(output, name));
+  console.log(`Prepared ${name}`);
 }

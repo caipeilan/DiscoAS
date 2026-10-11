@@ -7,6 +7,9 @@ const paths: Record<string, string> = {
   settings:
     "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 1.3-2.2-2-3.4-2.6.1-1.3-2.3H9.6L8.3 6.5l-2.6-.1-2 3.4L5 12l-1.3 2.2 2 3.4 2.6-.1 1.3 2.3h5.8l1.3-2.3 2.6.1 2-3.4L20 12Z",
   plus: "M12 5v14M5 12h14",
+  minimize: "M5 12h14",
+  maximize: "M5 5h14v14H5Z",
+  restore: "M9 8V4h11v11h-4M4 9h11v11H4Z",
   close: "m6 6 12 12M6 18 18 6",
   arrow: "M5 12h14m-6-6 6 6-6 6",
   chevron: "m6 9 6 6 6-6",

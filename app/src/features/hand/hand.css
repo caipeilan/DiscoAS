@@ -39,6 +39,7 @@
 .hand-card-face > span { margin: 1px 4px; flex-shrink: 0; font-size: calc(10px * var(--font-scale)); line-height: 1.5; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hand-active .hand-card-face { border-color: var(--accent-focus); box-shadow: var(--shadow-floating), 0 0 0 1px var(--accent-focus); }
 .hand-dragging { cursor: grabbing; transition: none; will-change: transform; }
+.hand-card[data-hand-motion] { transition: none; will-change: transform, opacity; }
 .hand-card:focus { outline: none; }
 .hand-pending { visibility: hidden; pointer-events: none; }
 .hand-playable .hand-card-face { border-color: var(--accent-focus); box-shadow: 0 0 0 2px var(--accent-focus), var(--shadow-floating); }
@@ -54,12 +55,12 @@
 .hand-stage[data-hidden] .hand-toolbar, .hand-stage[data-hidden] .hand-error { opacity: 0; pointer-events: none; }
 .hand-stage[data-preview] .hand-card { opacity: .25; pointer-events: none; }
 .hand-stage[data-preview] .hand-active { opacity: 1; }
-.hand-flying { z-index: 1200; pointer-events: none; transition: none; animation: hand-play 350ms cubic-bezier(.2,.7,.2,1) both; }
+.hand-card.hand-flying { z-index: 1200; pointer-events: none; transition: none; animation: hand-play 350ms cubic-bezier(.2,.7,.2,1) both; }
 .hand-card.hand-discarding { pointer-events: none; transition: none; animation: hand-discard 240ms cubic-bezier(.2,.7,.2,1) both; animation-delay: var(--discard-delay, 0ms); }
 .hand-error { position: absolute; z-index: 1600; padding: 9px 14px; background: var(--surface); border: 1px solid var(--danger-border); border-radius: 10px; box-shadow: var(--shadow-floating); color: var(--danger); pointer-events: auto; white-space: nowrap; }
 @keyframes hand-play {
-  from { transform: translate(-50%,-50%) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
-  to { transform: translate(-50%,-50%) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .35)); opacity: 0; }
+  from { transform: translate(-50%,-50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
+  to { transform: translate(-50%,-50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .35)); opacity: 0; }
 }
 @keyframes hand-discard {
   from { transform: translate(-50%, -50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }

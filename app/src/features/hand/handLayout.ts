@@ -3,6 +3,14 @@ import type { HandCard, HandRect, HandSettings } from "../../types";
 export interface CardPose { x: number; y: number; angle: number; width: number; height: number; scale: number }
 const clamp = (v: number, low: number, high: number) => Math.max(low, Math.min(high, v));
 
+export function raisedHandPose(pose: CardPose, side: HandSettings["side"], area: HandRect): CardPose {
+  const size = pose.width / 156;
+  const dx = pose.width * 1.12 / 2, dy = pose.height * 1.12 / 2;
+  return { ...pose, angle: 0, scale: 1.12,
+    x: clamp(pose.x + (side === "left" ? 44 * size : side === "right" ? -44 * size : 0), area.left + dx + 12, area.left + area.width - dx - 12),
+    y: clamp(pose.y - (side === "bottom" ? 44 * size : 0), area.top + dy + 12, area.top + area.height - dy - 12) };
+}
+
 export function handCardSize(fontSize = 14) {
   // Reserve two title lines and one artist line as the text grows.
   return { width: 156, height: 220 + Math.max(0, fontSize / 14 - 1) * (12 * 1.35 * 2 + 10 * 1.5) };
@@ -47,20 +55,13 @@ export function handLayout(count: number, settings: HandSettings, area: HandRect
       x = settings.side === "left" ? area.left + edgeMargin + halfWidth + 20 * size : area.left + area.width - edgeMargin - halfWidth - 20 * size;
       y = center + offset * step + shift;
       angle = (settings.side === "left" ? 1 : -1) * settings.tilt;
-      if (i === active) { x += (settings.side === "left" ? 1 : -1) * 44 * size; angle = 0; }
     } else {
       x = center + offset * step + shift;
       y = bottomY + relative * relative * 28 * size;
       angle = relative * settings.tilt;
-      if (i === active) { y -= 44 * size; angle = 0; }
     }
-    const scale = i === active ? 1.12 : 1;
-    if (i === active) {
-      const dx = width * scale / 2, dy = height * scale / 2;
-      x = clamp(x, area.left + dx + 12, area.left + area.width - dx - 12);
-      y = clamp(y, area.top + dy + 12, area.top + area.height - dy - 12);
-    }
-    return { x, y, angle, width, height, scale };
+    const pose = { x, y, angle, width, height, scale: 1 };
+    return i === active ? raisedHandPose(pose, settings.side, area) : pose;
   });
 }
 export function playDistance(side: HandSettings["side"], dx: number, dy: number): number {
@@ -90,11 +91,13 @@ export function hoverHandIndex(poses: CardPose[], side: HandSettings["side"], x:
     const localY = dx*Math.sin(angle)+dy*Math.cos(angle);
     return Math.abs(localX) <= p.width*p.scale/2 && Math.abs(localY) <= p.height*p.scale/2;
   };
-  const candidates = poses.map((p, i) => ({ p, i })).filter(({ p }) => contains(p));
-  if (candidates.length) return candidates.reduce((nearest, candidate) => {
-    const axis = side === "bottom" ? "x" : "y";
-    const point = side === "bottom" ? x : y;
-    return Math.abs(candidate.p[axis]-point) < Math.abs(nearest.p[axis]-point) ? candidate : nearest;
-  }).i;
+  const axis = side === "bottom" ? "x" : "y", point = side === "bottom" ? x : y;
+  let nearest = -1, distance = Infinity;
+  poses.forEach((pose, index) => {
+    if (!contains(pose)) return;
+    const next = Math.abs(pose[axis] - point);
+    if (next < distance) { nearest = index; distance = next; }
+  });
+  if (nearest >= 0) return nearest;
   return raised && contains(raised) ? raisedIndex : -1;
 }
