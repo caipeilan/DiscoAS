@@ -123,6 +123,11 @@ pub struct HandVisibility {
     focus: bool,
     surface: Surface,
 }
+#[derive(Clone, Copy, Serialize)]
+pub struct SurfaceChange {
+    generation: u64,
+    surface: Surface,
+}
 #[derive(Serialize)]
 pub struct CollectedHandCard {
     id: String,
@@ -149,12 +154,14 @@ pub struct HandState {
     ready: AtomicBool,
     visible: AtomicBool,
     card_visible: AtomicBool,
+    keyboard_active: AtomicBool,
     expanded: AtomicBool,
     dismissed: AtomicBool,
     session: Mutex<Option<HandSnapshot>>,
     canvas: Mutex<Option<Canvas>>,
     preview_restore: Mutex<Option<(bool, bool)>>,
     regions: Mutex<Option<HitRegions>>,
+    drawing_bounds: Mutex<Option<Rect>>,
     pending: Mutex<Option<Pending>>,
     prepared: Mutex<HashMap<String, PreparedCard>>,
     arrival_ready: Mutex<Option<(String, tokio::sync::oneshot::Sender<Result<(), String>>)>>,
@@ -299,7 +306,7 @@ fn snapshot_event(snapshot: &HandSnapshot, previous: Option<&HandSnapshot>) -> H
     event
 }
 
-pub fn create(app: &tauri::AppHandle) -> tauri::Result<()> {
+pub async fn create(app: &tauri::AppHandle) -> Result<(), String> {
     let window =
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?view=hand".into()))
             .title("DiscoAS · 手牌")
@@ -313,28 +320,15 @@ pub fn create(app: &tauri::AppHandle) -> tauri::Result<()> {
             .maximizable(false)
             .minimizable(false)
             .focused(false)
+            .focusable(false)
             .visible(false)
-            .build()?;
-    let _ = super::hand_dock::remove_frame(&window);
-    let focus_app = app.clone();
-    window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::Focused(true)) {
-            let app = focus_app.clone();
-            tauri::async_runtime::spawn(async move {
-                if !visible(&app) {
-                    return;
-                }
-                let _ = app.emit_to(LABEL, "hand-focus", ());
-                if let Err(e) = activate_keyboard(&app).await {
-                    let _ = app.emit("hand-error", e);
-                }
-            });
-        }
-    });
+            .build()
+            .map_err(|_| "错误：手牌窗口不可用")?;
+    super::floating_window::install_confirmed(&window, true).await?;
     Ok(())
 }
 
-/// The surface spans the virtual desktop so dragging is never clipped at the hand's edge.
+/// Card layout uses desktop coordinates independently of the native drawing window.
 fn position_surface(app: &tauri::AppHandle, reposition: bool) -> Result<Canvas, String> {
     let window = app
         .get_webview_window(LABEL)
@@ -380,13 +374,8 @@ fn position_surface(app: &tauri::AppHandle, reposition: bool) -> Result<Canvas, 
         .unwrap();
     let position = PhysicalPosition::new(left, top);
     let size = PhysicalSize::new((right - left as i64) as u32, (bottom - top as i64) as u32);
-    place_surface(&window, position, size)?;
-    let origin = window
-        .inner_position()
-        .map_err(|_| "错误：无法定位手牌窗口")?;
-    let scale = window
-        .scale_factor()
-        .map_err(|_| "错误：无法读取显示器信息")?;
+    let origin = position;
+    let scale = monitor.scale_factor();
     let to_rect = |monitor: &tauri::Monitor| {
         let area = monitor.work_area();
         Rect {
@@ -412,26 +401,7 @@ pub(super) fn place_surface(
     origin: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
 ) -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
-    if window.inner_position().ok() == Some(origin) && window.inner_size().ok() == Some(size) {
-        return Ok(());
-    }
-    let hwnd = window.hwnd().map_err(|_| "错误：手牌窗口不可用")?.0;
-    if unsafe {
-        SetWindowPos(
-            hwnd,
-            std::ptr::null_mut(),
-            origin.x,
-            origin.y,
-            size.width as i32,
-            size.height as i32,
-            SWP_NOACTIVATE | SWP_NOZORDER,
-        )
-    } == 0
-    {
-        return Err("错误：无法定位手牌窗口".into());
-    }
-    Ok(())
+    super::floating_window::place(window, origin, size)
 }
 
 fn dock_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -498,9 +468,17 @@ async fn open(
     }
     music.hand.validate()?;
     if app.get_webview_window(LABEL).is_none() {
-        create(app).map_err(|_| "错误：手牌窗口不可用")?;
+        create(app).await?;
     }
     let canvas = position_surface(app, !visible(app))?;
+    if is_preview {
+        fit_card_surface(
+            &app.get_webview_window(LABEL)
+                .ok_or("错误：手牌窗口不可用")?,
+            &canvas,
+            canvas.work_area,
+        )?;
+    }
     if let Some(arrival) = &mut arrival {
         arrival.rect = Rect {
             left: (arrival.rect.left - canvas.origin.x as f64) / canvas.scale,
@@ -567,14 +545,18 @@ async fn open(
     };
     state.visible.store(true, Ordering::Release);
     state.expanded.store(expanded, Ordering::Release);
+    state
+        .keyboard_active
+        .store(focus && expanded && !is_preview, Ordering::Release);
     if !is_preview {
         state.dismissed.store(false, Ordering::Release);
     }
     *state.regions.lock().unwrap() = None;
+    *state.drawing_bounds.lock().unwrap() = None;
     let was_preview = preview(app);
     stop_keyboard(app);
     *state.session.lock().unwrap() = Some(snapshot.clone());
-    super::hand_dock::sync(app, &snapshot, &canvas)?;
+    super::hand_dock::sync(app, &snapshot, &canvas).await?;
     if was_preview && !is_preview {
         let _ = app.emit("hand-preview-closed", ());
     }
@@ -650,10 +632,13 @@ async fn set_expanded(app: &tauri::AppHandle, expanded: bool, focus: bool) -> Re
         }
     }
     state.expanded.store(expanded, Ordering::Release);
+    state
+        .keyboard_active
+        .store(focus && expanded, Ordering::Release);
     stop_keyboard(app);
     let snapshot = state.session.lock().unwrap().clone();
     if let Some(snapshot) = snapshot {
-        super::hand_dock::sync(app, &snapshot, &canvas)?;
+        super::hand_dock::sync(app, &snapshot, &canvas).await?;
     }
     app.emit_to(
         LABEL,
@@ -677,6 +662,7 @@ pub fn hide(app: &tauri::AppHandle) {
     state.arrival_ready.lock().unwrap().take();
     state.visible.store(false, Ordering::Release);
     state.card_visible.store(false, Ordering::Release);
+    state.keyboard_active.store(false, Ordering::Release);
     state.expanded.store(false, Ordering::Release);
     *state.regions.lock().unwrap() = None;
     stop_keyboard(app);
@@ -691,8 +677,7 @@ pub fn hide(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = app.run_on_main_thread(move || {
             let _ = apply_regions(&w, &[], true);
-            let _ = w.set_ignore_cursor_events(true);
-            let _ = super::hand_dock::remove_frame(&w);
+            let _ = super::floating_window::ignore_cursor(&w, true);
         });
     }
     let _ = app.emit_to(LABEL, "hand-hide", generation);
@@ -727,7 +712,8 @@ pub async fn refresh(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<HandState>();
     if visible(app) || (music.hand.resident && !state.dismissed.load(Ordering::Acquire)) {
         let expanded = !visible(app) || state.expanded.load(Ordering::Acquire);
-        open(app, false, None, None, expanded).await?;
+        let keyboard = state.keyboard_active.load(Ordering::Acquire);
+        open(app, keyboard, None, None, expanded).await?;
     }
     Ok(())
 }
@@ -753,38 +739,29 @@ pub async fn present_hand(
         .get_webview_window(LABEL)
         .ok_or("错误：手牌窗口不可用")?;
     let is_preview = preview(&app);
-    let (focus, has_cards) = state
+    let has_cards = state
         .session
         .lock()
         .unwrap()
         .as_ref()
-        .map(|s| (s.focus, !s.cards.is_empty()))
-        .unwrap_or((false, false));
+        .is_some_and(|s| !s.cards.is_empty());
     let show =
         is_preview || show_cards.unwrap_or(has_cards && state.expanded.load(Ordering::Acquire));
     state.card_visible.store(show, Ordering::Release);
     if !show {
-        super::hand_dock::show_window(&w, false)?;
+        super::floating_window::show(&w, false)?;
         stop_keyboard(&app);
         return Ok(());
     }
-    if is_preview {
-        apply_regions(&w, &[], true)?;
-    }
+    // The small native surface already fits the complete animation path. Keep
+    // its drawing region stable; cursor interception follows the card hit boxes.
+    apply_regions(&w, &[], true)?;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let ui_app = app.clone();
     app.run_on_main_thread(move || {
         let result = (|| -> Result<(), String> {
-            w.set_ignore_cursor_events(is_preview)
-                .map_err(|_| "错误：手牌窗口不可用")?;
-            super::hand_dock::show_window(&w, true)?;
-            // A disappearing last card remains drawable, but must not refocus an empty hand.
-            if focus && has_cards {
-                let _ = w.set_focus();
-                let webview: &tauri::Webview = w.as_ref();
-                let _ = webview.set_focus();
-                let _ = ui_app.emit_to(LABEL, "hand-focus", ());
-            }
+            super::floating_window::ignore_cursor(&w, true)?;
+            super::floating_window::show(&w, true)?;
             super::hand_dock::raise(&ui_app);
             Ok(())
         })();
@@ -823,42 +800,108 @@ pub async fn set_hand_hit_regions(
     generation: u64,
     rects: Vec<Rect>,
     dragging: bool,
-) -> Result<(), String> {
+    drawing_bounds: Option<Rect>,
+) -> Result<Option<Surface>, String> {
     let state = app.state::<HandState>();
     let _serial = state.serial.lock().await;
-    if state.generation.load(Ordering::Acquire) == generation {
-        let mut regions = state.regions.lock().unwrap();
-        let is_preview = preview(&app);
-        let next = HitRegions { rects, dragging };
-        if regions.as_ref() == Some(&next) {
-            return Ok(());
-        }
-        if !is_preview {
-            let window = app
-                .get_webview_window(LABEL)
-                .ok_or("错误：手牌窗口不可用")?;
-            let canvas = state
-                .canvas
-                .lock()
-                .unwrap()
-                .clone()
-                .ok_or("错误：手牌窗口不可用")?;
-            let surface = canvas.surface(&window)?;
-            let local: Vec<_> = next
-                .rects
-                .iter()
-                .map(|rect| Rect {
-                    left: (rect.left - surface.left) * surface.scale,
-                    top: (rect.top - surface.top) * surface.scale,
-                    width: rect.width * surface.scale,
-                    height: rect.height * surface.scale,
-                })
-                .collect();
-            apply_regions(&window, &local, dragging)?;
-        }
-        *regions = Some(next);
+    if state.generation.load(Ordering::Acquire) != generation {
+        return Ok(None);
     }
-    Ok(())
+    let window = app
+        .get_webview_window(LABEL)
+        .ok_or("错误：手牌窗口不可用")?;
+    let canvas = state
+        .canvas
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("错误：手牌窗口不可用")?;
+    let before = state
+        .session
+        .lock()
+        .unwrap()
+        .as_ref()
+        .ok_or("错误：手牌窗口不可用")?
+        .surface;
+    let is_preview = preview(&app);
+    let mut resized = false;
+    if !is_preview {
+        if let Some(bounds) = drawing_bounds.or_else(|| drawing_extent(&rects)) {
+            if *state.drawing_bounds.lock().unwrap() != Some(bounds) {
+                fit_card_surface(&window, &canvas, bounds)?;
+                *state.drawing_bounds.lock().unwrap() = Some(bounds);
+                resized = true;
+            }
+        }
+    }
+    let surface = if resized {
+        canvas.surface(&window)?
+    } else {
+        before
+    };
+    let next = HitRegions { rects, dragging };
+    let changed =
+        before.left != surface.left || before.top != surface.top || before.scale != surface.scale;
+    if state.regions.lock().unwrap().as_ref() != Some(&next) {
+        *state.regions.lock().unwrap() = Some(next);
+    }
+    if changed {
+        if let Some(snapshot) = state.session.lock().unwrap().as_mut() {
+            snapshot.surface = surface;
+        }
+        let _ = app.emit_to(
+            LABEL,
+            "hand-surface-changed",
+            SurfaceChange {
+                generation,
+                surface,
+            },
+        );
+    }
+    Ok(Some(surface))
+}
+
+fn drawing_extent(rects: &[Rect]) -> Option<Rect> {
+    let first = rects.first()?;
+    let left = rects.iter().map(|r| r.left).fold(first.left, f64::min);
+    let top = rects.iter().map(|r| r.top).fold(first.top, f64::min);
+    let right = rects
+        .iter()
+        .map(|r| r.left + r.width)
+        .fold(first.left + first.width, f64::max);
+    let bottom = rects
+        .iter()
+        .map(|r| r.top + r.height)
+        .fold(first.top + first.height, f64::max);
+    Some(Rect {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top,
+    })
+}
+
+fn fit_card_surface(
+    window: &tauri::WebviewWindow,
+    canvas: &Canvas,
+    bounds: Rect,
+) -> Result<(), String> {
+    let from = canvas.physical(Point {
+        x: bounds.left - 14.0,
+        y: bounds.top - 14.0,
+    });
+    let to = canvas.physical(Point {
+        x: bounds.left + bounds.width + 14.0,
+        y: bounds.top + bounds.height + 14.0,
+    });
+    place_surface(
+        window,
+        PhysicalPosition::new(from.x.floor() as i32, from.y.floor() as i32),
+        PhysicalSize::new(
+            (to.x.ceil() - from.x.floor()).max(1.0) as u32,
+            (to.y.ceil() - from.y.floor()).max(1.0) as u32,
+        ),
+    )
 }
 
 #[tauri::command]
@@ -889,8 +932,8 @@ pub async fn save_hand_dock(
     Ok(())
 }
 
-/// A native window region gives cards a hit target before the pointer enters it.
-/// During a drag the complete surface remains available for capture and rendering.
+/// Dock regions follow its compact shape. Card windows use the complete small
+/// drawing surface; the pointer observer independently controls click-through.
 pub(super) fn apply_regions(
     window: &tauri::WebviewWindow,
     rects: &[Rect],
@@ -1223,9 +1266,6 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
                 (cursor.x - canvas.origin.x) as f64 / canvas.scale,
                 (cursor.y - canvas.origin.y) as f64 / canvas.scale,
             );
-            if !is_preview && last == Some(pointer) {
-                continue;
-            }
             let (hit, dragging) =
                 state
                     .regions
@@ -1241,13 +1281,11 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
                             r.dragging,
                         )
                     });
-            // Preview reports only its close button. All actual card and blank regions pass through.
-            if is_preview && hit != intercepting {
-                let w = window.clone();
-                let _ = app.run_on_main_thread(move || {
-                    let _ = w.set_ignore_cursor_events(!hit);
-                    let _ = super::hand_dock::remove_frame(&w);
-                });
+            // Reuse the pointer observer for click-through instead of clipping
+            // drawing to an IPC-delayed animation frame. Preview reports only
+            // its close button; regular mode reports the interactive cards.
+            if hit != intercepting {
+                let _ = super::floating_window::ignore_cursor(&window, !hit);
                 intercepting = hit;
             }
             if last != Some(pointer) {
@@ -1272,7 +1310,9 @@ fn stop_keyboard(app: &tauri::AppHandle) {
 async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<HandState>();
     if !visible(app)
-        || (!preview(app) && !state.card_visible.load(Ordering::Acquire))
+        || (!preview(app)
+            && (!state.card_visible.load(Ordering::Acquire)
+                || !state.keyboard_active.load(Ordering::Acquire)))
         || !state.expanded.load(Ordering::Acquire)
         || state.keyboard_generation.load(Ordering::SeqCst) != 0
     {
@@ -1283,6 +1323,7 @@ async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), String> {
         .lock()
         .unwrap()
         .as_ref()
+        .filter(|s| s.preview || !s.cards.is_empty())
         .map(|s| (s.keys.clone(), s.preview))
     else {
         return Ok(());
@@ -1290,12 +1331,6 @@ async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), String> {
     if !is_preview && super::discovery_preview::active(app) {
         return Ok(());
     }
-    let hwnd = app
-        .get_webview_window(LABEL)
-        .ok_or("错误：手牌窗口不可用")?
-        .hwnd()
-        .map_err(|_| "错误：手牌窗口不可用")?
-        .0 as isize;
     let token = state.keyboard_counter.fetch_add(1, Ordering::SeqCst) + 1 | (1 << 63);
     if state
         .keyboard_generation
@@ -1309,7 +1344,11 @@ async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), String> {
         token,
         state.keyboard_generation.clone(),
         keys,
-        if is_preview { None } else { Some(hwnd) },
+        if is_preview {
+            super::preview_keyboard::InputMode::Preview
+        } else {
+            super::preview_keyboard::InputMode::Hand
+        },
     )
     .await
     {
@@ -1339,6 +1378,15 @@ fn observe_keyboard(
         loop {
             let key = tokio::select! {
                 biased;
+                deactivated = input.deactivated.recv() => {
+                    if deactivated.is_some() {
+                        let state = app.state::<HandState>();
+                        if state.keyboard_generation.compare_exchange(token, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                            state.keyboard_active.store(false, Ordering::Release);
+                        }
+                    }
+                    break;
+                },
                 exit = input.exit.recv() => {
                     if exit.is_none() { break; }
                     if app.state::<HandState>().keyboard_generation.load(Ordering::SeqCst) == token { let _ = app.emit_to(LABEL, "hand-escape", ()); }
@@ -1360,5 +1408,6 @@ fn observe_keyboard(
             .state::<HandState>()
             .keyboard_generation
             .compare_exchange(token, 0, Ordering::SeqCst, Ordering::SeqCst);
+        super::preview_keyboard::uninstall(&app, token);
     });
 }

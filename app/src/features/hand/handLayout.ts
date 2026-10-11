@@ -17,7 +17,7 @@ export function mergeHandCards(previous: HandCard[], incoming: HandCard[], order
 }
 
 /** Coordinates share the native hand surface's logical DPI space. */
-export function handLayout(count: number, settings: HandSettings, area: HandRect, active = -1, dock?: HandRect, fontSize = 14): CardPose[] {
+export function handLayout(count: number, settings: HandSettings, area: HandRect, active = -1, fontSize = 14): CardPose[] {
   if (!count) return [];
   const vertical = settings.side !== "bottom";
   const margin = Math.min(Math.max(0, settings.edge_distance) + 12, Math.min(area.width, area.height) / 4);
@@ -59,14 +59,6 @@ export function handLayout(count: number, settings: HandSettings, area: HandRect
       const dx = width * scale / 2, dy = height * scale / 2;
       x = clamp(x, area.left + dx + 12, area.left + area.width - dx - 12);
       y = clamp(y, area.top + dy + 12, area.top + area.height - dy - 12);
-      if (dock && x+dx > dock.left && x-dx < dock.left+dock.width && y+dy > dock.top && y-dy < dock.top+dock.height) {
-        if (settings.side === "bottom") y = Math.max(area.top + dy + 12, dock.top - dy - 12);
-        else {
-          const inward = settings.side === "left" ? dock.left+dock.width+dx+12 : dock.left-dx-12;
-          if (inward >= area.left+dx+12 && inward <= area.left+area.width-dx-12) x = inward;
-          else y = clamp(dock.top+dock.height+dy+12, area.top+dy+12, area.top+area.height-dy-12);
-        }
-      }
     }
     return { x, y, angle, width, height, scale };
   });

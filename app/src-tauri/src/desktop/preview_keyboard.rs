@@ -1,5 +1,5 @@
-//! Temporary preview input observation on Tauri's message-loop thread.
-//! All input continues to the foreground application; no text or unrelated keys are retained.
+//! Temporary overlay input on Tauri's message-loop thread.
+//! Preview observes input; explicit hand navigation consumes its matched keys.
 use super::discovery_preview::{binding_key, binding_modifiers, PreviewKey};
 use discoas_core::settings::discovery_keybindings::DiscoveryKeybindings;
 use std::{
@@ -29,6 +29,12 @@ pub(super) struct KeyInput {
 pub(super) struct InputReceiver {
     pub keys: mpsc::Receiver<KeyInput>,
     pub exit: mpsc::Receiver<()>,
+    pub deactivated: mpsc::Receiver<()>,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum InputMode {
+    Preview,
+    Hand,
 }
 #[derive(Clone, PartialEq)]
 struct Binding {
@@ -93,6 +99,28 @@ impl KeyModel {
         }
         model
     }
+    fn for_mode(
+        keys: &DiscoveryKeybindings,
+        mode: InputMode,
+        mut down: impl FnMut(i32) -> bool,
+    ) -> Self {
+        let mut model = Self::new(keys, &mut down);
+        if mode == InputMode::Hand {
+            model.bindings.retain(|binding| binding.action != "replace");
+            model.bindings.push(Binding {
+                action: "discard",
+                text: "Delete".into(),
+                vk: 0x2e,
+                key: "Delete".into(),
+                code: "Delete".into(),
+                modifiers: (false, false, false),
+            });
+            let held = down(0x2e);
+            model.held[0x2e] = held;
+            model.opening[0x2e] = held;
+        }
+        model
+    }
     fn tracked(&self, vk: usize) -> bool {
         vk == 0x1b || MODIFIERS.contains(&vk) || self.bindings.iter().any(|b| b.vk == vk as i32)
     }
@@ -154,7 +182,11 @@ struct HookState {
     model: KeyModel,
     keys: mpsc::Sender<KeyInput>,
     exit: mpsc::Sender<()>,
-    foreground: Option<isize>,
+    deactivated_tx: mpsc::Sender<()>,
+    mode: InputMode,
+    foreground: isize,
+    deactivated: bool,
+    consumed: [bool; 256],
 }
 impl Drop for HookState {
     fn drop(&mut self) {
@@ -170,22 +202,32 @@ thread_local! { static HOOK: RefCell<Option<HookState>> = const { RefCell::new(N
 unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 && [WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP].contains(&(wparam as u32)) {
         let event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-        HOOK.with(|slot| {
+        let consumed = HOOK.with(|slot| {
             let Ok(mut slot) = slot.try_borrow_mut() else {
-                return;
+                return false;
             };
             let Some(state) = slot.as_mut() else {
-                return;
+                return false;
             };
-            if state.active.load(Ordering::SeqCst) != state.generation {
-                return;
+            if state.active.load(Ordering::SeqCst) != state.generation || state.deactivated {
+                return false;
+            }
+            if state.mode == InputMode::Hand
+                && unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) } as isize
+                    != state.foreground
+            {
+                state.deactivated = true;
+                let _ = state.deactivated_tx.try_send(());
+                return false;
             }
             let down = [WM_KEYDOWN, WM_SYSKEYDOWN].contains(&(wparam as u32));
-            match state.model.observe(
-                event.vkCode as usize,
-                down,
-                super::tray_menu::owns_keyboard() || state.foreground.is_some_and(|hwnd| unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) } as isize != hwnd),
-            ) {
+            let vk = event.vkCode as usize;
+            let previously_consumed = state.consumed.get(vk).copied().unwrap_or(false);
+            let input = state
+                .model
+                .observe(vk, down, super::tray_menu::owns_keyboard());
+            let matched = input.is_some();
+            match input {
                 Some(Input::Exit) => {
                     let _ = state.exit.try_send(());
                 }
@@ -194,7 +236,15 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                 }
                 None => {}
             }
+            if state.mode != InputMode::Hand || vk >= state.consumed.len() {
+                return false;
+            }
+            state.consumed[vk] = down && (matched || previously_consumed);
+            matched || previously_consumed
         });
+        if consumed {
+            return 1;
+        }
     }
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
@@ -204,11 +254,12 @@ pub(super) async fn install(
     generation: u64,
     active: Arc<AtomicU64>,
     keys: DiscoveryKeybindings,
-    foreground: Option<isize>,
+    mode: InputMode,
 ) -> Result<InputReceiver, String> {
     let (key_tx, key_rx) = mpsc::channel(64);
     // Escape has its own queue and cannot be starved by held navigation keys.
     let (exit_tx, exit_rx) = mpsc::channel(1);
+    let (deactivated_tx, deactivated_rx) = mpsc::channel(1);
     let (done, result) = oneshot::channel();
     app.run_on_main_thread(move || {
         let ready = HOOK.with(|slot| {
@@ -217,20 +268,8 @@ pub(super) async fn install(
             }
             let mut slot = slot.borrow_mut();
             *slot = None;
-            let mut model = KeyModel::new(&keys, |vk| unsafe { GetAsyncKeyState(vk) < 0 });
-            if foreground.is_some() {
-                model.bindings.push(Binding {
-                    action: "discard",
-                    text: "Delete".into(),
-                    vk: 0x2e,
-                    key: "Delete".into(),
-                    code: "Delete".into(),
-                    modifiers: (false, false, false),
-                });
-                let held = unsafe { GetAsyncKeyState(0x2e) < 0 };
-                model.held[0x2e] = held;
-                model.opening[0x2e] = held;
-            }
+            let model = KeyModel::for_mode(&keys, mode, |vk| unsafe { GetAsyncKeyState(vk) < 0 });
+            let foreground = unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) } as isize;
             let handle = unsafe {
                 SetWindowsHookExW(WH_KEYBOARD_LL, Some(callback), std::ptr::null_mut(), 0)
             };
@@ -244,7 +283,11 @@ pub(super) async fn install(
                 model,
                 keys: key_tx,
                 exit: exit_tx,
+                deactivated_tx,
+                mode,
                 foreground,
+                deactivated: false,
+                consumed: [false; 256],
             });
             Ok(())
         });
@@ -257,6 +300,7 @@ pub(super) async fn install(
     Ok(InputReceiver {
         keys: key_rx,
         exit: exit_rx,
+        deactivated: deactivated_rx,
     })
 }
 pub(super) fn uninstall(app: &tauri::AppHandle, generation: u64) {
@@ -279,8 +323,11 @@ pub(super) fn update(app: &tauri::AppHandle, generation: u64, keys: DiscoveryKey
             if let Some(state) = slot.as_mut().filter(|s| {
                 s.generation == generation && s.active.load(Ordering::SeqCst) == generation
             }) {
-                if state.model.bindings != bindings(&keys) {
-                    state.model = KeyModel::new(&keys, |vk| unsafe { GetAsyncKeyState(vk) < 0 });
+                let model =
+                    KeyModel::for_mode(&keys, state.mode, |vk| unsafe { GetAsyncKeyState(vk) < 0 });
+                if state.model.bindings != model.bindings {
+                    state.model = model;
+                    state.consumed = [false; 256];
                 }
             }
         })

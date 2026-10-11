@@ -107,15 +107,14 @@ fn show_overlay_now(app: &tauri::AppHandle) {
     desktop::discovery_preview::with_regular_window(app, false, || {
         dismiss_splash(app);
         if let Some(window) = app.get_webview_window("overlay") {
-            if !window.is_visible().unwrap_or(false) {
-                if let Err(error) = desktop::monitors::position_overlay(app) {
-                    desktop_preferences::log_event(app, "overlay_monitor", "placement_failed");
-                    let _ = error;
-                }
+            if let Err(error) = desktop::monitors::position_overlay(app) {
+                desktop_preferences::log_event(app, "overlay_monitor", "placement_failed");
+                let _ = error;
             }
             let _ = window.unminimize();
-            let _ = window.show();
+            let _ = desktop::floating_window::show(&window, true);
             let _ = window.set_focus();
+            desktop::floating_window::raise_discovery(app);
             let _ = app.emit_to("overlay", "show-overlay", ());
         }
     });
@@ -162,6 +161,9 @@ pub fn run() {
         .manage(StartupPending(AtomicBool::new(true)))
         .manage(StartupShowMain(AtomicBool::new(true)))
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("overlay") {
+                desktop::floating_window::install(&window, false)?;
+            }
             paths::init_user_data_dirs(app.handle())?;
             let setting = settings::music_setting::MusicSetting::load(app.handle())?;
             let (options, preferences_warning) =

@@ -102,7 +102,7 @@ fn stop_in_lifecycle(app: &tauri::AppHandle, hide: bool) {
         preview.closing.store(true, Ordering::SeqCst);
     }
     if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.set_ignore_cursor_events(false);
+        let _ = super::floating_window::ignore_cursor(&window, false);
         if was_active && hide {
             let _ = window.hide();
         }
@@ -199,9 +199,7 @@ pub async fn start_discovery_preview(
             .get_webview_window("overlay")
             .ok_or("错误：发现窗口不可用")?;
         super::monitors::position_overlay(&app)?;
-        window
-            .set_ignore_cursor_events(true)
-            .map_err(|_| "错误：无法开启穿透预览")?;
+        super::floating_window::ignore_cursor(&window, true)?;
         *preview.session.lock().unwrap() = Some(Session {
             generation,
             state: state.clone(),
@@ -228,7 +226,7 @@ pub async fn start_discovery_preview(
             generation,
             keyboard_generation,
             keys,
-            None,
+            super::preview_keyboard::InputMode::Preview,
         )
         .await
         {
@@ -335,7 +333,7 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
                     // The exit control is the only hit target; card rectangles always pass through.
                     let close = current.close.is_some_and(|r| r.contains(next.x, next.y));
                     if close != intercepting_close
-                        && window.set_ignore_cursor_events(!close).is_ok()
+                        && super::floating_window::ignore_cursor(&window, !close).is_ok()
                     {
                         intercepting_close = close;
                     }

@@ -23,7 +23,7 @@ export function HandDockWindow() {
   const movingRef = useRef(false), accepted = useRef(0);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointOf = (next: HandDockSnapshot) => next.dockPoint ?? current.current?.dockPoint ?? defaultDockPoint(
-    handLayout(next.count, next.settings, next.workArea, -1, undefined, next.gui.font_size),
+    handLayout(next.count, next.settings, next.workArea, -1, next.gui.font_size),
     next.settings.side, next.workArea, 44 * next.gui.font_size / 14);
 
   useEffect(() => {

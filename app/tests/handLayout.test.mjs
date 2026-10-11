@@ -53,19 +53,14 @@ test("hovered cards fit at their enlarged size while the resting hand keeps its 
   const bounds = { left: -920, top: -200, width: 800, height: 550 };
   for (const side of ["bottom", "left", "right"]) for (const position of [0, 100]) for (const scale of [1, 3]) for (const font of [14, 24]) {
     const prefs = { ...settings, side, position, scale, tilt: 45, edge_distance: -120 };
-    const resting = handLayout(4, prefs, bounds, -1, undefined, font);
-    const diameter = 44 * font / 14;
-    const point = defaultDockPoint(resting, side, bounds, diameter);
-    const rect = floatingDockRect(point, true, diameter, [bounds]);
+    const resting = handLayout(4, prefs, bounds, -1, font);
     for (let index = 0; index < resting.length; index++) {
-      const p = handLayout(4, prefs, bounds, index, rect, font)[index];
+      const p = handLayout(4, prefs, bounds, index, font)[index];
       assert.equal(p.angle, 0);
       assert.ok(p.x-p.width*p.scale/2 >= bounds.left+12 && p.x+p.width*p.scale/2 <= bounds.left+bounds.width-12);
       assert.ok(p.y-p.height*p.scale/2 >= bounds.top+12 && p.y+p.height*p.scale/2 <= bounds.top+bounds.height-12);
-      assert.ok(p.x+p.width*p.scale/2 <= rect.left || p.x-p.width*p.scale/2 >= rect.left+rect.width ||
-        p.y+p.height*p.scale/2 <= rect.top || p.y-p.height*p.scale/2 >= rect.top+rect.height);
     }
-    assert.deepEqual(handLayout(4, prefs, bounds, -1, undefined, font), resting);
+    assert.deepEqual(handLayout(4, prefs, bounds, -1, font), resting);
     assert.ok(handCardSize(font).height >= 220);
   }
 });

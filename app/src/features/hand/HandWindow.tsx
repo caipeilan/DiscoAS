@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { HandCard, HandSnapshot, HandKey } from "../../types";
+import type { HandCard, HandSnapshot, HandKey, HandRect, HandSurface } from "../../types";
 import { defaultGuiSettings, defaultHandSettings, emptyState } from "../../types";
 import { call, desktop, onDesktopEvent, notifyHandBusy, notifyHandClear } from "../../services/desktop";
 import { applyAppearance } from "../../appearance";
@@ -10,6 +10,7 @@ import { Icon } from "../../Icon";
 import { handCardSize, mergeHandCards, handLayout, canPlayDrag, reorderIndex, reorderCards, hoverHandIndex, type CardPose } from "./handLayout";
 import { HandDock } from "./HandDock";
 import { defaultDockPoint, floatingDockRect, type DockPoint } from "./floatingDock";
+import { arrivalDrawingBounds, combineHandBounds, handPoseBounds } from "./handDrawingBounds";
 import "../../App.css";
 import "./hand.css";
 
@@ -22,6 +23,9 @@ interface Drag { id: string; index: number; playable: boolean; pointerId: number
 type Flying = { card: HandCard; pose: CardPose; complete: () => void };
 type Discarding = { card: HandCard; pose: CardPose; delay: number; complete: () => void };
 const restTransform = "translate(-50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) translate(var(--card-x, 0px), var(--card-y, 0px)) rotate(var(--drag-angle, var(--hand-angle, 0deg))) scale(var(--hand-card-scale, 1))";
+const sameRect = (a: HandRect | null | undefined, b: HandRect | null | undefined) => a === b || !!a && !!b &&
+  a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+const sameSurface = (a: HandSurface | undefined, b: HandSurface | undefined) => sameRect(a, b) && a?.scale === b?.scale;
 const readPose = (element: HTMLElement): CardPose => {
   const style = getComputedStyle(element);
   const matrix = new DOMMatrixReadOnly(style.transform);
@@ -59,6 +63,8 @@ export function HandWindow() {
   const toolbarElement = useRef<HTMLDivElement>(null);
   const toolbarBounds = useRef<HandSnapshot["workArea"] | null>(null);
   const current = useRef(snapshot); current.current = snapshot;
+  const renderedSurface = useRef(snapshot.surface); renderedSurface.current = snapshot.surface;
+  const surfaceLayout = useRef<{ surface: HandSurface; promise: Promise<void>; complete: () => void } | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const dragFrame = useRef(0);
   const busyRef = useRef(busy); busyRef.current = busy;
@@ -69,25 +75,44 @@ export function HandWindow() {
   const cards = useMemo(() => drag ? reorderCards(snapshot.cards, drag.id, drag.index) : snapshot.cards, [snapshot.cards, drag?.id, drag?.index]);
   const activeIndex = cards.findIndex((c) => c.id === active);
   const cardSize = handCardSize(snapshot.gui.font_size);
-  const restPoses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, -1, undefined, snapshot.gui.font_size), [cards.length, snapshot.settings, snapshot.workArea, snapshot.gui.font_size]);
+  const restPoses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, -1, snapshot.gui.font_size), [cards.length, snapshot.settings, snapshot.workArea, snapshot.gui.font_size]);
   const restPosesRef = useRef(restPoses); restPosesRef.current = restPoses;
   const diameter = 44 * snapshot.gui.font_size / 14;
   const dockAreas = useMemo(() => snapshot.workAreas?.length ? snapshot.workAreas : [snapshot.workArea], [snapshot.workAreas, snapshot.workArea]);
   const dockPosition = dockPoint ?? defaultDockPoint(restPoses, snapshot.settings.side, snapshot.workArea, diameter);
   const toolbar = floatingDockRect(dockPosition, snapshot.expanded || snapshot.preview, diameter, dockAreas);
   if (desktop && !snapshot.preview) toolbarBounds.current = toolbar;
-  const poses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, activeIndex, toolbar, snapshot.gui.font_size),
-    [cards.length, snapshot.settings, snapshot.workArea, activeIndex, toolbar.left, toolbar.top, toolbar.width, toolbar.height, snapshot.gui.font_size]);
+  const poses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, activeIndex, snapshot.gui.font_size),
+    [cards.length, snapshot.settings, snapshot.workArea, activeIndex, snapshot.gui.font_size]);
   const posesRef = useRef(poses); posesRef.current = poses;
+  const layoutDrawingBounds = useMemo(() => {
+    const all = [...restPoses];
+    for (let index = 0; index < cards.length; index++)
+      all.push(...handLayout(cards.length, snapshot.settings, snapshot.workArea, index, snapshot.gui.font_size));
+    const folded = restPoses.map((pose) => ({ ...pose, angle: snapshot.settings.side === "left" ? -20 : snapshot.settings.side === "right" ? 20 : 0,
+      scale: .75, x: pose.x + (snapshot.settings.side === "left" ? -pose.width : snapshot.settings.side === "right" ? pose.width : 0),
+      y: pose.y + (snapshot.settings.side === "bottom" ? pose.height : 0) }));
+    return combineHandBounds([...all, ...folded].map((pose) => handPoseBounds(pose)));
+  }, [restPoses, cards.length, snapshot.settings, snapshot.workArea, snapshot.gui.font_size]);
+  const drawingBounds = useRef<HandRect | null>(null);
+  drawingBounds.current = combineHandBounds([
+    cardsMounted ? layoutDrawingBounds : null,
+    ...discarding.map((item) => combineHandBounds([handPoseBounds(item.pose), handPoseBounds({ ...item.pose, y: item.pose.y + 14 })])),
+    flying ? handPoseBounds(flying.pose) : null,
+  ]);
   const accepted = useRef(0);
   const arrivalPlayed = useRef(0);
   const arrivalMotion = useRef<{ generation: number; element: HTMLElement; animation: Animation | null } | null>(null);
+  const arrivalDrawing = useRef<{ generation: number; bounds: HandRect } | null>(null);
+  const dragDrawing = useRef<HandRect | null>(null);
   const returning = useRef<string[]>([]);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const mounted = useRef(false);
   const unfolding = useRef(true);
   const regionTask = useRef<Promise<unknown>>(Promise.resolve());
-  const reportedRegions = useRef<{ generation: number; dragging: boolean; rects: HandSnapshot["workArea"][] } | null>(null);
+  const reportedRegions = useRef<{ generation: number; dragging: boolean; rects: HandRect[]; drawingBounds: HandRect | null } | null>(null);
+  const scheduleRegions = useRef<() => void>(() => {});
+  const commitRegions = useRef<() => Promise<unknown>>(() => Promise.resolve());
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const later = (f: () => void, ms: number) => {
     const timer = setTimeout(() => { timers.current.delete(timer); f(); }, ms);
@@ -97,8 +122,54 @@ export function HandWindow() {
     flyingRef.current?.complete(); flyingRef.current = null; setFlying(null);
   };
   const toCanvas = (x: number, y: number): DockPoint => {
-    const surface = current.current.surface;
+    const surface = renderedSurface.current;
     return { x: (surface?.left ?? 0) + x / (surface?.scale ?? 1), y: (surface?.top ?? 0) + y / (surface?.scale ?? 1) };
+  };
+  const applySurface = (surface: HandSurface): Promise<void> => {
+    if (sameSurface(current.current.surface, surface)) return surfaceLayout.current?.promise ?? Promise.resolve();
+    surfaceLayout.current?.complete();
+    let complete = () => {};
+    const promise = new Promise<void>((resolve) => { complete = resolve; });
+    surfaceLayout.current = { surface, promise, complete };
+    current.current = { ...current.current, surface };
+    setSnapshot(current.current);
+    return promise;
+  };
+  commitRegions.current = () => {
+    const generation = current.current.generation;
+    const task = regionTask.current.catch(() => {}).then(async () => {
+      if (surfaceLayout.current) await surfaceLayout.current.promise;
+      if (!mounted.current || !generation || current.current.generation !== generation) return;
+      const state = current.current;
+      if (toolbarElement.current) {
+        const rect = toolbarElement.current.getBoundingClientRect(), point = toCanvas(rect.left, rect.top);
+        toolbarBounds.current = { left: point.x, top: point.y, width: rect.width / (renderedSurface.current?.scale ?? 1), height: rect.height / (renderedSurface.current?.scale ?? 1) };
+      }
+      const elements = stage.current?.querySelectorAll<HTMLElement>(state.preview ? "[data-hand-close]" : "[data-hand-hit]") || [];
+      const dpi = window.devicePixelRatio, scale = renderedSurface.current?.scale ?? 1;
+      const dragging = !!dragRef.current || dockMoving;
+      const rects = Array.from(elements).filter((element) => !element.classList.contains("hand-pending"))
+        .map((element) => element.getBoundingClientRect()).map((rect) => {
+          const left = Math.floor(rect.left * dpi) / dpi, top = Math.floor(rect.top * dpi) / dpi;
+          const point = toCanvas(left, top);
+          return { left: point.x, top: point.y, width: (Math.ceil(rect.right * dpi) / dpi - left) / scale,
+            height: (Math.ceil(rect.bottom * dpi) / dpi - top) / scale };
+        });
+      if (dragging) dragDrawing.current = combineHandBounds([dragDrawing.current, ...rects]);
+      const bounds = state.preview ? null : combineHandBounds([drawingBounds.current,
+        arrivalDrawing.current?.generation === generation ? arrivalDrawing.current.bounds : null,
+        dragging ? dragDrawing.current : null, ...rects]);
+      const next = { generation, rects, dragging, drawingBounds: bounds };
+      const old = reportedRegions.current;
+      if (old?.generation === generation && old.dragging === dragging && sameRect(old.drawingBounds, bounds) &&
+        old.rects.length === rects.length && rects.every((rect, index) => sameRect(rect, old.rects[index]))) return;
+      const surface = await call<HandSurface | null>("set_hand_hit_regions", next);
+      if (!mounted.current || current.current.generation !== generation) return;
+      if (surface) await applySurface(surface);
+      reportedRegions.current = next;
+    });
+    regionTask.current = task;
+    return task;
   };
   const animateDiscard = (targets: HandCard[]) => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return Promise.resolve();
@@ -132,7 +203,7 @@ export function HandWindow() {
     current.current = next;
     setSnapshot(next); setHidden(false); setClearConfirm(false);
     setDockPoint((previous) => next.dockPoint ?? previous ?? defaultDockPoint(
-      handLayout(next.cards.length, next.settings, next.workArea, -1, undefined, next.gui.font_size),
+      handLayout(next.cards.length, next.settings, next.workArea, -1, next.gui.font_size),
       next.settings.side, next.workArea, 44 * next.gui.font_size / 14));
     if (!next.expanded) {
       cancelDrag(); setPhase("closed"); unfolding.current = true;
@@ -219,18 +290,20 @@ export function HandWindow() {
   useEffect(() => {
     mounted.current = true;
     let cancelled = false; const cleanups: Array<() => void> = [];
-    const listen = async <E extends "hand-state-changed" | "hand-visibility-changed" | "hand-dock-position-changed" | "hand-clear-requested" | "hand-hide" | "hand-pointer" | "hand-key" | "hand-error" | "hand-focus" | "hand-escape">(event: E, handler: Parameters<typeof onDesktopEvent<E>>[1]) => {
+    const listen = async <E extends "hand-state-changed" | "hand-visibility-changed" | "hand-surface-changed" | "hand-dock-position-changed" | "hand-clear-requested" | "hand-hide" | "hand-pointer" | "hand-key" | "hand-error" | "hand-escape">(event: E, handler: Parameters<typeof onDesktopEvent<E>>[1]) => {
       const stop = await onDesktopEvent(event, handler); if (cancelled) stop(); else cleanups.push(stop);
     };
     void Promise.all([
       listen("hand-state-changed", accept),
       listen("hand-visibility-changed", (value) => accept({ ...current.current, ...value, arrival: null })),
+      listen("hand-surface-changed", ({ generation, surface }) => {
+        if (generation === accepted.current) void applySurface(surface);
+      }),
       listen("hand-dock-position-changed", (value) => {
         if (value.generation !== accepted.current) return;
         current.current = { ...current.current, dockPoint: value.point }; setSnapshot(current.current); setDockPoint(value.point);
       }),
       listen("hand-clear-requested", () => { void clearHandRef.current(); }),
-      listen("hand-focus", () => { if (current.current.expanded) stage.current?.focus({ preventScroll: true }); }),
       listen("hand-hide", (generation) => { if (generation >= accepted.current) { accepted.current = generation; setHidden(true); setPhase("closed"); unfolding.current = true; finishFlight(); finishDiscards(); cancelDrag(); } }),
       listen("hand-error", (e) => setError(errorText(e))),
       listen("hand-key", (e) => keyboardRef.current(e)),
@@ -254,8 +327,16 @@ export function HandWindow() {
     ]).then(async () => { if (!cancelled) { const next = await call<HandSnapshot | null>("hand_ready"); if (next) accept(next); } }).catch((e) => setError(errorText(e)));
     const key = (e: KeyboardEvent) => keyboardRef.current(e);
     window.addEventListener("keydown", key);
-    return () => { mounted.current = false; cancelled = true; cancelAnimationFrame(dragFrame.current); flyingRef.current?.complete(); discardingRef.current.forEach((item) => item.complete()); cleanups.forEach((c) => c()); timers.current.forEach(clearTimeout); window.removeEventListener("keydown", key); };
+    return () => { mounted.current = false; cancelled = true; surfaceLayout.current?.complete(); surfaceLayout.current = null; cancelAnimationFrame(dragFrame.current); flyingRef.current?.complete(); discardingRef.current.forEach((item) => item.complete()); cleanups.forEach((c) => c()); timers.current.forEach(clearTimeout); window.removeEventListener("keydown", key); };
   }, []);
+
+  useLayoutEffect(() => {
+    const pending = surfaceLayout.current;
+    if (pending && sameSurface(snapshot.surface, pending.surface)) {
+      surfaceLayout.current = null;
+      pending.complete();
+    }
+  }, [snapshot.surface?.left, snapshot.surface?.top, snapshot.surface?.width, snapshot.surface?.height, snapshot.surface?.scale]);
 
   useLayoutEffect(() => {
     if (phase !== "closed" || !cardsMounted || (!hidden && snapshot.expanded)) return;
@@ -272,29 +353,6 @@ export function HandWindow() {
   useLayoutEffect(() => {
     if (!snapshot.generation || hidden) return;
     let cancelled = false, frame = 0, measuring = false, dirty = false;
-    const report = async () => {
-      await regionTask.current.catch(() => {});
-      if (cancelled) return;
-      if (toolbarElement.current) {
-        const rect = toolbarElement.current.getBoundingClientRect(), point = toCanvas(rect.left, rect.top);
-        toolbarBounds.current = { left: point.x, top: point.y, width: rect.width / (current.current.surface?.scale ?? 1), height: rect.height / (current.current.surface?.scale ?? 1) };
-      }
-      const elements = stage.current?.querySelectorAll<HTMLElement>(snapshot.preview ? "[data-hand-close]" : "[data-hand-hit]") || [];
-      const dpi = window.devicePixelRatio;
-      const dragging = !!drag || dockMoving;
-      const rects = dragging ? [] : Array.from(elements).filter((e) => !e.classList.contains("hand-pending"))
-        .map((e) => e.getBoundingClientRect()).map((r) => {
-          const left = Math.floor(r.left * dpi) / dpi, top = Math.floor(r.top * dpi) / dpi;
-          const point = toCanvas(left, top), scale = current.current.surface?.scale ?? 1;
-          return { left: point.x, top: point.y, width: (Math.ceil(r.right * dpi) / dpi - left) / scale, height: (Math.ceil(r.bottom * dpi) / dpi - top) / scale };
-        });
-      const next = { generation: snapshot.generation, rects, dragging };
-      const old = reportedRegions.current;
-      if (old?.generation === next.generation && old.dragging === next.dragging && old.rects.length === rects.length &&
-        rects.every((r, i) => r.left === old.rects[i].left && r.top === old.rects[i].top && r.width === old.rects[i].width && r.height === old.rects[i].height)) return;
-      regionTask.current = call("set_hand_hit_regions", next);
-      await regionTask.current.then(() => { reportedRegions.current = next; }).catch(() => {});
-    };
     const schedule = () => {
       dirty = true;
       if (!cancelled && !frame && !measuring) frame = requestAnimationFrame(measure);
@@ -303,23 +361,31 @@ export function HandWindow() {
       frame = 0;
       if (cancelled) return;
       measuring = true; dirty = false;
-      await report();
+      await commitRegions.current().catch((e) => { if (!cancelled) setError(errorText(e)); });
       measuring = false;
-      if (dirty || (!drag && !dockMoving && stage.current?.getAnimations({ subtree: true }).some((a) => a.playState === "running" || a.pending))) {
+      if (!cancelled && (dirty || stage.current?.getAnimations({ subtree: true }).some((a) => a.playState === "running" || a.pending))) {
         schedule();
       }
     };
-    const observer = new ResizeObserver(() => { if (!drag && !dockMoving) schedule(); });
+    scheduleRegions.current = schedule;
+    const observer = new ResizeObserver(schedule);
     if (toolbarElement.current) observer.observe(toolbarElement.current);
     void measure();
-    return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [snapshot, phase, active, drag?.id, drag?.index, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving]);
+    return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); if (scheduleRegions.current === schedule) scheduleRegions.current = () => {}; };
+  }, [snapshot.generation, snapshot.preview, snapshot.expanded, snapshot.cards, snapshot.settings, snapshot.gui.font_size,
+    snapshot.workArea, snapshot.surface?.left, snapshot.surface?.top, snapshot.surface?.width, snapshot.surface?.height, snapshot.surface?.scale,
+    phase, active, drag?.id, drag?.index, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving]);
 
   const showCardWindow = snapshot.preview || (cardsMounted && (snapshot.cards.length > 0 || discarding.length > 0)) || !!flying;
   useEffect(() => {
     if (!snapshot.generation || hidden) return;
     let cancelled = false, frame = 0;
-    const present = desktop ? call("present_hand", { generation: snapshot.generation, showCards: showCardWindow }) : Promise.resolve();
+    const present = (async () => {
+      if (!desktop) return;
+      if (showCardWindow) await commitRegions.current();
+      if (cancelled || snapshot.generation !== accepted.current) return;
+      await call("present_hand", { generation: snapshot.generation, showCards: showCardWindow });
+    })();
     void present.then(async () => {
       if (cancelled || snapshot.generation !== accepted.current) return;
       if (!snapshot.expanded || !showCardWindow) return;
@@ -336,6 +402,7 @@ export function HandWindow() {
             void (desktop ? call("hand_arrival_ready", { generation: snapshot.generation }) : Promise.resolve()).then(() => {
               if (cancelled || snapshot.generation !== accepted.current) return;
               arrival.animation?.play();
+              scheduleRegions.current();
               if (snapshot.cards.find((c) => c.id === snapshot.arrival?.id)?.mysteryRevealed && arrival.animation)
                 arrival.element.querySelector(".hand-flip")?.animate([
                   { transform: "rotateY(180deg)" }, { transform: "rotateY(90deg)", offset: .5 }, { transform: "rotateY(0deg)" },
@@ -371,8 +438,22 @@ export function HandWindow() {
     ], { duration: 480, easing: "cubic-bezier(.22,.75,.24,1)", fill: "none" });
     animation?.pause();
     if (animation) animation.currentTime = 0;
-    arrivalMotion.current = { generation: snapshot.generation, element, animation };
-    return () => { animation?.cancel(); arrivalMotion.current = null; };
+    const motion = { generation: snapshot.generation, element, animation };
+    arrivalMotion.current = motion;
+    arrivalDrawing.current = animation ? { generation: snapshot.generation, bounds: arrivalDrawingBounds(arrival.rect, pose) } : null;
+    const finishArrival = () => {
+      if (arrivalMotion.current !== motion) return;
+      arrivalDrawing.current = null;
+      scheduleRegions.current();
+    };
+    if (animation) void animation.finished.then(finishArrival, finishArrival);
+    return () => {
+      animation?.cancel();
+      if (arrivalMotion.current === motion) {
+        arrivalMotion.current = null;
+        arrivalDrawing.current = null;
+      }
+    };
   }, [snapshot.generation, cardsMounted, hidden]);
 
   useLayoutEffect(() => {
@@ -397,13 +478,15 @@ export function HandWindow() {
     held.element.style.setProperty("--card-x", `${held.dx}px`);
     held.element.style.setProperty("--card-y", `${held.dy}px`);
     held.element.style.setProperty("--drag-angle", `${Math.max(-8, Math.min(8, held.dx*.05))}deg`);
+    scheduleRegions.current();
   };
   const cancelDrag = () => {
     const held = dragRef.current; if (!held) return;
     cancelAnimationFrame(dragFrame.current); dragFrame.current = 0;
     held.element.style.setProperty("--card-x", "0px"); held.element.style.setProperty("--card-y", "0px");
     held.element.style.removeProperty("--drag-angle");
-    dragRef.current = null; setDrag(null);
+    dragRef.current = null; dragDrawing.current = null; setDrag(null);
+    scheduleRegions.current();
     if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
   };
   const endDrag = (event: React.PointerEvent) => {
@@ -462,11 +545,14 @@ export function HandWindow() {
           e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
           const visualPose = readPose(e.currentTarget);
           e.currentTarget.focus({ preventScroll: true }); e.currentTarget.getAnimations().forEach((animation) => animation.cancel());
-          const held: Drag = { id: card.id, index: snapshot.cards.findIndex((c) => c.id === card.id), playable: false, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, pose: visualPose, element: e.currentTarget };
+          const point = toCanvas(e.clientX, e.clientY);
+          const held: Drag = { id: card.id, index: snapshot.cards.findIndex((c) => c.id === card.id), playable: false, pointerId: e.pointerId, startX: point.x, startY: point.y, dx: 0, dy: 0, pose: visualPose, element: e.currentTarget };
+          dragDrawing.current = handPoseBounds(visualPose);
           dragRef.current = held; setDrag(held); setInputMode("pointer"); setHover(card.id); setSelected(card.id);
         }} onPointerMove={(e) => {
           const held = dragRef.current; if (!held || held.id !== card.id) return;
-          const dx = e.clientX-held.startX, dy = e.clientY-held.startY;
+          const point = toCanvas(e.clientX, e.clientY);
+          const dx = point.x-held.startX, dy = point.y-held.startY;
           const index = reorderIndex(restPosesRef.current, snapshot.settings.side, held.pose.x+dx, held.pose.y+dy);
           const playable = canPlayDrag(snapshot.settings.side, dx, dy, snapshot.settings.scale);
           const changed = held.index !== index || held.playable !== playable;

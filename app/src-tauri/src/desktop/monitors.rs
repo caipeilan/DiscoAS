@@ -1,5 +1,5 @@
-//! Full-screen placement uses physical desktop coordinates, including negative monitor origins.
-use tauri::{Manager, PhysicalPosition};
+//! Discovery uses the selected monitor's work area, leaving its taskbar accessible.
+use tauri::Manager;
 
 pub fn position_overlay(app: &tauri::AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window("overlay") else {
@@ -16,10 +16,8 @@ pub fn position_overlay(app: &tauri::AppHandle) -> Result<(), String> {
     .map_err(|_| "错误：无法读取显示器信息")?
     .or_else(|| window.primary_monitor().ok().flatten());
     if let Some(monitor) = monitor {
-        let position = monitor.position();
-        window
-            .set_fullscreen_on_monitor(PhysicalPosition::new(position.x as f64, position.y as f64))
-            .map_err(|_| "错误：无法切换显示器")?;
+        let area = monitor.work_area();
+        super::floating_window::place(&window, area.position, area.size)?;
     }
     Ok(())
 }

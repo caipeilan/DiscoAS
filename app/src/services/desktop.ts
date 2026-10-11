@@ -88,8 +88,8 @@ export interface DesktopEvents {
   "hand-busy-changed": boolean;
   "hand-state-changed": HandSnapshot;
   "hand-visibility-changed": HandVisibility;
+  "hand-surface-changed": { generation: number; surface: HandSurface };
   "hand-hide": number;
-  "hand-focus": void;
   "hand-escape": void;
   "hand-pointer": [number, number, boolean];
   "hand-key": HandKey;

@@ -51,69 +51,9 @@ pub struct DockState {
     region: Mutex<Option<(u64, Vec<Rect>)>>,
 }
 
-/// Tao keeps WS_CAPTION even for undecorated windows. Native clipping/focus
-/// redraws can therefore paint a ghost title bar; remove the actual frame styles.
-pub(super) fn remove_frame(window: &tauri::WebviewWindow) -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_CAPTION, WS_SYSMENU,
-        WS_THICKFRAME,
-    };
-    let hwnd = window.hwnd().map_err(|_| "错误：手牌窗口不可用")?.0;
-    unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-        let bare = style & !((WS_CAPTION | WS_SYSMENU | WS_THICKFRAME) as isize);
-        if style != bare {
-            SetWindowLongPtrW(hwnd, GWL_STYLE, bare);
-            SetWindowPos(
-                hwnd,
-                std::ptr::null_mut(),
-                0,
-                0,
-                0,
-                0,
-                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER,
-            );
-        }
-    }
-    Ok(())
-}
-pub(super) fn show_window(window: &tauri::WebviewWindow, show: bool) -> Result<(), String> {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SetActiveWindow, SetFocus};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsWindowVisible, SetForegroundWindow, ShowWindow,
-        SW_HIDE, SW_SHOWNOACTIVATE,
-    };
-    let w = window.clone();
-    window
-        .run_on_main_thread(move || {
-            let Ok(handle) = w.hwnd() else {
-                return;
-            };
-            let hwnd = handle.0;
-            let _ = remove_frame(&w);
-            unsafe {
-                let owned_focus = GetForegroundWindow() == hwnd;
-                ShowWindow(hwnd, if show { SW_SHOWNOACTIVATE } else { SW_HIDE });
-                if !show && owned_focus && w.label() == "hand" {
-                    let dock = w
-                        .app_handle()
-                        .get_webview_window(LABEL)
-                        .and_then(|dock| dock.hwnd().ok());
-                    if let Some(dock) = dock.filter(|dock| IsWindowVisible(dock.0) != 0) {
-                        SetForegroundWindow(dock.0);
-                        SetFocus(dock.0);
-                    } else {
-                        SetActiveWindow(std::ptr::null_mut());
-                        SetFocus(std::ptr::null_mut());
-                    }
-                }
-            }
-        })
-        .map_err(|_| "错误：手牌窗口不可用".into())
-}
+pub(super) use super::floating_window::show as show_window;
 
-fn create(app: &tauri::AppHandle) -> Result<(), String> {
+async fn create(app: &tauri::AppHandle) -> Result<(), String> {
     let window = WebviewWindowBuilder::new(
         app,
         LABEL,
@@ -130,11 +70,12 @@ fn create(app: &tauri::AppHandle) -> Result<(), String> {
     .maximizable(false)
     .minimizable(false)
     .focused(false)
+    .focusable(false)
     .visible(false)
     .inner_size(100.0, 72.0)
     .build()
     .map_err(|_| "错误：手牌浮窗不可用")?;
-    remove_frame(&window)?;
+    super::floating_window::install_confirmed(&window, true).await?;
     let motion_app = app.clone();
     window.on_window_event(move |event| {
         let state = motion_app.state::<DockState>();
@@ -178,7 +119,7 @@ fn create(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn sync(
+pub(super) async fn sync(
     app: &tauri::AppHandle,
     hand: &HandSnapshot,
     canvas: &Canvas,
@@ -188,7 +129,7 @@ pub(super) fn sync(
         return Ok(());
     }
     if app.get_webview_window(LABEL).is_none() {
-        create(app)?;
+        create(app).await?;
     }
     let state = app.state::<DockState>();
     let previous_point = state
@@ -253,6 +194,7 @@ pub(super) fn raise(app: &tauri::AppHandle) {
             }
         }
     }
+    super::floating_window::raise_discovery(app);
 }
 pub(super) fn moved(app: &tauri::AppHandle, generation: u64, point: Point) {
     let state = app.state::<DockState>();
@@ -336,7 +278,6 @@ pub async fn position_hand_dock(
             .scale_factor()
             .map_err(|_| "错误：无法读取显示器信息")?,
     });
-    remove_frame(&window)?;
     super::hand::place_surface(&window, PhysicalPosition::new(x, y), size)?;
     let surface = canvas.surface(&window)?;
     if let Some(layout) = state.layout.lock().unwrap().as_mut() {
@@ -377,12 +318,12 @@ pub async fn set_hand_dock_hit_regions(
         .collect();
     let old = state.region.lock().unwrap().clone();
     if old.as_ref() != Some(&(generation, physical.clone())) {
-        remove_frame(&window)?;
         super::hand::apply_regions(&window, &rects, false)?;
         *state.region.lock().unwrap() = Some((generation, physical));
     }
     if !window.is_visible().map_err(|_| "错误：手牌浮窗不可用")? {
         show_window(&window, true)?;
+        super::floating_window::raise_discovery(&app);
     }
     Ok(())
 }
@@ -399,9 +340,6 @@ pub async fn begin_hand_dock_drag(app: tauri::AppHandle, generation: u64) -> Res
         .get_webview_window(LABEL)
         .ok_or("错误：手牌浮窗不可用")?;
     state.dragging.store(true, Ordering::Release);
-    remove_frame(&window)?;
-    super::hand::apply_regions(&window, &[], true)?;
-    *state.region.lock().unwrap() = None;
     if let Err(_) = window.start_dragging() {
         state.dragging.store(false, Ordering::Release);
         return Err("错误：无法移动手牌浮窗".into());

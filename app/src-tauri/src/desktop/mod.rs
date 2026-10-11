@@ -3,6 +3,7 @@ pub mod autostart;
 pub mod diagnostics;
 pub mod dialogs;
 pub mod discovery_preview;
+pub mod floating_window;
 pub mod fonts;
 pub mod hand;
 pub mod hand_dock;
