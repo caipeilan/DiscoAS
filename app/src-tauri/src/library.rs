@@ -43,6 +43,17 @@ pub fn cancel_library_operation(app: tauri::AppHandle, request_id: String) -> bo
 }
 
 #[tauri::command]
+pub async fn import_local_audio(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    paths: Vec<std::path::PathBuf>,
+    remark: String,
+    request_id: Option<String>,
+) -> Result<Snapshot, String> {
+    crate::desktop::library::import_local_audio(app, cache, paths, remark, request_id).await
+}
+
+#[tauri::command]
 pub async fn edit_playlist_remark(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,

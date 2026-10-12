@@ -7,6 +7,7 @@ import type { LibraryProgress } from "../../types";
 import { OperationProgress } from "./OperationProgress";
 import { identifySource, sourceKinds } from "./sourceInput";
 import { Select } from "../../components/Select";
+import { call } from "../../services/desktop";
 
 export function ImportDialog({
   busy,
@@ -15,6 +16,7 @@ export function ImportDialog({
   progress,
   cancelling,
   cancel,
+  initialPaths = [],
 }: {
   busy: boolean;
   close: () => void;
@@ -22,8 +24,12 @@ export function ImportDialog({
   progress: LibraryProgress | null;
   cancelling: boolean;
   cancel: () => void;
+  initialPaths?: string[];
 }) {
-  const [platform, setPlatform] = useState(platforms[0].id);
+  const [platform, setPlatform] = useState("NeteaseCloudMusic");
+  const [paths, setPaths] = useState<string[]>(initialPaths);
+  const [picking, setPicking] = useState(false);
+  useEffect(() => { if (initialPaths.length) { setPaths(initialPaths); setPlatform("LocalMusic"); setType("playlist"); } }, [initialPaths]);
   const [typename, setType] = useState("playlist");
   const [source, setSource] = useState("");
   const [remark, setRemark] = useState("");
@@ -53,7 +59,7 @@ export function ImportDialog({
           e.preventDefault();
           setError("");
           try {
-            await submit({ platform, typename, source, remark });
+            await submit(platform === "LocalMusic" ? { platform, paths, remark } : { platform, typename, source, remark });
           } catch (error) {
             setError(errorText(error));
           }
@@ -85,7 +91,7 @@ export function ImportDialog({
             options={platforms.map((p) => ({ value: p.id, label: t(p.label) }))}
           />
         </label>
-        <div className="segmented">
+        {platform !== "LocalMusic" && <div className="segmented">
           {sourceKinds(platform).map((kind) => <button key={kind}
             type="button"
             disabled={busy}
@@ -95,8 +101,16 @@ export function ImportDialog({
           >
             {sourceKind(kind)}
           </button>)}
-        </div>
-        <label className="field-label">
+        </div>}
+        {platform === "LocalMusic" ? <div className="local-audio-input">
+          <div className="local-audio-choices">{(["files", "folder", "playlist"] as const).map((kind) => <button key={kind} type="button" className="button secondary" disabled={busy || picking} onClick={async () => {
+            setPicking(true); setError("");
+            try { const selected = await call<string[]>("choose_local_audio", { kind }); if (selected.length) setPaths(selected); }
+            catch (error) { setError(errorText(error)); }
+            finally { setPicking(false); }
+          }}>{t({ files: "选择音频文件", folder: "选择文件夹", playlist: "选择 M3U 歌单" }[kind])}</button>)}</div>
+          <div className="local-audio-paths" role="status">{paths.length ? <><strong>{t("已选择 {p0} 个路径", { p0: paths.length })}</strong><ul>{paths.slice(0, 8).map((path) => <li key={path} title={path}>{path}</li>)}</ul>{paths.length > 8 && <span>{t("另有 {p0} 个路径", { p0: paths.length - 8 })}</span>}</> : <span>{t("也可将音频文件、文件夹或 M3U 歌单拖入窗口。")}</span>}</div>
+        </div> : <label className="field-label">
           {t("分享链接或 ID")}
           <input
             ref={inputRef}
@@ -106,7 +120,7 @@ export function ImportDialog({
             placeholder={t(platformInfo(platform).hint)}
             disabled={busy}
           />
-        </label>
+        </label>}
         <label className="field-label">
           {t("备注")}
           <span className="optional">{t("可选")}</span>
@@ -120,7 +134,7 @@ export function ImportDialog({
         </label>
         <p className="form-hint">
           <Icon name="info" size={15} />
-          {t("支持公开来源。私有、已删除或受限内容可能无法读取。")}
+          {platform === "LocalMusic" ? t("支持 MP3、FLAC、WAV、M4A、OGG；文件夹包含子目录。播放使用系统默认播放器。") : t("支持公开来源。私有、已删除或受限内容可能无法读取。")}
           {platform === "Bilibili" && t("多 P 视频按分 P 分别发现。")}
         </p>
         {error && (
@@ -143,7 +157,7 @@ export function ImportDialog({
           </button>
           <button
             className="button primary"
-            disabled={busy || !source.trim()}
+            disabled={busy || picking || (platform === "LocalMusic" ? !paths.length : !source.trim())}
             type="submit"
           >
             <Icon

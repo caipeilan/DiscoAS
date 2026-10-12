@@ -83,7 +83,7 @@ export default function App() {
       </main>
       {toast && <Toast toast={toast} dismiss={dismiss} />}
       {library.importing && (
-        <ImportDialog busy={busy === "import"} close={library.closeImport} submit={library.importPlaylist}
+        <ImportDialog busy={busy === "import"} initialPaths={library.droppedPaths} close={library.closeImport} submit={library.importPlaylist}
           progress={library.progress} cancelling={library.cancelling} cancel={library.cancelOperation} />
       )}
       {library.remove && (

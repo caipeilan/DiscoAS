@@ -23,6 +23,8 @@ export type DesktopCommand =
   | "init_preload"
   | "get_image"
   | "import_playlist"
+  | "import_local_audio"
+  | "choose_local_audio"
   | "cancel_library_operation"
   | "edit_playlist_remark"
   | "get_discovery_history"
@@ -141,6 +143,13 @@ export const listenPreviewClosed = (handler: () => void) => onDesktopEvent("prev
 
 /** The only module that depends on Tauri's browser bridge. */
 export const desktop = isTauri();
+
+export async function listenFileDrop(handler: (paths: string[]) => void): Promise<() => void> {
+  if (!desktop) return () => {};
+  return getCurrentWindow().onDragDropEvent(({ payload }) => {
+    if (payload.type === "drop") handler(payload.paths);
+  });
+}
 
 export async function mainWindowAction(action: "minimize" | "maximize" | "close" | "drag"): Promise<void> {
   if (!desktop) return;

@@ -1,4 +1,5 @@
 export const sourceKinds = (platform: string): string[] =>
+  platform === "LocalMusic" ? ["playlist"] :
   platform === "YouTube" ? ["playlist", "video"] :
     platform === "Bilibili" ? ["video", "favorites", "collection", "series"] : ["playlist", "album"];
 

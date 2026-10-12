@@ -74,6 +74,15 @@ fn request_url(original: &str) -> String {
     url.into()
 }
 async fn download(url: &str) -> Result<Vec<u8>, String> {
+    if crate::platforms::local::is_cover_reference(url) {
+        let reference = url.to_string();
+        return tokio::task::spawn_blocking(move || {
+            crate::platforms::local::read_cover(&reference)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string());
+    }
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return read_local(Path::new(url));
     }
@@ -108,6 +117,9 @@ pub async fn prepare_song_cover(cache: &Arc<Cache>, url: &str) -> Result<Option<
     }
     let bytes = download(url).await?;
     let encoded = data_uri(&bytes);
+    if encoded.is_none() && crate::platforms::local::is_cover_reference(url) {
+        return Ok(None);
+    }
     cache.cache_image(url.to_string(), bytes).await;
     Ok(encoded)
 }

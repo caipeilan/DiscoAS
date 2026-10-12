@@ -54,7 +54,12 @@ impl LibraryStore {
         kind: TypeName,
         data: &Value,
     ) -> AppResult<(String, usize)> {
-        save_playlist_json(&self.playlist_path(platform, id, kind)?, id, data)
+        save_playlist_json(
+            &self.playlist_path(platform, id, kind)?,
+            id,
+            data,
+            platform == super::names::LOCAL,
+        )
     }
 }
 
@@ -113,7 +118,12 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> AppResult<()> {
     result
 }
 
-fn save_playlist_json(path: &Path, id: &str, data: &Value) -> AppResult<(String, usize)> {
+fn save_playlist_json(
+    path: &Path,
+    id: &str,
+    data: &Value,
+    allow_empty: bool,
+) -> AppResult<(String, usize)> {
     validate_id(id)?;
     let name = data["playlist_album_name"]
         .as_str()
@@ -122,7 +132,7 @@ fn save_playlist_json(path: &Path, id: &str, data: &Value) -> AppResult<(String,
     let songs = data["song_ids"]
         .as_array()
         .ok_or_else(|| AppError::Platform("接口未返回歌曲列表，原缓存未被覆盖".into()))?;
-    if songs.is_empty() {
+    if songs.is_empty() && !allow_empty {
         return Err(AppError::Platform(
             "歌单为空或没有可读取的歌曲，原缓存未被覆盖".into(),
         ));

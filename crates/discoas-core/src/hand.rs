@@ -18,6 +18,7 @@ pub struct HandSettings {
     pub resident: bool,
     pub keep_discovery_open: bool,
     pub shortcut: String,
+    pub play_shortcuts: [String; 9],
     pub side: HandSide,
     pub capacity: u32,
     pub scale: f64,
@@ -42,6 +43,7 @@ impl Default for HandSettings {
             resident: false,
             keep_discovery_open: false,
             shortcut: "Alt+H".into(),
+            play_shortcuts: std::array::from_fn(|i| format!("Alt+{}", i + 1)),
             side: HandSide::Bottom,
             capacity: 10,
             scale: 1.0,
@@ -69,6 +71,25 @@ impl HandSettings {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod shortcut_settings_tests {
+    use super::*;
+    #[test]
+    fn old_settings_keep_large_hand_capacity_and_add_nine_position_keys() {
+        let mut settings: HandSettings =
+            serde_json::from_str(r#"{"enabled":true,"capacity":75}"#).unwrap();
+        assert_eq!(settings.capacity, 75);
+        assert_eq!(settings.play_shortcuts[8], "Alt+9");
+        settings.play_shortcuts[0] = "Ctrl+Shift+J".into();
+        assert_eq!(
+            serde_json::from_str::<HandSettings>(&serde_json::to_string(&settings).unwrap())
+                .unwrap(),
+            settings
+        );
+        assert!(settings.validate().is_ok());
     }
 }
 

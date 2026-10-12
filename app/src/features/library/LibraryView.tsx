@@ -233,6 +233,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
                     {errorText(p.cacheError)}
                   </p>
                 )}
+                {!!p.missingCount && <p className="inline-error" role="status">{t("{p0} 首音频文件已丢失；更新来源可重新检查。", { p0: p.missingCount })}</p>}
               </div>
               <div className="row-actions">
                 <button

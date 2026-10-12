@@ -374,10 +374,23 @@ fn assemble_card(
         // The empty mystery cover selects the desktop's bundled question asset.
         song.album_pic_url = setting.mystery_song_cover.clone();
     }
-    song.filename = platforms::kugou::get_json::find_song_info(source_data, &song.song_id)
-        .and_then(|info| info["filename"].as_str())
-        .unwrap_or("")
-        .to_string();
+    song.filename = if song.platform == platforms::names::LOCAL {
+        source_data["tracks_info"]
+            .as_array()
+            .and_then(|tracks| {
+                tracks
+                    .iter()
+                    .find(|t| t["id"].as_str() == Some(&song.song_id))
+            })
+            .and_then(|t| t["path"].as_str())
+            .unwrap_or("")
+            .into()
+    } else {
+        platforms::kugou::get_json::find_song_info(source_data, &song.song_id)
+            .and_then(|info| info["filename"].as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     song
 }
 

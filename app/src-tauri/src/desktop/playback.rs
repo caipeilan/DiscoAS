@@ -17,7 +17,15 @@ pub async fn dispatch(
         }
         card.mystery_mode = false;
     }
-    if matches!(args.platform.as_str(), "YouTube" | "Bilibili") {
+    if args.platform == discoas_core::platforms::names::LOCAL {
+        crate::client_window::cancel_pending();
+        app.state::<crate::spotify_playback::PlaybackService>()
+            .cancel_pending();
+        app.state::<crate::browser_playback::BrowserPlaybackService>()
+            .cancel_pending();
+        tauri_plugin_opener::open_path(url, None::<&str>)
+            .map_err(|e| format!("错误：无法打开音频文件，请检查默认播放器：{e}"))?;
+    } else if matches!(args.platform.as_str(), "YouTube" | "Bilibili") {
         crate::client_window::cancel_pending();
         app.state::<crate::spotify_playback::PlaybackService>()
             .cancel_pending();

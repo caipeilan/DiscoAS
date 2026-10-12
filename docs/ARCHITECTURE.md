@@ -19,6 +19,7 @@
 | 工作内容 | 入口 |
 | --- | --- |
 | 添加平台、解析分享链接、歌曲详情或播放 URI | `crates/discoas-core/src/platforms/` |
+| 本地音频、目录与 M3U 扫描、标签和内嵌封面 | `crates/discoas-core/src/platforms/local.rs`；桌面导入复用 `desktop/library.rs` 的取消和提交流程，`desktop/dialogs.rs` 选择路径，`desktop/playback.rs` 打开默认播放器 |
 | 酷我 / 汽水公开音乐快照与客户端播放链接 | `crates/discoas-core/src/platforms/kuwo/`、同级 `qishui/` 与 `public_music.rs`；桌面二次校验在 `app/src-tauri/src/commands.rs` |
 | 调整随机抽歌和神秘歌曲规则 | `crates/discoas-core/src/core/discover.rs` |
 | 调整预加载、取消、当前批次或来源校验 | `crates/discoas-core/src/discovery_service.rs`、`core/cache.rs` |
@@ -38,6 +39,7 @@
 | 紧凑下拉框、隐藏帮助及缩放定位 | `app/src/components/Select.tsx`、`Popover.tsx`、`SettingsControls.tsx`、`popoverPlacement.ts` |
 | 键盘选歌、按键录制与卡片选中反馈 | `app/src/features/discovery/keyboardSelection.ts`、`useKeyboardSelection.ts`、`app/src/features/settings/KeyboardSettings.tsx`、`discoveryKeybindings.ts` |
 | 窗口、托盘、快捷键、系统对话框、自启或客户端最小化 | `app/src-tauri/src/desktop/`、`lib.rs`、`client_window.rs` |
+| 前九张手牌的全局快捷键 | `hand::HandSettings.play_shortcuts`、`desktop/shortcuts.rs` 的身份映射与按住抑制、`desktop/hand_actions.rs` 的当前位置读取；沿用 `play_hand_card` 的失败保留／回牌 |
 | 应用风格的托盘右键菜单 | `app/src-tauri/src/desktop/tray_menu.rs`、`app/src/features/tray/`、`app/src-tauri/capabilities/tray-menu.json` |
 | Windows 安装兼容检查与 WebView2 准备 | `app/src-tauri/installer/installer.nsi`、`hooks.nsh`、`app/src-tauri/tauri.conf.json`、`app/scripts/` |
 | 关于页的项目、作者链接与更新入口 | `app/src/features/about/`、`app/src/About.tsx`、`app/src/features/updates/` |

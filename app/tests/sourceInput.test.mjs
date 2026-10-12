@@ -10,6 +10,7 @@ const compiled = ts.transpileModule(source, {
 const { identifySource, sourceKinds } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
 test("new platform controls expose only the source kinds the backend supports", () => {
+  assert.deepEqual(sourceKinds("LocalMusic"), ["playlist"]);
   assert.deepEqual(sourceKinds("YouTube"), ["playlist", "video"]);
   assert.deepEqual(sourceKinds("Bilibili"), ["video", "favorites", "collection", "series"]);
   for (const platform of ["NeteaseCloudMusic", "QQMusic", "KugouMusic", "Spotify", "KuwoMusic", "QishuiMusic"])

@@ -39,6 +39,41 @@ pub fn clear_pending(app: &tauri::AppHandle) {
         .unwrap()
         .take();
 }
+
+pub fn play_position(app: &tauri::AppHandle, index: usize) {
+    if index >= 9 || preview(app) || super::discovery_preview::isolated(app) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = async {
+            let cache = app.state::<Arc<Cache>>();
+            let id = {
+                let _operation = cache.operation.lock().await;
+                if !MusicSetting::load(&app)
+                    .map_err(|e| e.to_string())?
+                    .hand
+                    .enabled
+                {
+                    return Ok::<_, String>(());
+                }
+                store(&app)?
+                    .load()?
+                    .cards
+                    .get(index)
+                    .map(|card| card.id.clone())
+            };
+            if let Some(id) = id {
+                play_hand_card(app.clone(), id, cache).await?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            let _ = app.emit("hand-error", error);
+        }
+    });
+}
 #[tauri::command]
 pub async fn collect_hand_card(
     app: tauri::AppHandle,

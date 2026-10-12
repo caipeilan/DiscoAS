@@ -34,12 +34,13 @@ export interface DiscoveryKeybindings {
 }
 export interface HandSettings {
   enabled: boolean; reveal_mystery: boolean; resident: boolean; keep_discovery_open: boolean;
-  shortcut: string; side: "left" | "right" | "bottom"; capacity: number;
+  shortcut: string; play_shortcuts: string[]; side: "left" | "right" | "bottom"; capacity: number;
   scale: number; edge_distance: number; position: number; overlap: number; tilt: number;
 }
 export const defaultHandSettings: HandSettings = {
   enabled: false, reveal_mystery: false, resident: false, keep_discovery_open: false,
   shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
+  play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
 };
 export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean }
 export interface CollectedHandCard { id: string; discovery: DiscoveryState }
@@ -100,6 +101,7 @@ export interface LibraryEntry {
   remark: string;
   enabled: boolean;
   songCount: number;
+  missingCount?: number;
   coverUrl: string;
   coverDataUri: string | null;
   updatedAt: string;
@@ -285,6 +287,7 @@ export const platforms = [
   { id: "QishuiMusic", label: "汽水音乐", color: "#dd5674", hint: "汽水音乐完整歌单或专辑分享链接、ID" },
   { id: "YouTube", label: "YouTube", color: "#c83f48", hint: "https://www.youtube.com/playlist?list=… 或视频链接" },
   { id: "Bilibili", label: "Bilibili", color: "#388ea8", hint: "公开视频、收藏夹、合集或系列链接" },
+  { id: "LocalMusic", label: "本地音频", color: "#758c8f", hint: "" },
 ];
 export const emptyState: AppState = {
   version: "",

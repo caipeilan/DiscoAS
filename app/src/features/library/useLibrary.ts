@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AppState, LibraryEntry, LibraryProgress } from "../../types";
 import type { AppStateController } from "../../hooks/useAppState";
 import type { Notice } from "../../hooks/useNotice";
-import { call, desktop, onDesktopEvent } from "../../services/desktop";
+import { call, desktop, onDesktopEvent, listenFileDrop } from "../../services/desktop";
 import { t, currentLocale, errorText, isCancelledError } from "../../i18n";
 import { filterLibrary, sourceKey } from "./libraryModel";
 import type { LibrarySort } from "./libraryModel";
@@ -11,6 +11,17 @@ import type { LibrarySort } from "./libraryModel";
 export function useLibrary(app: AppStateController, notice: Notice) {
   const { state, busy, setBusy, applySnapshot, action } = app;
   const [importing, setImporting] = useState(false);
+  const [droppedPaths, setDroppedPaths] = useState<string[]>([]);
+  const dropHandler = useRef<(paths: string[]) => void>(() => {});
+  dropHandler.current = (paths) => {
+    if (busy || operation.current) { notice(t("请等待当前操作完成后再添加音频。"), true); return; }
+    setDroppedPaths(paths); setImporting(true);
+  };
+  useEffect(() => {
+    let active = true, stop: (() => void) | undefined;
+    void listenFileDrop((paths) => dropHandler.current(paths)).then((cleanup) => { if (active) stop = cleanup; else cleanup(); }).catch((error) => notice(errorText(error), true));
+    return () => { active = false; stop?.(); };
+  }, [notice]);
   const importDialogVisible = useRef(importing);
   importDialogVisible.current = importing;
   const [remove, setRemove] = useState<LibraryEntry[] | null>(null);
@@ -76,8 +87,9 @@ export function useLibrary(app: AppStateController, notice: Notice) {
     const task = startOperation("import");
     if (!task) return;
     try {
-      applySnapshot(await call<AppState>("import_playlist", { ...data, requestId: task.requestId }));
+      applySnapshot(await call<AppState>(data.platform === "LocalMusic" ? "import_local_audio" : "import_playlist", { ...data, requestId: task.requestId }));
       setImporting(false);
+      setDroppedPaths([]);
       notice(t("歌单已导入。"));
     } catch (error) {
       if (isCancelledError(error)) notice(t("已取消"));
@@ -175,8 +187,8 @@ export function useLibrary(app: AppStateController, notice: Notice) {
   });
   return {
     query, setQuery, filter, setFilter, sort, setSort, filtered, selected, toggleSelected, selectVisible,
-    importing, remove, editing, progress, cancelling, operationSummary, cancelOperation,
-    openImport: () => setImporting(true), closeImport: () => setImporting(false),
+    importing, droppedPaths, remove, editing, progress, cancelling, operationSummary, cancelOperation,
+    openImport: () => { setDroppedPaths([]); setImporting(true); }, closeImport: () => { setDroppedPaths([]); setImporting(false); },
     confirmRemove: (entry: LibraryEntry) => setRemove([entry]), closeRemove: () => setRemove(null), importPlaylist,
     editRemark: setEditing, closeRemark: () => setEditing(null), saveRemark,
     enablePlaylist, updatePlaylist, updateSelected, removeSelected, importSample, removePlaylist,

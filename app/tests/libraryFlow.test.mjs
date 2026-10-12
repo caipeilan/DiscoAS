@@ -15,6 +15,7 @@ async function controller(entries) {
   let cursor = 0;
   let effects = [];
   let succeeds = false;
+  let drop;
   const react = {
     useState(initial) {
       const index = cursor++;
@@ -48,7 +49,10 @@ async function controller(entries) {
   };
   const environment = {
     react,
-    bridge: { desktop: false, call: async () => { throw new Error("Unexpected desktop call"); }, onDesktopEvent: async () => () => {} },
+    bridge: { desktop: false,
+      call: async (command, args) => { requests.push({ command, args }); return app.state; },
+      listenFileDrop: async (handler) => { drop = handler; return () => { drop = undefined; }; },
+      onDesktopEvent: async () => () => {} },
     ...model, t: (value) => value, currentLocale: () => "en-US", errorText: String, isCancelledError: () => false,
   };
   const imports = { react: "react", "../../services/desktop": "bridge", "../../i18n": null, "./libraryModel": null };
@@ -60,7 +64,7 @@ async function controller(entries) {
   const { useLibrary } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}#${Math.random()}`);
   const notice = () => {};
   return {
-    app, requests, succeed: () => { succeeds = true; },
+    app, requests, succeed: () => { succeeds = true; }, drop: (paths) => drop(paths),
     render() {
       cursor = 0;
       effects = [];
@@ -72,6 +76,37 @@ async function controller(entries) {
 }
 
 test.after(() => { delete globalThis.__libraryTest; });
+
+test("dropping audio opens a reviewable local import and busy operations retain their draft", async () => {
+  const harness = await controller([]);
+  harness.render();
+  const paths = ["D:\\音乐\\folder", "D:\\音乐\\中文 名称.mp3"];
+  harness.drop(paths);
+  assert.equal(harness.render().importing, true);
+  assert.deepEqual(harness.render().droppedPaths, paths);
+  assert.equal(harness.requests.length, 0);
+  harness.app.busy = "update";
+  harness.render();
+  harness.drop(["D:\\other.flac"]);
+  assert.deepEqual(harness.render().droppedPaths, paths);
+  harness.app.busy = "";
+  await harness.render().importPlaylist({ platform: "LocalMusic", paths, remark: "test" });
+  assert.equal(harness.requests[0].command, "import_local_audio");
+  assert.deepEqual(harness.requests[0].args.paths, paths);
+  assert.equal(harness.render().importing, false);
+  assert.deepEqual(harness.render().droppedPaths, []);
+});
+
+test("local refresh uses the saved source identity and shares the cancellable update flow", async () => {
+  const entry = { platform: "LocalMusic", kind: "playlist", id: "local-example", title: "Folder", remark: "kept" };
+  const harness = await controller([entry]);
+  await harness.render().updatePlaylist(entry);
+  assert.equal(harness.requests[0].command, "import_playlist");
+  assert.equal(harness.requests[0].args.source, entry.id);
+  assert.equal(harness.requests[0].args.platform, "LocalMusic");
+  assert.equal(harness.requests[0].args.remark, "kept");
+  assert.equal(harness.app.busy, "");
+});
 
 test("batch deletion submits complete identities once, retains a failed confirmation, and clears only removed selections on retry", async () => {
   const entries = [

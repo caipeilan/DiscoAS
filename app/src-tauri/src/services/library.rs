@@ -23,6 +23,8 @@ use serde_json::Value;
 #[derive(Deserialize)]
 struct CachedSourceSummary {
     #[serde(default)]
+    missing_count: usize,
+    #[serde(default)]
     song_ids: Value,
     #[serde(default, rename = "coverUrl", deserialize_with = "present_json_value")]
     legacy_cover: Option<Value>,
@@ -125,6 +127,14 @@ impl LibraryRepository {
     }
 
     pub fn cache_summary(&self, source: &PlaylistAlbum) -> Result<(usize, String), String> {
+        self.cache_summary_with_missing(source)
+            .map(|(count, cover, _)| (count, cover))
+    }
+
+    pub fn cache_summary_with_missing(
+        &self,
+        source: &PlaylistAlbum,
+    ) -> Result<(usize, String, usize), String> {
         let kind = TypeName::parse(&source.typename).map_err(|e| e.to_string())?;
         let path = LibraryStore::new(&self.root)
             .playlist_path(&source.name, &source.playlist_album_id, kind)
@@ -151,7 +161,14 @@ impl LibraryRepository {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .into(),
+            raw.missing_count,
         ))
+    }
+
+    pub fn load_source(&self, platform: &str, id: &str, kind: TypeName) -> Result<Value, String> {
+        LibraryStore::new(&self.root)
+            .load_json(platform, id, kind)
+            .map_err(|e| e.to_string())
     }
 
     /// Fetch completely before saving, so a platform failure leaves the old cache intact.

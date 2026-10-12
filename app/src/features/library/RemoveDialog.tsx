@@ -30,6 +30,7 @@ export function RemoveDialog({ remove, busy, close, confirm }: {
           </li>)}
         </ul>
         <p>{t("删除后不再用于发现。本地缓存会保留，可以重新添加。")}</p>
+        {remove.some((entry) => entry.platform === "LocalMusic") && <p>{t("音频文件仍保留在原位置。")}</p>}
         <div className="dialog-actions">
           <button
             className="button secondary"

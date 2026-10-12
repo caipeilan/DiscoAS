@@ -4,29 +4,88 @@ use crate::settings::music_setting::{MusicSetting, MusicSettingDesktop};
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShortcutAction {
+    Discovery,
+    ToggleHand,
+    PlayHand(usize),
+}
+
+#[derive(Default)]
+struct Bindings {
+    actions: std::collections::HashMap<u32, ShortcutAction>,
+    held: std::collections::HashSet<u32>,
+}
+
 #[derive(Default)]
 pub struct ShortcutRecording {
     pub(crate) active: std::sync::atomic::AtomicBool,
     generation: std::sync::atomic::AtomicU64,
-    hand_id: std::sync::Mutex<Option<u32>>,
+    bindings: std::sync::Mutex<Bindings>,
 }
 
-pub fn is_hand_shortcut(app: &tauri::AppHandle, shortcut: &Shortcut) -> bool {
-    *app.state::<ShortcutRecording>().hand_id.lock().unwrap() == Some(shortcut.id())
+pub fn action(
+    app: &tauri::AppHandle,
+    shortcut: &Shortcut,
+    pressed: bool,
+) -> Option<ShortcutAction> {
+    let state = app.state::<ShortcutRecording>();
+    let mut bindings = state.bindings.lock().unwrap();
+    if !pressed {
+        bindings.held.remove(&shortcut.id());
+        return None;
+    }
+    if state.active.load(std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    bindings.press(shortcut.id())
+}
+impl Bindings {
+    fn press(&mut self, id: u32) -> Option<ShortcutAction> {
+        let action = self.actions.get(&id).copied()?;
+        self.held.insert(id).then_some(action)
+    }
+}
+fn update_bindings(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<(), String> {
+    let mut actions = std::collections::HashMap::new();
+    for (key, action) in std::iter::once((&settings.shortcut_key, ShortcutAction::Discovery))
+        .chain(
+            settings
+                .hand
+                .enabled
+                .then_some((&settings.hand.shortcut, ShortcutAction::ToggleHand)),
+        )
+        .chain(
+            settings
+                .hand
+                .play_shortcuts
+                .iter()
+                .enumerate()
+                .filter(|_| settings.hand.enabled)
+                .map(|(i, key)| (key, ShortcutAction::PlayHand(i))),
+        )
+    {
+        if let Some(shortcut) = parse_shortcut(key)? {
+            actions.insert(shortcut.id(), action);
+        }
+    }
+    let state = app.state::<ShortcutRecording>();
+    let mut bindings = state.bindings.lock().unwrap();
+    bindings.actions = actions;
+    bindings.held.clear();
+    Ok(())
 }
 fn global_keys(settings: &MusicSetting) -> Vec<&str> {
     let mut keys = vec![settings.shortcut_key.as_str()];
     if settings.hand.enabled {
         keys.push(&settings.hand.shortcut);
+        keys.extend(settings.hand.play_shortcuts.iter().map(String::as_str));
     }
     keys
 }
 pub fn register_all(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<(), String> {
-    *app.state::<ShortcutRecording>().hand_id.lock().unwrap() = if settings.hand.enabled {
-        parse_shortcut(&settings.hand.shortcut)?.map(|s| s.id())
-    } else {
-        None
-    };
+    configured_shortcuts(settings)?;
+    update_bindings(app, settings)?;
     let mut error = None;
     for key in global_keys(settings) {
         if let Err(e) = register_shortcut(app, key) {
@@ -52,6 +111,7 @@ pub fn set_shortcut_recording(app: tauri::AppHandle, recording: bool) -> Result<
             }
         }
         state.active.store(true, Ordering::SeqCst);
+        state.bindings.lock().unwrap().held.clear();
         let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let timer_app = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -135,6 +195,21 @@ fn validate_local_shortcut_conflicts(
     Ok(())
 }
 
+fn configured_shortcuts(settings: &MusicSetting) -> Result<Vec<(Option<Shortcut>, &str)>, String> {
+    let shortcuts = global_keys(settings)
+        .into_iter()
+        .map(|key| parse_shortcut(key).map(|s| (s, key)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut identities = std::collections::HashSet::new();
+    for (shortcut, _) in &shortcuts {
+        validate_local_shortcut_conflicts(settings, *shortcut)?;
+        if shortcut.is_some_and(|s| !identities.insert(s.id())) {
+            return Err("错误：全局快捷键不能重复".into());
+        }
+    }
+    Ok(shortcuts)
+}
+
 /// Register before persisting, then remove the former shortcut only after a successful save.
 pub(crate) fn save_preferences(
     app: &tauri::AppHandle,
@@ -146,19 +221,11 @@ pub(crate) fn save_preferences(
         .into_iter()
         .filter_map(|key| parse_shortcut(key).ok().flatten())
         .collect();
-    let new_shortcuts: Vec<_> = global_keys(settings)
-        .into_iter()
-        .map(|key| parse_shortcut(key).map(|s| (s, key)))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut identities = std::collections::HashSet::new();
-    for (shortcut, _) in &new_shortcuts {
-        validate_local_shortcut_conflicts(settings, *shortcut)?;
-        if let Some(shortcut) = shortcut {
-            if !identities.insert(shortcut.id()) {
-                return Err("错误：发现与手牌快捷键不能重复".into());
-            }
-        }
-    }
+    let new_shortcuts = configured_shortcuts(settings)?;
+    let identities: std::collections::HashSet<_> = new_shortcuts
+        .iter()
+        .filter_map(|(s, _)| s.map(|s| s.id()))
+        .collect();
     let mut newly_registered = Vec::new();
     let mut shortcut_error = None;
     for (shortcut, key) in &new_shortcuts {
@@ -189,11 +256,7 @@ pub(crate) fn save_preferences(
             let _ = app.global_shortcut().unregister(shortcut);
         }
     }
-    *app.state::<ShortcutRecording>().hand_id.lock().unwrap() = if settings.hand.enabled {
-        parse_shortcut(&settings.hand.shortcut)?.map(|s| s.id())
-    } else {
-        None
-    };
+    update_bindings(app, settings)?;
     *app.state::<DesktopStatus>().shortcut_error.lock().unwrap() = shortcut_error;
     Ok(())
 }
@@ -201,6 +264,36 @@ pub(crate) fn save_preferences(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn position_shortcuts_are_nine_bindings_independent_of_capacity() {
+        let mut settings = MusicSetting::default();
+        settings.hand.enabled = true;
+        for capacity in [1, 10, 100] {
+            settings.hand.capacity = capacity;
+            let keys = configured_shortcuts(&settings).unwrap();
+            assert_eq!(keys.len(), 11);
+            assert_eq!(keys[10].1, "Alt+9");
+        }
+        settings.hand.play_shortcuts[8] = "alt+Digit1".into();
+        assert_eq!(
+            configured_shortcuts(&settings).unwrap_err(),
+            "错误：全局快捷键不能重复"
+        );
+        settings.hand.enabled = false;
+        assert_eq!(configured_shortcuts(&settings).unwrap().len(), 1);
+    }
+    #[test]
+    fn held_key_plays_once_until_release_and_unmapped_keys_do_nothing() {
+        let mut bindings = Bindings::default();
+        bindings.actions.insert(7, ShortcutAction::PlayHand(8));
+        assert_eq!(bindings.press(7), Some(ShortcutAction::PlayHand(8)));
+        for _ in 0..20 {
+            assert_eq!(bindings.press(7), None);
+        }
+        assert_eq!(bindings.press(8), None);
+        bindings.held.remove(&7);
+        assert_eq!(bindings.press(7), Some(ShortcutAction::PlayHand(8)));
+    }
     #[test]
     fn shortcut_aliases_compare_identity_and_invalid_old_values_can_be_repaired() {
         let first = parse_shortcut("Alt+D").unwrap().unwrap();

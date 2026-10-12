@@ -12,6 +12,7 @@
 pub mod bilibili;
 pub mod kugou;
 pub mod kuwo;
+pub mod local;
 pub mod netease;
 mod public_music;
 pub mod qishui;
@@ -32,6 +33,7 @@ pub mod names {
     pub const SPOTIFY: &str = "Spotify";
     pub const YOUTUBE: &str = "YouTube";
     pub const BILIBILI: &str = "Bilibili";
+    pub const LOCAL: &str = "LocalMusic";
 }
 
 use crate::core::playlist::TypeName;
@@ -50,6 +52,7 @@ pub type FetchProgressCallback = Arc<dyn Fn(FetchProgress) + Send + Sync>;
 /// Source kinds accepted by each platform; shared by desktop and other callers.
 pub fn supported_kinds(platform: &str) -> AppResult<&'static [TypeName]> {
     match platform {
+        names::LOCAL => Ok(&[TypeName::Playlist]),
         names::NETEASE
         | names::QQ
         | names::KUGOU
@@ -112,6 +115,7 @@ pub trait PlaylistFetcher: Send + Sync {
 /// 对照旧版 `PLATFORM_JSON_MAP` dict 查找。
 pub fn fetcher_for(platform: &str) -> AppResult<Box<dyn PlaylistFetcher>> {
     match platform {
+        names::LOCAL => Ok(Box::new(local::LocalFetcher)),
         names::NETEASE => Ok(Box::new(netease::NeteaseFetcher)),
         names::QQ => Ok(Box::new(qq::QqFetcher)),
         names::KUGOU => Ok(Box::new(kugou::KugouFetcher)),
@@ -190,6 +194,7 @@ pub trait SongDetailLoader: Send + Sync {
 /// 根据平台名取得对应的详情加载器。对照旧版 `PLATFORM_SONG_CARD_MAP`。
 pub fn detail_loader_for(platform: &str) -> AppResult<Box<dyn SongDetailLoader>> {
     match platform {
+        names::LOCAL => Ok(Box::new(local::LocalDetailLoader)),
         names::NETEASE => Ok(Box::new(netease::NeteaseDetailLoader)),
         names::QQ => Ok(Box::new(qq::QqDetailLoader)),
         names::KUGOU => Ok(Box::new(kugou::KugouDetailLoader)),
@@ -213,6 +218,7 @@ pub fn build_scheme_url(args: &crate::model::PlaySongArgs) -> AppResult<String> 
         storage::validate_id(&args.playlist_id)?;
     }
     Ok(match args.platform.as_str() {
+        names::LOCAL => local::playback_path(&args.song_id, &args.filename)?,
         names::NETEASE => netease::card::scheme_url(&args.song_id),
         names::QQ => qq::card::scheme_url(&args.song_id),
         names::KUGOU => kugou::card::scheme_url(&args.song_id, &args.filename),

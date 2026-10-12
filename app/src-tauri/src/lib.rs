@@ -135,13 +135,23 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    if event.state() == ShortcutState::Pressed
-                        && !app.state::<AtomicBool>().load(Ordering::Relaxed)
-                    {
-                        if desktop::shortcuts::is_hand_shortcut(app, shortcut) {
-                            desktop::hand::shortcut(app);
-                        } else {
-                            show_overlay(app);
+                    let action = desktop::shortcuts::action(
+                        app,
+                        shortcut,
+                        event.state() == ShortcutState::Pressed,
+                    );
+                    if !app.state::<AtomicBool>().load(Ordering::Relaxed) {
+                        match action {
+                            Some(desktop::shortcuts::ShortcutAction::ToggleHand) => {
+                                desktop::hand::shortcut(app)
+                            }
+                            Some(desktop::shortcuts::ShortcutAction::Discovery) => {
+                                show_overlay(app)
+                            }
+                            Some(desktop::shortcuts::ShortcutAction::PlayHand(index)) => {
+                                desktop::hand_actions::play_position(app, index)
+                            }
+                            None => {}
                         }
                     }
                 })
@@ -346,6 +356,8 @@ pub fn run() {
             commands::show_main,
             library::get_app_state,
             library::import_playlist,
+            library::import_local_audio,
+            desktop::dialogs::choose_local_audio,
             library::cancel_library_operation,
             library::edit_playlist_remark,
             commands::get_discovery_history,

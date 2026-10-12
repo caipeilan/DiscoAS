@@ -39,6 +39,7 @@ pub struct LibraryEntry {
     remark: String,
     enabled: bool,
     song_count: usize,
+    missing_count: usize,
     cover_url: String,
     cover_data_uri: Option<String>,
     updated_at: String,
@@ -67,9 +68,9 @@ pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
         .playlist_albums
         .iter()
         .map(|p| {
-            let (count, cover, error) = match repository.cache_summary(p) {
-                Ok((c, u)) => (c, u, None),
-                Err(e) => (0, String::new(), Some(e)),
+            let (count, cover, missing, error) = match repository.cache_summary_with_missing(p) {
+                Ok((c, u, m)) => (c, u, m, None),
+                Err(e) => (0, String::new(), 0, Some(e)),
             };
             LibraryEntry {
                 platform: p.name.clone(),
@@ -83,6 +84,7 @@ pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
                 remark: p.playlist_album_remark.clone(),
                 enabled: p.enabled,
                 song_count: count,
+                missing_count: missing,
                 cover_data_uri: crate::image_cache::read_library_cover(
                     &app,
                     &crate::image_cache::library_key(&p.name, &p.typename, &p.playlist_album_id),
@@ -191,12 +193,13 @@ async fn refresh_source_job(
     source: PlaylistAlbum,
     request_id: Option<String>,
     require_existing: bool,
+    local_source: Option<discoas_core::platforms::local::LocalSource>,
 ) -> Result<(), String> {
     use crate::services::{library_jobs::LibraryJobs, request_errors};
     use std::time::Duration;
     let repository = repository(app)?;
     let kind = TypeName::parse(&source.typename).map_err(|e| e.to_string())?;
-    let (base, mut job) = app
+    let ((base, local_source), mut job) = app
         .state::<LibraryJobs>()
         .begin_with_snapshot(
             &cache.operation,
@@ -208,7 +211,22 @@ async fn refresh_source_job(
                 if require_existing && base.is_none() {
                     return Err("操作已取消".into());
                 }
-                Ok(base)
+                let local = if source.name == discoas_core::platforms::names::LOCAL {
+                    Some(match local_source {
+                        Some(local) => local,
+                        None => discoas_core::platforms::local::LocalSource::from_snapshot(
+                            &repository.load_source(
+                                &source.name,
+                                &source.playlist_album_id,
+                                kind,
+                            )?,
+                        )
+                        .map_err(|e| e.to_string())?,
+                    })
+                } else {
+                    None
+                };
+                Ok((base, local))
             },
         )
         .await?;
@@ -228,8 +246,21 @@ async fn refresh_source_job(
             },
         );
     });
-    let data = job
-        .run(async {
+    let data = if let Some(local) = local_source {
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let scan_cancelled = cancelled.clone();
+        let scan = tauri::async_runtime::spawn_blocking(move || {
+            local
+                .scan(on_progress, &scan_cancelled)
+                .map_err(|e| e.to_string())
+        });
+        let result = job
+            .run(async { scan.await.map_err(|e| e.to_string())? })
+            .await;
+        cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+        result?
+    } else {
+        job.run(async {
             tokio::time::timeout(Duration::from_secs(180), async {
                 for attempt in 0..2 {
                     match fetcher
@@ -252,7 +283,8 @@ async fn refresh_source_job(
             .await
             .map_err(|_| "错误：网络连接超时".to_string())?
         })
-        .await?;
+        .await?
+    };
     let count = data["song_ids"].as_array().map_or(0, Vec::len);
     progress(app, &job, "cover", count, Some(count));
     let url = data
@@ -336,7 +368,7 @@ pub fn refresh_enabled_on_startup(app: tauri::AppHandle) {
                 return Ok::<_, String>(());
             };
             let cache = app.state::<Arc<Cache>>().inner().clone();
-            refresh_source_job(&app, &cache, source, None, true).await
+            refresh_source_job(&app, &cache, source, None, true, None).await
         }
         .await;
         if let Err(error) = result {
@@ -383,9 +415,42 @@ pub async fn import_playlist(
         },
         request_id,
         false,
+        None,
     )
     .await
     .map_err(|e| crate::services::request_errors::short_error(&e))?;
+    get_app_state(app)
+}
+
+pub async fn import_local_audio(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    paths: Vec<std::path::PathBuf>,
+    remark: String,
+    request_id: Option<String>,
+) -> Result<Snapshot, String> {
+    if remark.chars().count() > 500 {
+        return Err("错误：备注不能超过 500 字".into());
+    }
+    let local =
+        discoas_core::platforms::local::LocalSource::new(paths).map_err(|e| e.to_string())?;
+    refresh_source_job(
+        &app,
+        cache.inner(),
+        PlaylistAlbum {
+            name: discoas_core::platforms::names::LOCAL.into(),
+            playlist_album_id: local.id(),
+            typename: "playlist".into(),
+            playlist_album_name: String::new(),
+            playlist_album_remark: remark,
+            update_time: String::new(),
+            enabled: false,
+        },
+        request_id,
+        false,
+        Some(local),
+    )
+    .await?;
     get_app_state(app)
 }
 
