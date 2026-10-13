@@ -154,6 +154,7 @@ pub struct MusicSetting {
     /// Keyboard controls active only while the discovery interface is visible.
     pub discovery_keybindings: DiscoveryKeybindings,
     pub hand: crate::hand::HandSettings,
+    pub hand_discovery: crate::hand::HandDiscoverySettings,
     /// Recent songs excluded from discovery; existing settings keep exclusion disabled.
     pub history_exclusion: HistoryExclusion,
     /// Recent songs excluded per platform; retention is fixed at 10,000 unique songs.
@@ -178,6 +179,7 @@ impl Default for MusicSetting {
             shortcut_key: "Alt+D".to_string(),
             discovery_keybindings: DiscoveryKeybindings::default(),
             hand: crate::hand::HandSettings::default(),
+            hand_discovery: crate::hand::HandDiscoverySettings::default(),
             history_exclusion: HistoryExclusion::Off,
             history_limit: 200,
             playlist_albums: Vec::new(),
@@ -213,6 +215,7 @@ impl MusicSetting {
             let hand_enabled = copy.hand.enabled;
             copy.hand = crate::hand::HandSettings::default();
             copy.hand.enabled = hand_enabled;
+            copy.hand_discovery = crate::hand::HandDiscoverySettings::default();
             copy
         };
         comparable(self) == comparable(other)
@@ -299,6 +302,9 @@ mod tests {
         let mut edited = original.clone();
         edited.shortcut_key = "Ctrl+Shift+D".into();
         edited.discovery_keybindings.up = "ArrowUp".into();
+        edited.hand_discovery.enabled = true;
+        edited.hand_discovery.text_outline_width = 0.7;
+        edited.hand_discovery.text_outline_enabled = false;
         edited.playlist_albums[0].playlist_album_name = "New name".into();
         edited.playlist_albums[0].playlist_album_remark = "Only a remark".into();
         edited.playlist_albums[0].update_time = "later".into();
@@ -381,6 +387,10 @@ mod tests {
         assert_eq!(s.shortcut_key, "Alt+D");
         assert_eq!(s.discovery_keybindings, DiscoveryKeybindings::default());
         assert_eq!(s.playlist_albums.len(), 2);
+        assert_eq!(
+            s.hand_discovery,
+            crate::hand::HandDiscoverySettings::default()
+        );
         assert!(s.playlist_albums[0].enabled);
         assert!(!s.playlist_albums[1].enabled);
         assert_eq!(s.playlist_albums[1].name, "Spotify");

@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use discoas_core::{
-    hand::{HandCard, HandSettings, StoredHandCard},
+    hand::{HandCard, HandDiscoverySettings, HandSettings, StoredHandCard},
     image_cache::{library_key, read_library_cover},
 };
 use serde::Serialize;
@@ -39,6 +39,8 @@ pub struct HandSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     card_order: Option<Vec<String>>,
     pub(super) settings: HandSettings,
+    pub(super) discovery_settings: HandDiscoverySettings,
+    pub(super) discovery: Option<discoas_core::model::DiscoveryStateDto>,
     pub(super) gui: GuiSetting,
     pub(super) keys: discoas_core::settings::discovery_keybindings::DiscoveryKeybindings,
     pub(super) work_area: Rect,
@@ -105,6 +107,7 @@ mod tests {
                 id: id.into(),
                 collected_at: 0,
                 mystery_revealed: false,
+                discovery: false,
                 song: discoas_core::model::SongCardDto {
                     cover_data_uri: Some(format!("cover-{id}")),
                     ..Default::default()
@@ -118,6 +121,8 @@ mod tests {
             cards: vec![a.clone(), b.clone()],
             card_order: None,
             settings: HandSettings::default(),
+            discovery_settings: HandDiscoverySettings::default(),
+            discovery: None,
             gui: GuiSetting::default(),
             keys: Default::default(),
             work_area: Rect::default(),
@@ -162,6 +167,15 @@ pub(super) fn update_order(app: &tauri::AppHandle, ids: &[String]) {
             .sort_by_key(|card| ids.iter().position(|id| id == &card.id));
     }
 }
+pub(super) fn update_discovery_order(app: &tauri::AppHandle, ids: &[String]) {
+    if let Some(session) = app.state::<HandState>().session.lock().unwrap().as_mut() {
+        session.cards.sort_by_key(|card| {
+            ids.iter()
+                .position(|id| id == &card.id)
+                .unwrap_or(usize::MAX)
+        });
+    }
+}
 pub(super) fn preview(app: &tauri::AppHandle) -> bool {
     app.state::<HandState>()
         .session
@@ -176,7 +190,12 @@ async fn cards(app: &tauri::AppHandle, music: &MusicSetting) -> Result<Vec<Arc<H
     let previous = app.state::<HandState>().prepared.lock().unwrap().clone();
     let mut prepared = HashMap::new();
     let mut cards = Vec::new();
-    for c in store(app)?.load()?.cards {
+    for c in store(app)?
+        .load()?
+        .cards
+        .into_iter()
+        .filter(|_| music.hand.enabled)
+    {
         let mut card = c.project(&music.mystery_song_cover);
         if let Some(old) = previous.get(&c.id).filter(|old| {
             old.stored == c
@@ -228,6 +247,7 @@ fn snapshot_event(snapshot: &HandSnapshot, previous: Option<&HandSnapshot>) -> H
 pub async fn create(app: &tauri::AppHandle) -> Result<(), String> {
     let window =
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?view=hand".into()))
+            .additional_browser_args(&super::rendering::browser_args(app))
             .title("DiscoAS · 手牌")
             .decorations(false)
             .transparent(true)
@@ -350,10 +370,11 @@ async fn open(
             GuiSetting::load(app).map_err(|e| e.to_string())?,
         ),
     };
-    if !is_preview && !music.hand.enabled {
+    if !is_preview && !music.hand.enabled && !music.hand_discovery.enabled {
         return Err("错误：手牌模式未开启".into());
     }
     music.hand.validate()?;
+    music.hand_discovery.validate()?;
     if app.get_webview_window(LABEL).is_none() {
         create(app).await?;
     }
@@ -395,7 +416,7 @@ async fn open(
     if state.generation.load(Ordering::Acquire) != generation {
         return Ok(());
     }
-    if is_preview && held.is_empty() {
+    if is_preview && held.is_empty() && (music.hand.enabled || !music.hand_discovery.enabled) {
         // Layout-only sample cards work offline and never enter history or the saved hand.
         held = (0..4)
             .map(|i| {
@@ -403,6 +424,7 @@ async fn open(
                     id: format!("preview-{i}"),
                     collected_at: 0,
                     mystery_revealed: false,
+                    discovery: false,
                     song: discoas_core::model::SongCardDto {
                         name: format!("{} {}", "DiscoAS", i + 1),
                         artist_names: vec!["Discover A Song!".into()],
@@ -411,6 +433,48 @@ async fn open(
                 })
             })
             .collect();
+    }
+    let mut discovery = if music.hand_discovery.enabled {
+        if is_preview {
+            let cache = super::hand_discovery::cache(app);
+            let songs = cache.current_batch.lock().await.clone().unwrap_or_else(|| {
+                (0..3)
+                    .map(|i| discoas_core::model::SongCardDto {
+                        name: format!("DiscoAS {}", i + 1),
+                        song_id: format!("preview-{i}"),
+                        artist_names: vec!["Discover A Song!".into()],
+                        ..Default::default()
+                    })
+                    .collect()
+            });
+            Some(discoas_core::model::DiscoveryStateDto {
+                songs,
+                preview: true,
+                ..Default::default()
+            })
+        } else {
+            Some(super::hand_discovery::service(app)?.get_state().await?)
+        }
+    } else {
+        None
+    };
+    if let Some(discovery) = &discovery {
+        let mut discover = super::hand_discovery::project(discovery);
+        for card in &mut discover {
+            if let Some(old) = previous.as_ref().and_then(|s| {
+                s.cards
+                    .iter()
+                    .find(|c| c.id == card.id && c.song == card.song)
+            }) {
+                *card = old.clone();
+            }
+        }
+        discover.extend(held);
+        held = discover;
+    }
+    let needs_discovery = !is_preview && discovery.as_ref().is_some_and(|s| s.songs.is_empty());
+    if let Some(state) = &mut discovery {
+        state.songs.clear();
     }
     let surface = canvas.surface(
         &app.get_webview_window(LABEL)
@@ -421,6 +485,8 @@ async fn open(
         cards: held,
         card_order: None,
         settings: music.hand,
+        discovery_settings: music.hand_discovery,
+        discovery,
         gui,
         keys: music.discovery_keybindings,
         work_area: canvas.work_area,
@@ -457,8 +523,10 @@ async fn open(
             app,
             super::hand_dock::Snapshot {
                 generation,
-                count: snapshot.cards.len(),
+                count: snapshot.cards.iter().filter(|c| !c.discovery).count(),
                 settings: snapshot.settings.clone(),
+                discovery_settings: snapshot.discovery_settings.clone(),
+                discovery: snapshot.discovery.clone(),
                 gui: snapshot.gui.clone(),
                 work_area: snapshot.work_area,
                 work_areas: snapshot.work_areas.clone(),
@@ -480,6 +548,9 @@ async fn open(
         );
     }
     drop(_serial);
+    if needs_discovery {
+        super::hand_discovery::ensure(app);
+    }
     if is_preview {
         activate_keyboard(app).await?;
     }
@@ -557,8 +628,10 @@ async fn set_expanded(app: &tauri::AppHandle, expanded: bool, focus: bool) -> Re
                 app,
                 super::hand_dock::Snapshot {
                     generation,
-                    count: snapshot.cards.len(),
+                    count: snapshot.cards.iter().filter(|c| !c.discovery).count(),
                     settings: snapshot.settings.clone(),
+                    discovery_settings: snapshot.discovery_settings.clone(),
+                    discovery: snapshot.discovery.clone(),
                     gui: snapshot.gui.clone(),
                     work_area: snapshot.work_area,
                     work_areas: snapshot.work_areas.clone(),
@@ -631,7 +704,7 @@ pub async fn refresh(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let music = MusicSetting::load(app).map_err(|e| e.to_string())?;
-    if !music.hand.enabled {
+    if !music.hand.enabled && !music.hand_discovery.enabled {
         app.state::<HandState>()
             .dismissed
             .store(false, Ordering::Release);
@@ -641,7 +714,10 @@ pub async fn refresh(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let state = app.state::<HandState>();
-    if visible(app) || (music.hand.resident && !state.dismissed.load(Ordering::Acquire)) {
+    if visible(app)
+        || ((music.hand.resident || music.hand_discovery.enabled)
+            && !state.dismissed.load(Ordering::Acquire))
+    {
         let expanded = !visible(app) || state.expanded.load(Ordering::Acquire);
         let keyboard = state.keyboard_active.load(Ordering::Acquire);
         open(app, keyboard, None, None, expanded).await?;
@@ -758,7 +834,17 @@ pub async fn set_hand_hit_regions(
     let is_preview = preview(&app);
     let mut resized = false;
     if !is_preview {
-        if let Some(bounds) = drawing_bounds.or_else(|| drawing_extent(&rects)) {
+        let bounds = if dragging {
+            Some(Rect {
+                left: -32.0,
+                top: -32.0,
+                width: canvas.size.width as f64 / canvas.scale + 64.0,
+                height: canvas.size.height as f64 / canvas.scale + 64.0,
+            })
+        } else {
+            drawing_bounds.or_else(|| drawing_extent(&rects))
+        };
+        if let Some(bounds) = bounds {
             if *state.drawing_bounds.lock().unwrap() != Some(bounds) {
                 fit_card_surface(
                     &window,

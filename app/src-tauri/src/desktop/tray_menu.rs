@@ -105,6 +105,7 @@ pub fn create(app: &tauri::AppHandle) -> tauri::Result<()> {
     app.manage(TrayMenuState::default());
     let window =
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?view=tray".into()))
+            .additional_browser_args(&super::rendering::browser_args(app))
             .title("DiscoAS")
             .inner_size(320.0, 270.0)
             .decorations(false)
@@ -170,7 +171,7 @@ pub fn show_at(app: &tauri::AppHandle, cursor: PhysicalPosition<f64>) {
             gui,
             paused: app.state::<AtomicBool>().load(Ordering::Relaxed),
             hand_enabled: MusicSetting::load(&app)
-                .map(|s| s.hand.enabled)
+                .map(|s| s.hand.enabled || s.hand_discovery.enabled)
                 .unwrap_or(false),
         };
         {

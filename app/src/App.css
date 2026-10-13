@@ -1546,31 +1546,6 @@ html.floating-window #root {
     transform 220ms cubic-bezier(0.32, 0, 0.67, 0),
     opacity 220ms cubic-bezier(0.32, 0, 0.67, 0);
 }
-.startup-screen {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: transparent;
-}
-.startup-logo {
-  width: min(42vw, 42vh, 400px);
-  height: min(42vw, 42vh, 400px);
-  object-fit: contain;
-  animation: startup-logo 2000ms ease-in-out both;
-}
-@keyframes startup-logo {
-  0% {
-    opacity: 0;
-  }
-  37.5%,
-  62.5% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
 .main-content > .page-header {
   animation: page-enter 180ms ease-out;
 }

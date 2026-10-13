@@ -35,6 +35,7 @@ pub(super) struct InputReceiver {
 pub(super) enum InputMode {
     Preview,
     Hand,
+    HandDiscovery,
 }
 #[derive(Clone, PartialEq)]
 struct Binding {
@@ -105,8 +106,10 @@ impl KeyModel {
         mut down: impl FnMut(i32) -> bool,
     ) -> Self {
         let mut model = Self::new(keys, &mut down);
-        if mode == InputMode::Hand {
-            model.bindings.retain(|binding| binding.action != "replace");
+        if mode != InputMode::Preview {
+            if mode == InputMode::Hand {
+                model.bindings.retain(|binding| binding.action != "replace");
+            }
             model.bindings.push(Binding {
                 action: "discard",
                 text: "Delete".into(),
@@ -212,7 +215,7 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
             if state.active.load(Ordering::SeqCst) != state.generation || state.deactivated {
                 return false;
             }
-            if state.mode == InputMode::Hand
+            if state.mode != InputMode::Preview
                 && unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) } as isize
                     != state.foreground
             {
@@ -236,7 +239,7 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                 }
                 None => {}
             }
-            if state.mode != InputMode::Hand || vk >= state.consumed.len() {
+            if state.mode == InputMode::Preview || vk >= state.consumed.len() {
                 return false;
             }
             state.consumed[vk] = down && (matched || previously_consumed);
@@ -392,5 +395,16 @@ mod tests {
         assert!(model.input(0x0d, true).is_none());
         model.input(0x5b, true);
         assert!(model.input(0x44, true).is_none());
+    }
+    #[test]
+    fn hand_discovery_enables_replace_without_changing_ordinary_hand_keys() {
+        let keys = DiscoveryKeybindings::default();
+        let mut ordinary = KeyModel::for_mode(&keys, InputMode::Hand, |_| false);
+        assert!(ordinary.input(0x52, true).is_none());
+        let mut discovery = KeyModel::for_mode(&keys, InputMode::HandDiscovery, |_| false);
+        assert!(
+            matches!(discovery.input(0x52, true), Some(Input::Key(k)) if k.event.action == "replace")
+        );
+        assert!(discovery.input(0x52, true).is_none());
     }
 }

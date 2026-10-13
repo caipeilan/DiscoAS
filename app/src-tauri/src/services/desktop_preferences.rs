@@ -15,6 +15,7 @@ pub struct DesktopPreferences {
     #[serde(default)]
     pub spotify_defaults_version: u32,
     pub browser_playback_mode: String,
+    pub rendering_mode: String,
 }
 impl Default for DesktopPreferences {
     fn default() -> Self {
@@ -28,11 +29,15 @@ impl Default for DesktopPreferences {
             spotify_playback_mode: "extension".into(),
             spotify_defaults_version: 1,
             browser_playback_mode: "extension".into(),
+            rendering_mode: "auto".into(),
         }
     }
 }
 impl DesktopPreferences {
     pub fn validate(&self) -> Result<(), String> {
+        if !["auto", "integrated", "discrete", "cpu"].contains(&self.rendering_mode.as_str()) {
+            return Err("错误：渲染方式无效".into());
+        }
         if !["current", "primary"].contains(&self.overlay_monitor.as_str()) {
             return Err("错误：显示器选项无效".into());
         }
@@ -93,6 +98,20 @@ pub fn should_show_main(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rendering_settings_migrate_old_files_and_round_trip_every_mode() {
+        let old: DesktopPreferences = serde_json::from_str(r#"{"start_hidden":true}"#).unwrap();
+        assert_eq!(old.rendering_mode, "auto");
+        assert!(old.start_hidden);
+        for mode in ["auto", "integrated", "discrete", "cpu"] {
+            let settings = DesktopPreferences { rendering_mode: mode.into(), ..old.clone() };
+            assert!(settings.validate().is_ok());
+            let restored: DesktopPreferences = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(restored, settings);
+        }
+        let invalid = DesktopPreferences { rendering_mode: "unknown".into(), ..old };
+        assert!(invalid.validate().is_err());
+    }
 
     #[test]
     fn failed_preference_reads_report_a_warning_and_preserve_the_file() {

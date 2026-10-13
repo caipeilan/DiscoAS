@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "DiscoAS",
         "width": 1040,
         "height": 760,
@@ -29,6 +30,7 @@
       },
       {
         "label": "overlay",
+        "create": false,
         "url": "index.html?view=discover",
         "title": "发现一首歌 · DiscoAS",
         "width": 940,
@@ -44,12 +46,13 @@
       },
       {
         "label": "splash",
+        "create": false,
         "url": "index.html?view=splash",
         "title": "DiscoAS",
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
-        "fullscreen": true,
+        "fullscreen": false,
         "skipTaskbar": true,
         "resizable": false,
         "visible": false

@@ -15,6 +15,7 @@ export type DesktopCommand =
   | "begin_hand_dock_drag" | "save_hand_dock"
   | "hand_dock_ready" | "position_hand_dock" | "set_hand_dock_hit_regions"
   | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
+  | "refresh_hand_discovery" | "hand_discovery_displayed" | "replace_hand_discovery_card" | "collect_hand_discovery_card" | "play_hand_discovery_card" | "reorder_hand_discovery"
   | "tray_menu_ready"
   | "present_tray_menu"
   | "dismiss_tray_menu"
@@ -66,6 +67,7 @@ export type DesktopCommand =
   | "show_main"
   | "set_shortcut_recording"
   | "finish_startup"
+  | "startup_ready"
   | "log_frontend_error"
   | "check_for_updates";
 
@@ -96,6 +98,8 @@ export interface DesktopEvents {
   "hand-key": HandKey;
   "hand-preview-closed": void;
   "hand-error": string;
+  "hand-discovery-play-requested": string;
+  "hand-discovery-refresh-requested": void;
   "tray-menu-open": TrayMenuSnapshot;
   "library-changed": { discoveryInvalidated: boolean } | void;
   "library-progress": LibraryProgress;
@@ -184,6 +188,7 @@ export async function watchMainWindowState(
 export const requestHandClear = () => emitTo("hand", "hand-clear-requested");
 export const notifyHandClear = (error: string | null) => emitTo("hand-dock", "hand-clear-finished", error);
 export const notifyHandBusy = (busy: boolean) => emitTo("hand-dock", "hand-busy-changed", busy);
+export const requestHandDiscoveryRefresh = () => emitTo("hand", "hand-discovery-refresh-requested");
 
 export function call<T>(name: DesktopCommand, args?: Record<string, unknown>): Promise<T> {
   return desktop

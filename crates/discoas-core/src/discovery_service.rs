@@ -74,6 +74,7 @@ pub struct DiscoveryService {
     store: LibraryStore,
     cache: Arc<Cache>,
     history: HistoryStore,
+    hand_discovery: bool,
 }
 
 impl DiscoveryService {
@@ -83,12 +84,29 @@ impl DiscoveryService {
             store: LibraryStore::new(user_data.as_ref().to_path_buf()),
             cache,
             history: HistoryStore::new(user_data.as_ref()),
+            hand_discovery: false,
+        }
+    }
+
+    pub fn for_hand(user_data: impl AsRef<Path>, cache: Arc<Cache>) -> Self {
+        Self {
+            hand_discovery: true,
+            ..Self::new(user_data, cache)
         }
     }
 
     fn settings(&self) -> Result<MusicSetting, String> {
-        MusicSetting::load_from_path(&self.store.root().join("settings/music_setting.json"))
-            .map_err(|error| error.to_string())
+        let mut setting =
+            MusicSetting::load_from_path(&self.store.root().join("settings/music_setting.json"))
+                .map_err(|error| error.to_string())?;
+        if self.hand_discovery {
+            if !setting.hand_discovery.enabled {
+                return Err("错误：手牌中发现未开启".into());
+            }
+            setting.hand.keep_discovery_open = true;
+            setting.refreshing_after_cancel = true;
+        }
+        Ok(setting)
     }
 
     fn excluded_song_ids(
@@ -355,6 +373,9 @@ impl DiscoveryService {
         force: bool,
         _guard: &tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<DiscoveryBatch, String> {
+        if self.hand_discovery {
+            self.settings()?;
+        }
         if !force {
             let current = self.cache.current_batch.lock().await.clone();
             if let Some(songs) = current {
@@ -1344,6 +1365,76 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[tokio::test]
+    async fn hand_discovery_has_independent_batches_and_budgets_with_shared_persistent_operations()
+    {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source_many(9);
+        fixture.configure(|s| {
+            s.hand_discovery.enabled = true;
+            s.replacement_limit = 2;
+        });
+        let main_cache = Cache::new();
+        let hand_cache = Cache::independent(&main_cache);
+        let main = fixture.service(main_cache.clone());
+        let hand = DiscoveryService::for_hand(&fixture.0, hand_cache.clone());
+        let original = main.discover(false).await.unwrap();
+        let guard = main_cache.operation.lock().await;
+        assert!(hand_cache.operation.try_lock().is_err());
+        drop(guard);
+        hand.discover(false).await.unwrap();
+        replace(&hand, &hand_cache, 0).await;
+        assert_eq!(hand.get_state().await.unwrap().replacements_remaining, 1);
+        let unchanged = main.discover(false).await.unwrap();
+        assert_eq!(unchanged.songs, original.songs);
+        assert_eq!(unchanged.state.batch_epoch, original.state.batch_epoch);
+        assert_eq!(unchanged.state.replacements_remaining, 2);
+        hand.discover(true).await.unwrap();
+        assert_eq!(hand.get_state().await.unwrap().replacements_remaining, 2);
+        assert_eq!(main_cache.current_batch_epoch(), original.state.batch_epoch);
+    }
+
+    #[tokio::test]
+    async fn hand_discovery_collection_preserves_other_candidates_and_full_hand_does_not_consume_them(
+    ) {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source_many(7);
+        fixture.configure(|s| {
+            s.hand.enabled = true;
+            s.hand.capacity = 1;
+            s.hand_discovery.enabled = true;
+        });
+        let cache = Cache::new();
+        let hand = DiscoveryService::for_hand(&fixture.0, cache.clone());
+        let batch = hand.discover(false).await.unwrap();
+        let guard = cache.operation.lock().await;
+        let selected = hand
+            .collect_hand_card(&identities(&batch.songs)[0], batch.state.batch_epoch)
+            .await
+            .unwrap();
+        let remaining = hand.get_state().await.unwrap();
+        assert_eq!(remaining.songs.len(), batch.songs.len() - 1);
+        assert!(hand
+            .collect_hand_card(&identities(&remaining.songs)[0], remaining.batch_epoch)
+            .await
+            .is_err());
+        assert_eq!(hand.get_state().await.unwrap().songs, remaining.songs);
+        assert_eq!(
+            HandStore::new(&fixture.0).load().unwrap().cards[0].id,
+            selected.id
+        );
+        drop(guard);
+        let next = hand.discover(true).await.unwrap();
+        assert!(next
+            .songs
+            .iter()
+            .all(|c| c.song_id != selected.song.song_id));
+        fixture.configure(|s| s.hand_discovery.enabled = false);
+        assert!(hand.discover(false).await.is_err());
     }
 
     #[tokio::test]

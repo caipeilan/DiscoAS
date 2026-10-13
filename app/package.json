@@ -1,7 +1,7 @@
 {
   "name": "discoas",
   "private": true,
-  "version": "2.0.5",
+  "version": "2.0.6",
   "type": "module",
   "scripts": {
     "icons": "node scripts/build-icons.mjs",
@@ -28,7 +28,8 @@
     "test:hand": "node --test tests/handLayout.test.mjs tests/handMotion.test.mjs tests/handRegions.test.mjs",
     "test:hand:layout": "node --test tests/handLayout.test.mjs",
     "test:hand:motion": "node --test tests/handMotion.test.mjs",
-    "test:installer": "node --test tests/installerPolicy.test.mjs"
+    "test:installer": "node --test tests/installerPolicy.test.mjs",
+    "test:startup": "node --test tests/startupMotion.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.1",

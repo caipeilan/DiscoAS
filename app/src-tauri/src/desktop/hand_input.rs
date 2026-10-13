@@ -117,13 +117,13 @@ pub(super) async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), Stri
     {
         return Ok(());
     }
-    let Some((keys, is_preview)) = state
+    let Some((keys, is_preview, hand_discovery)) = state
         .session
         .lock()
         .unwrap()
         .as_ref()
         .filter(|s| s.preview || !s.cards.is_empty())
-        .map(|s| (s.keys.clone(), s.preview))
+        .map(|s| (s.keys.clone(), s.preview, s.discovery_settings.enabled))
     else {
         return Ok(());
     };
@@ -145,6 +145,8 @@ pub(super) async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), Stri
         keys,
         if is_preview {
             super::preview_keyboard::InputMode::Preview
+        } else if hand_discovery {
+            super::preview_keyboard::InputMode::HandDiscovery
         } else {
             super::preview_keyboard::InputMode::Hand
         },

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { HandDockSnapshot, HandPoint, HandSurface } from "../../types";
-import { call, onDesktopEvent, requestHandClear } from "../../services/desktop";
+import { call, onDesktopEvent, requestHandClear, requestHandDiscoveryRefresh } from "../../services/desktop";
 import { applyAppearance } from "../../appearance";
 import { currentLocale, errorText, setLanguage } from "../../i18n";
 import { defaultDockPoint } from "./floatingDock";
@@ -17,6 +17,7 @@ export function HandDockWindow() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState("");
+  const [expandedWidth, setExpandedWidth] = useState(198);
   const current = useRef(snapshot), currentSurface = useRef(surface);
   current.current = snapshot; currentSurface.current = surface;
   const stage = useRef<HTMLDivElement>(null), dock = useRef<HTMLDivElement>(null);
@@ -24,7 +25,7 @@ export function HandDockWindow() {
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointOf = (next: HandDockSnapshot) => next.dockPoint ?? current.current?.dockPoint ?? defaultDockPoint(
     handLayout(next.count, next.settings, next.workArea, -1, next.gui.font_size),
-    next.settings.side, next.workArea, 44 * next.gui.font_size / 14);
+    next.settings.enabled ? next.settings.side : next.discoverySettings?.side ?? next.settings.side, next.workArea, 44 * next.gui.font_size / 14);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,11 +68,11 @@ export function HandDockWindow() {
   useLayoutEffect(() => {
     if (!snapshot || hidden || movingRef.current) return;
     let cancelled = false;
-    void call<HandSurface>("position_hand_dock", { generation: snapshot.generation, point: snapshot.dockPoint }).then((value) => {
+    void call<HandSurface>("position_hand_dock", { generation: snapshot.generation, point: snapshot.dockPoint, width: expandedWidth }).then((value) => {
       if (!cancelled) { currentSurface.current = value; setSurface(value); }
     }).catch((e) => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; };
-  }, [snapshot?.generation, snapshot?.gui.font_size, snapshot?.dockPoint?.x, snapshot?.dockPoint?.y, hidden, moving]);
+  }, [snapshot?.generation, snapshot?.gui.font_size, snapshot?.dockPoint?.x, snapshot?.dockPoint?.y, hidden, moving, expandedWidth]);
 
   useLayoutEffect(() => {
     if (!snapshot || !surface || hidden || moving) return;
@@ -122,6 +123,8 @@ export function HandDockWindow() {
     <HandDock element={dock} point={point} areas={snapshot.workAreas.length ? snapshot.workAreas : [snapshot.workArea]}
       expanded={snapshot.expanded} preview={false} diameter={44 * snapshot.gui.font_size / 14}
       count={snapshot.count} capacity={snapshot.settings.capacity} busy={busy} confirm={confirm} message={error}
+      handEnabled={snapshot.settings.enabled} discovery={snapshot.discovery} refresh={() => { setError(""); void requestHandDiscoveryRefresh().catch(e => setError(errorText(e))); }}
+      onWidthChange={setExpandedWidth}
       toCanvas={(x, y) => ({ x: (currentSurface.current?.left ?? 0) + x / (currentSurface.current?.scale ?? 1),
         y: (currentSurface.current?.top ?? 0) + y / (currentSurface.current?.scale ?? 1) })}
       beginDrag={() => Promise.resolve()}

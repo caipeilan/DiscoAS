@@ -1,0 +1,17 @@
+.startup-screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+.startup-logo {
+  display: block;
+  width: min(42vw, 42vh, 400px);
+  height: min(42vw, 42vh, 400px);
+  overflow: visible;
+  transform-origin: center;
+}
+.startup-card { opacity: 0; }

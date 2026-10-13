@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
-import type { HandRect } from "../../types";
+import type { HandRect, DiscoveryState } from "../../types";
 import { appLogo } from "../../assets";
 import { Icon } from "../../Icon";
 import { t } from "../../i18n";
@@ -16,24 +16,39 @@ interface Props {
   move: (point: DockPoint) => void;
   toggle: () => void; clear: () => void;
   message?: string;
+  handEnabled?: boolean; discovery?: DiscoveryState | null; refresh?: () => void;
+  onWidthChange?: (width: number) => void;
 }
 
 export function HandDock({ element, point, areas, expanded, preview, diameter, count, capacity, busy, confirm,
-  toCanvas, beginDrag, nativeDrag, dragging, move, toggle, clear, message }: Props) {
+  toCanvas, beginDrag, nativeDrag, dragging, move, toggle, clear, message, handEnabled = true, discovery, refresh, onWidthChange }: Props) {
   const [moving, setMoving] = useState(false);
   const gesture = useRef<{ pointerId: number; x: number; y: number; dx: number; dy: number;
     origin: DockPoint; started: boolean; native?: boolean } | null>(null);
   const animationFrame = useRef(0);
-  const wantedDirection = floatingDockRect(point, expanded || preview, diameter, areas).direction;
+  const content = useRef<HTMLDivElement>(null);
+  const [expandedWidth, setExpandedWidth] = useState(diameter);
+  useLayoutEffect(() => {
+    const node = content.current;
+    if (!node) return;
+    const measure = () => {
+      const width = Math.ceil(diameter + node.scrollWidth);
+      setExpandedWidth(width); onWidthChange?.(width);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(node); measure();
+    return () => observer.disconnect();
+  }, [diameter, onWidthChange]);
+  const wantedDirection = floatingDockRect(point, expanded || preview, diameter, areas, undefined, expandedWidth).direction;
   const [appearance, setAppearance] = useState({ direction: wantedDirection, folding: false });
   const appearanceRef = useRef(appearance);
   const desiredDirection = useRef(wantedDirection);
   const held = gesture.current;
   const displayPoint = held?.started && !held.native ? { x: held.origin.x + held.dx, y: held.origin.y + held.dy } : point;
   const pillExpanded = (expanded || preview) && !appearance.folding;
-  const geometry = floatingDockRect(displayPoint, pillExpanded, diameter, areas, appearance.direction);
-  const latest = useRef({ point, areas, expanded: expanded || preview, diameter, toCanvas });
-  latest.current = { point, areas, expanded: expanded || preview, diameter, toCanvas };
+  const geometry = floatingDockRect(displayPoint, pillExpanded, diameter, areas, appearance.direction, expandedWidth);
+  const latest = useRef({ point, areas, expanded: expanded || preview, diameter, toCanvas, expandedWidth });
+  latest.current = { point, areas, expanded: expanded || preview, diameter, toCanvas, expandedWidth };
   const show = (next: typeof appearance) => { appearanceRef.current = next; setAppearance(next); };
   const finishFold = () => {
     if (appearanceRef.current.folding && element.current && element.current.offsetWidth <= latest.current.diameter + 1) {
@@ -58,7 +73,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
     const position = { x: held.origin.x + held.dx, y: held.origin.y + held.dy };
     requestDirection(floatingDockRect(position, state.expanded, state.diameter, state.areas).direction);
     const view = appearanceRef.current;
-    const rect = floatingDockRect(position, state.expanded && !view.folding, state.diameter, state.areas, view.direction);
+    const rect = floatingDockRect(position, state.expanded && !view.folding, state.diameter, state.areas, view.direction, state.expandedWidth);
     node.style.setProperty("--dock-x", `${position.x - state.diameter / 2}px`);
     node.style.setProperty("--dock-y", `${rect.top}px`);
     for (const [edge, touching] of Object.entries(rect.edges)) {
@@ -129,10 +144,16 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
       }} onPointerCancel={() => { if (!gesture.current?.native) finish(true); }} onLostPointerCapture={() => { if (!gesture.current?.native) finish(true); }}>
       <img src={appLogo} draggable={false} alt="" />
     </button>
-    <div className="hand-dock-actions" aria-hidden={!pillExpanded} inert={!pillExpanded}>
-      <span className="hand-dock-count" role={message ? "alert" : undefined}>{message || t("手牌 {p0}／{p1}", { p0: count, p1: capacity })}</span>
+    <div ref={content} className="hand-dock-actions" aria-hidden={!pillExpanded} inert={!pillExpanded}>
+      {message ? <span className="hand-dock-count" role="alert">{message}</span> : <>
+        {discovery && <div className="hand-discovery-controls"><button className="hand-refresh" aria-label={t("刷新迷你发现")} disabled={busy} onClick={refresh}><Icon name="refresh" size={16} /></button>
+          <span>{t("卡池 {p0}", { p0: discovery.remainingSongs })}</span>
+          {discovery.replacementEnabled && <span>{t("替换 {p0}", { p0: discovery.replacementsRemaining })}</span>}
+        </div>}
+        {handEnabled && <span className="hand-dock-count">{t("手牌 {p0}／{p1}", { p0: count, p1: capacity })}</span>}
+      </>}
       {preview ? <button className="hand-clear" aria-label={t("退出预览")} data-hand-close onClick={toggle}><Icon name="close" size={16} /></button>
-        : <button className={`hand-clear${confirm ? " hand-clear-confirm" : ""}`} disabled={!count || busy}
+        : handEnabled && <button className={`hand-clear${confirm ? " hand-clear-confirm" : ""}`} disabled={!count || busy}
           aria-label={confirm ? t("确认清空") : t("清空手牌")} onClick={clear}><Icon name={confirm ? "check" : "remove"} size={16} /></button>}
     </div>
   </div>;

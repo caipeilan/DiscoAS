@@ -147,7 +147,9 @@ pub(crate) async fn changed_with_invalidation(
 ) {
     if invalidate_discovery {
         cache.invalidate().await;
+        super::hand_discovery::invalidate(app).await;
         crate::commands::publish_discovery_state(app, cache).await;
+        let _ = super::hand::refresh(app).await;
     }
     publish_library_changed(app, invalidate_discovery);
     if invalidate_discovery {

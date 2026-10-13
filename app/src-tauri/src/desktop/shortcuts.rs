@@ -50,9 +50,7 @@ fn update_bindings(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<()
     let mut actions = std::collections::HashMap::new();
     for (key, action) in std::iter::once((&settings.shortcut_key, ShortcutAction::Discovery))
         .chain(
-            settings
-                .hand
-                .enabled
+            (settings.hand.enabled || settings.hand_discovery.enabled)
                 .then_some((&settings.hand.shortcut, ShortcutAction::ToggleHand)),
         )
         .chain(
@@ -61,7 +59,10 @@ fn update_bindings(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<()
                 .play_shortcuts
                 .iter()
                 .enumerate()
-                .filter(|_| settings.hand.enabled)
+                .filter(|_| {
+                    settings.hand.enabled
+                        || settings.hand_discovery.enabled && settings.hand_discovery.merged
+                })
                 .map(|(i, key)| (key, ShortcutAction::PlayHand(i))),
         )
     {
@@ -77,9 +78,11 @@ fn update_bindings(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<()
 }
 fn global_keys(settings: &MusicSetting) -> Vec<&str> {
     let mut keys = vec![settings.shortcut_key.as_str()];
-    if settings.hand.enabled {
+    if settings.hand.enabled || settings.hand_discovery.enabled {
         keys.push(&settings.hand.shortcut);
-        keys.extend(settings.hand.play_shortcuts.iter().map(String::as_str));
+        if settings.hand.enabled || settings.hand_discovery.merged {
+            keys.extend(settings.hand.play_shortcuts.iter().map(String::as_str));
+        }
     }
     keys
 }
@@ -351,5 +354,15 @@ mod tests {
                 "错误：选歌按键不能与全局快捷键重复"
             );
         }
+    }
+    #[test]
+    fn discovery_only_shares_the_toggle_and_only_merged_layout_registers_position_keys() {
+        let mut settings = MusicSetting::default();
+        settings.hand_discovery.enabled = true;
+        assert_eq!(configured_shortcuts(&settings).unwrap().len(), 11);
+        settings.hand_discovery.merged = false;
+        assert_eq!(configured_shortcuts(&settings).unwrap().len(), 2);
+        settings.hand.enabled = true;
+        assert_eq!(configured_shortcuts(&settings).unwrap().len(), 11);
     }
 }

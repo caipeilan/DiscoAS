@@ -57,6 +57,7 @@ pub async fn save_preferences(
     shortcuts::save_preferences(&app, &repository, &old, &settings)?;
     let invalidated = preferences::discovery_preferences_changed(&old, &settings);
     let hand_changed = old.hand != settings.hand
+        || old.hand_discovery != settings.hand_discovery
         || old.discovery_keybindings != settings.discovery_keybindings
         || old.mystery_song_cover != settings.mystery_song_cover;
     if invalidated {
@@ -64,13 +65,22 @@ pub async fn save_preferences(
         crate::commands::publish_discovery_state(&app, cache.inner()).await;
         crate::commands::spawn_preload(app.clone(), cache.inner().clone());
     }
+    if invalidated || old.hand_discovery.enabled != settings.hand_discovery.enabled {
+        super::hand_discovery::invalidate(&app).await;
+    }
     let patch = PreferencePatch {
         settings: Some(settings),
         discovery_invalidated: Some(invalidated),
         ..Default::default()
     };
     let _ = app.emit("preferences-changed", &patch);
-    if hand_changed {
+    if hand_changed
+        || (invalidated
+            && patch
+                .settings
+                .as_ref()
+                .is_some_and(|s| s.hand_discovery.enabled))
+    {
         super::hand::refresh(&app).await?;
     }
     Ok(patch)

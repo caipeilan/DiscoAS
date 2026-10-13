@@ -23,10 +23,10 @@ export function defaultDockPoint(poses: CardPose[], side: HandSettings["side"], 
     y: clamp(y, area.top + radius + 10, area.top + area.height - radius - 10) };
 }
 
-export function floatingDockRect(point: DockPoint, expanded: boolean, diameter: number, areas: HandRect[], direction?: DockDirection) {
+export function floatingDockRect(point: DockPoint, expanded: boolean, diameter: number, areas: HandRect[], direction?: DockDirection, expandedWidth = diameter * 4.5) {
   const area = dockArea(point, areas);
   direction ??= point.x < area.left + area.width / 2 ? "right" : "left";
-  const width = Math.min(expanded ? diameter * 4.5 : diameter, area.width - 16);
+  const width = Math.min(expanded ? Math.max(diameter, expandedWidth) : diameter, area.width - 16);
   const left = direction === "right" ? point.x - diameter / 2 : point.x + diameter / 2 - width;
   const top = point.y - diameter / 2;
   return { direction, left, top, width, height: diameter,

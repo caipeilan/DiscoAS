@@ -1,7 +1,7 @@
 //! A small, independent window for the hand's Logo and controls.
 use super::geometry::{Canvas, Point, Rect, Surface};
 use crate::settings::gui_setting::GuiSetting;
-use discoas_core::hand::HandSettings;
+use discoas_core::hand::{HandDiscoverySettings, HandSettings};
 use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -16,6 +16,8 @@ pub struct Snapshot {
     pub(super) generation: u64,
     pub(super) count: usize,
     pub(super) settings: HandSettings,
+    pub(super) discovery_settings: HandDiscoverySettings,
+    pub(super) discovery: Option<discoas_core::model::DiscoveryStateDto>,
     pub(super) gui: GuiSetting,
     pub(super) work_area: Rect,
     pub(super) work_areas: Vec<Rect>,
@@ -57,6 +59,7 @@ async fn create(app: &tauri::AppHandle) -> Result<(), String> {
         LABEL,
         WebviewUrl::App("index.html?view=hand-dock".into()),
     )
+    .additional_browser_args(&super::rendering::browser_args(app))
     // Native ownership keeps the dock above cards across show, drag and hit-test
     // changes. Both remain independent top-level windows with separate visibility.
     .owner(&hand)
@@ -201,6 +204,7 @@ pub async fn position_hand_dock(
     app: tauri::AppHandle,
     generation: u64,
     point: Point,
+    width: Option<f64>,
 ) -> Result<Surface, String> {
     let state = app.state::<DockState>();
     if state.generation.load(Ordering::Acquire) != generation
@@ -228,11 +232,16 @@ pub async fn position_hand_dock(
     // Keep enough horizontal room for either extension. Morphing never resizes
     // the native window or moves its Logo; only its drawing region changes.
     let diameter = 44.0 * font_size / 14.0;
+    let width = width.unwrap_or(diameter * 4.5);
+    if !width.is_finite() || width < diameter {
+        return Err("错误：浮窗宽度无效".into());
+    }
+    let extent = width - diameter / 2.0 + 14.0;
     let center = canvas.physical(point);
-    let x = (center.x - (diameter * 4.5 + 14.0) * canvas.scale).floor() as i32;
+    let x = (center.x - extent * canvas.scale).floor() as i32;
     let y = (center.y - (diameter / 2.0 + 14.0) * canvas.scale).floor() as i32;
     let size = PhysicalSize::new(
-        ((diameter * 9.0 + 28.0) * canvas.scale).ceil() as u32,
+        (extent * 2.0 * canvas.scale).ceil() as u32,
         ((diameter + 28.0) * canvas.scale).ceil() as u32,
     );
     *state.layout.lock().unwrap() = Some(Layout {
@@ -263,6 +272,9 @@ pub async fn set_hand_dock_hit_regions(
     rects: Vec<Rect>,
 ) -> Result<(), String> {
     let state = app.state::<DockState>();
+    if state.dragging.load(Ordering::Acquire) {
+        return Ok(());
+    }
     if state.generation.load(Ordering::Acquire) != generation
         || !state.visible.load(Ordering::Acquire)
     {
@@ -283,11 +295,15 @@ pub async fn set_hand_dock_hit_regions(
             height: (r.height * scale).ceil(),
         })
         .collect();
-    let old = state.region.lock().unwrap().clone();
-    if old.as_ref() != Some(&(generation, physical.clone())) {
-        super::geometry::apply_regions(&window, &rects, false)?;
-        *state.region.lock().unwrap() = Some((generation, physical));
+    let mut region = state.region.lock().unwrap();
+    if state.dragging.load(Ordering::Acquire) {
+        return Ok(());
     }
+    if region.as_ref() != Some(&(generation, physical.clone())) {
+        super::geometry::apply_regions(&window, &rects, false)?;
+        *region = Some((generation, physical));
+    }
+    drop(region);
     if !window.is_visible().map_err(|_| "错误：手牌浮窗不可用")? {
         show_window(&window, true)?;
         super::floating_window::raise_discovery(&app);
@@ -306,7 +322,14 @@ pub async fn begin_hand_dock_drag(app: tauri::AppHandle, generation: u64) -> Res
     let window = app
         .get_webview_window(LABEL)
         .ok_or("错误：手牌浮窗不可用")?;
-    state.dragging.store(true, Ordering::Release);
+    // A direction change can draw on either side of the Logo during the native
+    // drag. Restore compact clipping only after the pointer is released.
+    {
+        let mut region = state.region.lock().unwrap();
+        super::geometry::apply_regions(&window, &[], true)?;
+        *region = None;
+        state.dragging.store(true, Ordering::Release);
+    }
     if let Err(_) = window.start_dragging() {
         state.dragging.store(false, Ordering::Release);
         return Err("错误：无法移动手牌浮窗".into());

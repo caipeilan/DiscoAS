@@ -6,8 +6,9 @@ export type Setter<T> = Dispatch<SetStateAction<T>>;
 export interface Drag {
   id: string; index: number; playable: boolean; pointerId: number;
   startX: number; startY: number; dx: number; dy: number; pose: CardPose; element: HTMLElement;
+  intake: number | null; restPoses: CardPose[]; ready: boolean; ending: boolean; prepared: Promise<unknown>;
 }
-export type Flying = { card: HandCard; pose: CardPose; complete: () => void };
+export type Flying = { card: HandCard; pose: CardPose; complete: () => void; collecting?: boolean };
 export type Discarding = { card: HandCard; pose: CardPose; delay: number; complete: () => void };
 export type ArrivalMotion = { generation: number; element: HTMLElement; animation: Animation | null };
 export type ArrivalDrawing = { generation: number; bounds: HandRect };
@@ -28,7 +29,8 @@ export interface HandInputContext {
   setSnapshot: Setter<HandSnapshot>; setError: Setter<string>;
   toCanvas: (x: number, y: number) => { x: number; y: number };
   scheduleRegions: Ref<() => void>;
-  operation: (name: "play_hand_card" | "discard_hand_card", card: HandCard, pose?: CardPose) => Promise<void>;
+  commitRegions: Ref<() => Promise<unknown>>;
+  operation: (name: "play_hand_card" | "discard_hand_card" | "collect_hand_discovery_card", card: HandCard, pose?: CardPose, insert?: number) => Promise<void>;
 }
 export function readPose(element: HTMLElement): CardPose {
   const style = getComputedStyle(element), matrix = new DOMMatrixReadOnly(style.transform);

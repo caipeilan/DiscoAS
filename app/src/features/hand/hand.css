@@ -17,10 +17,11 @@
 .hand-dock-logo:hover img { transform: scale(1.06); }
 .hand-dock-logo:active img { transform: scale(.95); }
 .hand-dock-logo:active:not(:disabled) { transform: none; }
-.hand-dock-actions { position: absolute; top: 0; left: var(--dock-diameter); right: calc(7px * var(--font-scale)); height: 100%; display: flex; align-items: center; justify-content: space-between; gap: calc(9px * var(--font-scale)); opacity: 1; transition: opacity 110ms ease 80ms; }
-.hand-dock[data-direction="left"] .hand-dock-actions { left: calc(7px * var(--font-scale)); right: var(--dock-diameter); flex-direction: row-reverse; }
+.hand-dock-actions { position: absolute; top: 0; left: var(--dock-diameter); width: max-content; padding-right: calc(9px * var(--font-scale)); height: 100%; display: flex; align-items: center; gap: calc(9px * var(--font-scale)); opacity: 1; transition: opacity 110ms ease 80ms; }
+.hand-dock[data-direction="left"] .hand-dock-actions { left: auto; right: var(--dock-diameter); padding-right: 0; padding-left: calc(9px * var(--font-scale)); flex-direction: row-reverse; }
 .hand-dock[data-dock-expanded="false"] .hand-dock-actions, .hand-dock[data-folding] .hand-dock-actions { opacity: 0; pointer-events: none; transition-duration: 80ms; transition-delay: 0ms; }
-.hand-dock-count { flex: 1; min-width: 0; text-align: center; overflow: hidden; text-overflow: ellipsis; font-size: calc(13px * var(--font-scale)); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.hand-dock-count { flex: 0 0 auto; text-align: center; overflow: hidden; text-overflow: ellipsis; font-size: calc(13px * var(--font-scale)); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.hand-dock-count[role="alert"] { max-width: calc(360px * var(--font-scale)); }
 .hand-dock .hand-clear { flex-shrink: 0; width: calc(30px * var(--font-scale)); height: calc(30px * var(--font-scale)); border-radius: 50%; }
 .hand-dock .hand-clear svg { display: block; width: calc(16px * var(--font-scale)); height: calc(16px * var(--font-scale)); }
 .hand-dock .hand-clear:hover, .hand-dock .hand-clear-confirm { color: var(--danger); background: var(--danger-soft); }
@@ -49,9 +50,36 @@
 .hand-discard:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .hand-release-label { position: absolute; top: 119px; right: 12px; display: flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--control-border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); font-size: calc(10px * var(--font-scale)); line-height: 1.3; box-shadow: var(--shadow-small); pointer-events: none; }
 .hand-release-label svg { display: block; flex-shrink: 0; }
+.hand-discovery { --hand-glass-text: #fff; --hand-glass-outline-color: #000; }
+:root[data-theme="dark"] .hand-discovery { --hand-glass-text: #000; --hand-glass-outline-color: #fff; }
+.hand-discovery .hand-card-face { background: color-mix(in srgb, var(--surface) var(--hand-glass-opacity, 46%), transparent); color: var(--hand-glass-text); border-color: color-mix(in srgb, var(--text) 16%, transparent); backdrop-filter: var(--hand-glass-filter, blur(22px) saturate(160%)); box-shadow: inset 1px 1px 0 color-mix(in srgb, var(--surface) var(--hand-glass-highlight, 70%), transparent), var(--shadow-popover); }
+.hand-discovery .hand-card-face > span, .hand-discovery .hand-release-label { color: var(--hand-glass-text); }
+.hand-discovery .hand-card-face > strong, .hand-discovery .hand-card-face > span, .hand-discovery .hand-release-label { -webkit-text-stroke: calc(var(--hand-glass-outline, 1px) * var(--font-scale, 1)) var(--hand-glass-outline-color); paint-order: stroke fill; }
+.hand-discovery .hand-release-label svg { color: var(--text-secondary); }
+.hand-discovery.hand-active .hand-card-face, .hand-discovery.hand-playable .hand-card-face { border-color: var(--accent-focus); }
+.hand-discovery .hand-flip { transition: transform 340ms cubic-bezier(.25,.8,.25,1); }
+.hand-discovery.hand-refreshing .hand-flip { transform: rotateY(180deg); }
+.hand-discovery-back .hand-card-face { justify-content: center; align-items: center; }
+.hand-discovery-back img { width: 78px; height: 78px; opacity: .65; }
+.hand-discovery .hand-discard:hover, .hand-dock .hand-refresh:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-focus); }
+.hand-transferring { pointer-events: none; transition: none; }
+.hand-intake-boundary { position: absolute; width: 0; height: 24px; border-left: 1px dashed var(--text-secondary); opacity: .6; pointer-events: none; transition: left 300ms var(--ease-out), top 300ms var(--ease-out); }
+.hand-intake-boundary[data-vertical] { width: 24px; height: 0; border-left: 0; border-top: 1px dashed var(--text-secondary); }
+.hand-card-face > .hand-card-shortcut { position: absolute; bottom: 9px; right: 10px; margin: 0; padding: 1px 4px; border-radius: 4px; border: 1px solid var(--border); font-size: calc(10px * var(--font-scale)); opacity: 0; }
+.hand-active .hand-card-shortcut { opacity: 1; }
+.hand-discovery-controls { display: flex; align-items: center; gap: calc(9px * var(--font-scale)); font-size: calc(12px * var(--font-scale)); font-variant-numeric: tabular-nums; }
+.hand-discovery-controls + .hand-dock-count { border-left: 1px solid var(--border); padding-left: calc(8px * var(--font-scale)); }
+.hand-dock .hand-refresh { width: calc(28px * var(--font-scale)); height: calc(28px * var(--font-scale)); border-radius: 50%; flex-shrink: 0; }
+.hand-dock .hand-refresh:disabled { opacity: .4; cursor: default; }
+.hand-card.hand-refill { pointer-events: none; animation: hand-refill 420ms cubic-bezier(.2,.8,.25,1) both; }
+@keyframes hand-refill {
+  from { transform: translate(-50%,-50%) translate(calc(var(--hand-x) + var(--refill-x)), calc(var(--hand-y) + var(--refill-y))) rotate(var(--hand-angle)) scale(.82); opacity: 0; }
+  75% { transform: translate(-50%,-50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(1.025); opacity: 1; }
+  to { transform: translate(-50%,-50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(1); opacity: 1; }
+}
 .hand-closed .hand-card { transform: translate(-50%, 50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) rotate(0deg) scale(.75); opacity: 0; pointer-events: none; }
-.hand-closed[data-side="left"] .hand-card { transform: translate(-150%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) rotate(-20deg) scale(.75); }
-.hand-closed[data-side="right"] .hand-card { transform: translate(50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) rotate(20deg) scale(.75); }
+.hand-closed .hand-card[data-side="left"] { transform: translate(-150%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) rotate(-20deg) scale(.75); }
+.hand-closed .hand-card[data-side="right"] { transform: translate(50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) rotate(20deg) scale(.75); }
 .hand-stage[data-hidden] .hand-toolbar, .hand-stage[data-hidden] .hand-error { opacity: 0; pointer-events: none; }
 .hand-stage[data-preview] .hand-card { opacity: .25; pointer-events: none; }
 .hand-stage[data-preview] .hand-active { opacity: 1; }
@@ -66,4 +94,4 @@
   from { transform: translate(-50%, -50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
   to { transform: translate(-50%, -50%) translate(var(--hand-x), calc(var(--hand-y) + 14px)) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .65)); opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding { animation-duration: 0ms; animation-delay: 0ms; } }
+@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }

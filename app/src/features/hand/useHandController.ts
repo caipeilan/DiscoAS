@@ -4,7 +4,7 @@ import { defaultGuiSettings, defaultHandSettings, emptyState } from "../../types
 import { call, desktop, onDesktopEvent, notifyHandBusy, notifyHandClear } from "../../services/desktop";
 import { applyAppearance } from "../../appearance";
 import { currentLocale, errorText, setLanguage } from "../../i18n";
-import { handCardSize, mergeHandCards, handLayout, raisedHandPose, reorderCards, type CardPose } from "./handLayout";
+import { handCardSize, mergeHandCards, handLayout, groupedHandLayout, groupSettings, raisedHandPose, reorderHandGroups, type CardPose } from "./handLayout";
 import { defaultDockPoint, floatingDockRect, type DockPoint } from "./floatingDock";
 import { combineHandBounds, handPoseBounds } from "./handDrawingBounds";
 import { releaseHandMotion } from "./handMotion";
@@ -29,6 +29,10 @@ export function useHandController() {
   const [inputMode, setInputMode] = useState<"pointer" | "keyboard">("pointer");
   const [drag, setDrag] = useState<Drag | null>(null);
   const [busy, setBusy] = useState("");
+  const [discoveryPhase, setDiscoveryPhase] = useState<"" | "fold" | "fill">("");
+  const [refill, setRefill] = useState<HandCard | null>(null);
+  const [refillCount, setRefillCount] = useState(0);
+  const [replacing, setReplacing] = useState(-1);
   const [error, setError] = useState("");
   const [clearConfirm, setClearConfirm] = useState(false);
   const [flying, setFlying] = useState<Flying | null>(null);
@@ -48,35 +52,49 @@ export function useHandController() {
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const hoverRef = useRef(hover); hoverRef.current = hover;
   const active = inputMode === "keyboard" ? selected : hover;
-  const cards = useMemo(() => drag ? reorderCards(snapshot.cards, drag.id, drag.index) : snapshot.cards, [snapshot.cards, drag?.id, drag?.index]);
+  const groups = useMemo(() => {
+    const discovery: HandCard[] = [], ordinary: HandCard[] = [];
+    for (const card of snapshot.cards) (card.discovery ? discovery : ordinary).push(card);
+    return { discovery, ordinary };
+  }, [snapshot.cards]);
+  const displayed = useMemo(() => refill && snapshot.discoverySettings?.enabled && groups.discovery.length < refillCount
+    ? groups.discovery.concat(refill, groups.ordinary) : snapshot.cards,
+  [snapshot.cards, groups, snapshot.discoverySettings?.enabled, refill, refillCount]);
+  const cards = useMemo(() => drag ? reorderHandGroups(displayed, drag.id, drag.index, drag.intake) : displayed, [displayed, drag?.id, drag?.index, drag?.intake]);
   const cardIndices = useMemo(() => new Map(cards.map((card, index) => [card.id, index])), [cards]);
-  const activeIndex = cards.findIndex((c) => c.id === active);
+  const activeIndex = active ? cardIndices.get(active) ?? -1 : -1;
+  const layoutDiscoveryCount = useMemo(() => cards.reduce((total, card) => total + Number(!!card.discovery), 0), [cards]);
   const cardSize = handCardSize(snapshot.gui.font_size);
-  const restPoses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, -1, snapshot.gui.font_size), [cards.length, snapshot.settings, snapshot.workArea, snapshot.gui.font_size]);
+  const restPoses = useMemo(() => groupedHandLayout(cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, -1, snapshot.gui.font_size), [cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, snapshot.gui.font_size]);
   const restPosesRef = useRef(restPoses); restPosesRef.current = restPoses;
   const diameter = 44 * snapshot.gui.font_size / 14;
   const dockAreas = useMemo(() => snapshot.workAreas?.length ? snapshot.workAreas : [snapshot.workArea], [snapshot.workAreas, snapshot.workArea]);
-  const dockPosition = dockPoint ?? defaultDockPoint(restPoses, snapshot.settings.side, snapshot.workArea, diameter);
+  const dockSide = snapshot.settings.enabled ? snapshot.settings.side : snapshot.discoverySettings?.side ?? snapshot.settings.side;
+  const dockPosition = dockPoint ?? defaultDockPoint(restPoses, dockSide, snapshot.workArea, diameter);
   if (desktop && !snapshot.preview) toolbarBounds.current = null;
-  const poses = useMemo(() => handLayout(cards.length, snapshot.settings, snapshot.workArea, activeIndex, snapshot.gui.font_size),
-    [cards.length, snapshot.settings, snapshot.workArea, activeIndex, snapshot.gui.font_size]);
+  const poses = useMemo(() => groupedHandLayout(cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, activeIndex, snapshot.gui.font_size),
+    [cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, activeIndex, snapshot.gui.font_size]);
   const posesRef = useRef(poses); posesRef.current = poses;
   const layoutDrawingBounds = useMemo(() => {
     const all = [...restPoses];
     restPoses.forEach((pose, index) => {
-      all.push(raisedHandPose(pose, snapshot.settings.side, snapshot.workArea));
+      const settings = groupSettings(cards[index], snapshot.settings, snapshot.discoverySettings);
+      all.push(raisedHandPose(pose, settings.side, snapshot.workArea));
       const shift = 16 * pose.width / 156;
       for (const direction of [index > 0 ? 1 : 0, index < cards.length - 1 ? -1 : 0]) {
         if (direction) all.push({ ...pose,
-          x: pose.x + (snapshot.settings.side === "bottom" ? shift * direction : 0),
-          y: pose.y + (snapshot.settings.side !== "bottom" ? shift * direction : 0) });
+          x: pose.x + (settings.side === "bottom" ? shift * direction : 0),
+          y: pose.y + (settings.side !== "bottom" ? shift * direction : 0) });
       }
     });
-    const folded = restPoses.map((pose) => ({ ...pose, angle: snapshot.settings.side === "left" ? -20 : snapshot.settings.side === "right" ? 20 : 0,
-      scale: .75, x: pose.x + (snapshot.settings.side === "left" ? -pose.width : snapshot.settings.side === "right" ? pose.width : 0),
-      y: pose.y + (snapshot.settings.side === "bottom" ? pose.height : 0) }));
+    const folded = restPoses.map((pose, index) => {
+      const side = groupSettings(cards[index], snapshot.settings, snapshot.discoverySettings).side;
+      return { ...pose, angle: side === "left" ? -20 : side === "right" ? 20 : 0,
+        scale: .75, x: pose.x + (side === "left" ? -pose.width : side === "right" ? pose.width : 0),
+        y: pose.y + (side === "bottom" ? pose.height : 0) };
+    });
     return combineHandBounds([...all, ...folded].map((pose) => handPoseBounds(pose)));
-  }, [restPoses, cards.length, snapshot.settings, snapshot.workArea, snapshot.gui.font_size]);
+  }, [restPoses, cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, snapshot.gui.font_size]);
   const drawingBounds = useRef<HandRect | null>(null);
   drawingBounds.current = combineHandBounds([
     cardsMounted ? layoutDrawingBounds : null,
@@ -102,7 +120,8 @@ export function useHandController() {
   };
   const { toCanvas, commitRegions, scheduleRegions } = useHandSurface({ snapshot, current, setSnapshot, mounted, stage,
     toolbarElement, toolbarBounds, dragRef, drawingBounds, arrivalDrawing, dragDrawing, dockMoving, phase,
-    active, drag, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, setError });
+    active, drag, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, setError,
+    layoutKey: cards.map(c => c.id).join(",") + discoveryPhase + replacing });
   const animateDiscard = (targets: HandCard[]) => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return Promise.resolve();
     const flights = targets.map((card, index) => new Promise<void>((complete) => {
@@ -129,7 +148,7 @@ export function useHandController() {
     }
     next = { ...next, cards: merged, cardOrder: undefined };
     if (current.current.expanded && next.expanded && !unfolding.current && accepted.current && !next.arrival) returning.current.push(
-      ...next.cards.filter((card) => !current.current.cards.some((old) => old.id === card.id)).map((c) => c.id));
+      ...next.cards.filter((card) => !card.discovery && !current.current.cards.some((old) => old.id === card.id)).map((c) => c.id));
     if (next.gui !== current.current.gui) {
       setLanguage(next.gui.language); document.documentElement.lang = currentLocale(); applyAppearance(next.gui);
     }
@@ -155,9 +174,54 @@ export function useHandController() {
     if (!next.cards.some((c) => c.id === hoverRef.current)) setHover(null);
   };
 
-  const operation = async (name: "play_hand_card" | "discard_hand_card", card: HandCard, pose?: CardPose) => {
+  const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : ms));
+  const decoded = async () => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    await Promise.all(Array.from(stage.current?.querySelectorAll("img") ?? []).map(img => img.decode().catch(() => {})));
+  };
+  const refreshDiscovery = async () => {
+    if (busyRef.current || current.current.preview || !current.current.discoverySettings?.enabled) return;
+    busyRef.current = "refresh"; setBusy("refresh"); setError(""); setDiscoveryPhase("fold");
+    try { await Promise.all([call("refresh_hand_discovery"), pause(340)]); await decoded(); }
+    catch (e) { setError(errorText(e)); }
+    finally { if (mounted.current) { setDiscoveryPhase(""); busyRef.current = ""; setBusy(""); } }
+  };
+  const operation = async (name: "play_hand_card" | "discard_hand_card" | "collect_hand_discovery_card", card: HandCard, pose?: CardPose, insert = 0) => {
     if (busyRef.current || current.current.preview) return;
     busyRef.current = card.id; setBusy(card.id); setError("");
+    if (card.discovery) {
+      const state = current.current, batchEpoch = state.discovery?.batchEpoch;
+      const args = { platform: card.song.platform, songId: card.song.songId, playlistId: card.song.playlistId, typename: card.song.typename, filename: card.song.filename };
+      const index = state.cards.filter(c => c.discovery).findIndex(c => c.id === card.id);
+      try {
+        if (name === "discard_hand_card") {
+          setReplacing(index);
+          await Promise.all([call("replace_hand_discovery_card", { args, batchEpoch }), pause(340)]);
+          await decoded(); setReplacing(-1);
+        } else {
+          setDiscoveryPhase("fold");
+          let flight: Promise<unknown> = Promise.resolve();
+          if (pose) {
+            flight = new Promise<void>(complete => { flyingRef.current = { card, pose, complete, collecting: name === "collect_hand_discovery_card" }; setFlying(flyingRef.current); });
+          }
+          if (name === "collect_hand_discovery_card") {
+            const id = await call<string>("collect_hand_discovery_card", { args, batchEpoch, insert });
+            const surface = current.current.surface;
+            const origin = pose ? { left: (pose.x-pose.width*pose.scale/2-(surface?.left ?? 0))*(surface?.scale ?? 1),
+              top: (pose.y-pose.height*pose.scale/2-(surface?.top ?? 0))*(surface?.scale ?? 1), width: pose.width*pose.scale*(surface?.scale ?? 1), height: pose.height*pose.scale*(surface?.scale ?? 1) } : undefined;
+            await call("show_collected_hand_card", { id, origin, mysteryCover: card.song.mysteryMode ? card.song.coverDataUri : undefined });
+            finishFlight(); await pause(480);
+          } else { await call("play_hand_discovery_card", { args, batchEpoch }); await flight; await pause(40); }
+          if (!mounted.current) return;
+          setDiscoveryPhase("fill"); setRefillCount(state.cards.filter(c => c.discovery).length); setRefill({ ...card, id: "hand-discovery-refill", placeholder: true });
+          await pause(420);
+          await call("refresh_hand_discovery");
+          setRefill(null); await decoded(); await pause(180);
+        }
+      } catch (e) { finishFlight(); setError(errorText(e)); }
+      finally { if (mounted.current) { setRefill(null); setReplacing(-1); setDiscoveryPhase(""); busyRef.current = ""; setBusy(""); } }
+      return;
+    }
     let flight: Promise<unknown> = name === "discard_hand_card" ? animateDiscard([card]) : Promise.resolve();
     if (name === "play_hand_card" && pose && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const element = stage.current?.querySelector<HTMLElement>(`[data-hand-id="${card.id}"]`);
@@ -177,7 +241,7 @@ export function useHandController() {
   };
   const clearHand = async () => {
     if (busyRef.current || current.current.preview) { if (desktop) void notifyHandClear(null); return; }
-    const targets = current.current.cards;
+    const targets = current.current.cards.filter(c => !c.discovery);
     if (!targets.length) { if (desktop) void notifyHandClear(null); return; }
     busyRef.current = "clear"; setBusy("clear"); setError("");
     const flight = animateDiscard(targets);
@@ -191,7 +255,30 @@ export function useHandController() {
   const { cancelDrag, endDrag, onCardPointerDown, onCardPointerMove, lostPointerCapture } = useHandInput({ snapshot, current, mounted,
     dockMoving, stage, busyRef, selectedRef, hoverRef, inputRef, pointer, toolbarBounds, posesRef, restPosesRef,
     dragRef, dragFrame, dragDrawing, setDrag, setInputMode, setHover, setSelected, setSnapshot, setError,
-    toCanvas, scheduleRegions, operation });
+    toCanvas, scheduleRegions, commitRegions, operation });
+  const operationRef = useRef(operation); operationRef.current = operation;
+  const refreshRef = useRef(refreshDiscovery); refreshRef.current = refreshDiscovery;
+  useEffect(() => {
+    let cancelled = false; const stops: Array<() => void> = [];
+    void Promise.all([
+      onDesktopEvent("hand-discovery-refresh-requested", () => { void refreshRef.current(); }),
+      onDesktopEvent("hand-discovery-play-requested", id => {
+        const card = current.current.cards.find(c => c.id === id);
+        if (card) { const element = stage.current?.querySelector<HTMLElement>(`[data-hand-id="${id}"]`); void operationRef.current("play_hand_card", card, element ? readPose(element) : undefined); }
+      }),
+    ]).then(values => { if (cancelled) values.forEach(stop => stop()); else stops.push(...values); });
+    return () => { cancelled = true; stops.forEach(stop => stop()); };
+  }, []);
+  useEffect(() => {
+    if (!snapshot.discovery || !snapshot.expanded || snapshot.preview || discoveryPhase || replacing >= 0 || !snapshot.cards.some(c => c.discovery)) return;
+    let cancelled = false;
+    void decoded().then(() => {
+      if (cancelled || !mounted.current) return;
+      return call("hand_discovery_displayed", { batchEpoch: snapshot.discovery!.batchEpoch,
+        identities: snapshot.cards.filter(c => c.discovery).map(c => ({ platform: c.song.platform, songId: c.song.songId, playlistId: c.song.playlistId, typename: c.song.typename, filename: c.song.filename })) });
+    }).catch(e => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
+  }, [snapshot.discovery?.batchEpoch, snapshot.expanded, snapshot.preview, discoveryPhase, replacing]);
   useEffect(() => {
     mounted.current = true;
     let cancelled = false; const cleanups: Array<() => void> = [];
@@ -215,11 +302,11 @@ export function useHandController() {
   const surface = snapshot.surface;
   const discardById = useMemo(() => new Map(discarding.map((item) => [item.card.id, item])), [discarding]);
   const visibleCards = useMemo(() => {
-    const visible = new Map(snapshot.cards.map((card) => [card.id, card]));
+    const visible = new Map(displayed.map((card) => [card.id, card]));
     discarding.forEach((item) => { if (!visible.has(item.card.id)) visible.set(item.card.id, item.card); });
     if (flying && !visible.has(flying.card.id)) visible.set(flying.card.id, flying.card);
     return [...visible.values()];
-  }, [snapshot.cards, discarding, flying]);
+  }, [displayed, discarding, flying]);
   const moveDock = (point: DockPoint) => {
     current.current = { ...current.current, dockPoint: point }; setSnapshot(current.current); setDockPoint(point);
     if (!snapshot.preview) void call("save_hand_dock", { generation: current.current.generation, point }).catch((e) => setError(errorText(e)));
@@ -235,6 +322,7 @@ export function useHandController() {
   return { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
     busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
-    endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError };
+    endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId: groups.discovery[replacing]?.id,
+    refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount: groups.discovery.length, ordinaryCount: groups.ordinary.length };
 
 }

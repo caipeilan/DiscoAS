@@ -123,7 +123,7 @@ pub enum LastAction {
 ///
 /// 对照旧版模块级全局变量。所有字段用 async Mutex 包裹。
 pub struct Cache {
-    pub operation: Mutex<()>,
+    pub operation: Arc<Mutex<()>>,
     generation: AtomicU64,
     generation_changes: watch::Sender<u64>,
     /// Changes whenever the displayed batch is replaced or released, including reuse
@@ -152,7 +152,7 @@ pub struct Cache {
 impl Default for Cache {
     fn default() -> Self {
         Self {
-            operation: Mutex::new(()),
+            operation: Arc::new(Mutex::new(())),
             generation: AtomicU64::new(0),
             generation_changes: watch::channel(0).0,
             current_batch_epoch: AtomicU64::new(0),
@@ -202,7 +202,10 @@ impl Cache {
     }
     /// Content revision also changes when details are repaired within the same batch.
     pub fn current_batch_revision(&self) -> (u64, u64) {
-        (self.current_batch_epoch(), self.batch_metadata_revision.load(Ordering::SeqCst))
+        (
+            self.current_batch_epoch(),
+            self.batch_metadata_revision.load(Ordering::SeqCst),
+        )
     }
 
     pub async fn update_current_batch_metadata(&self, songs: Vec<SongCardDto>) {
@@ -291,6 +294,14 @@ impl Cache {
     }
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// Independent batches share the host's persistent-operation lock.
+    pub fn independent(parent: &Arc<Self>) -> Arc<Self> {
+        Arc::new(Self {
+            operation: parent.operation.clone(),
+            ..Self::default()
+        })
     }
 
     /// 取出一批歌曲（从缓存队头）。对照旧版 `_cached_song_batches.pop(0)`。

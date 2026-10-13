@@ -5,13 +5,23 @@ import ts from "typescript";
 const source = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handLayout.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { handCardSize, mergeHandCards, handLayout, hoverHandIndex, canPlayDrag, reorderIndex, reorderCards } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { handCardSize, mergeHandCards, handLayout, hoverHandIndex, canPlayDrag, reorderIndex, reorderCards, groupedHandLayout, reorderHandGroups, handIntakeIndex, hoverGroupedHandIndex } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const dockSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/floatingDock.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { floatingDockRect, defaultDockPoint, settleDockPoint } = await import(`data:text/javascript;base64,${Buffer.from(dockSource).toString("base64")}`);
 const settings = { side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
 const area = { left: 200, top: 100, width: 1280, height: 680 };
+
+test("content-sized docks preserve the Logo anchor on both sides of the middle", () => {
+  for (const width of [100, 220, 430]) for (const direction of ["left", "right"]) {
+    const rect = floatingDockRect({x:800,y:500}, true, 44, [area], direction, width);
+    assert.equal(rect.width, width);
+    assert.equal(direction === "right" ? rect.left+22 : rect.left+rect.width-22, 800);
+    assert.equal(floatingDockRect({x:800,y:500}, false, 44, [area], direction, width).width,44);
+  }
+  assert.equal(floatingDockRect({x:800,y:500},true,44,[area],"right",2000).width,area.width-16);
+});
 test("bottom fan fits the work area, expands around selection, and keeps hover after lifting", () => {
   const base = handLayout(10, settings, area);
   const raised = handLayout(10, settings, area, 4);
@@ -114,4 +124,34 @@ test("dragging across hand slots shifts neighbors immediately and leaves the sav
     assert.deepEqual(reorderCards(cards, "b", 0).map((card) => card.id), ["b", "a", "c", "d"]);
     assert.deepEqual(cards.map((card) => card.id), ["a", "b", "c", "d"]);
   }
+});
+
+test("merged intake previews reserve a hand slot and refilling moves the existing hand smoothly between poses", () => {
+  const hand = { ...settings, enabled:true }, discovery = { ...settings, enabled:true, merged:true };
+  const cards = [{id:"d1",discovery:true},{id:"d2",discovery:true},{id:"d3",discovery:true},{id:"h1"},{id:"h2"}];
+  for (const side of ["bottom","left","right"]) {
+    const prefs = {...hand,side}; const base = groupedHandLayout(cards,prefs,discovery,area);
+    const point = base[3];
+    assert.equal(handIntakeIndex(cards,base,prefs,discovery,area,point.x,point.y),1);
+    const preview = reorderHandGroups(cards,"d2",1,1);
+    assert.deepEqual(preview.map(c=>c.id),["d1","d3","h1","d2","h2"]);
+    const poses = groupedHandLayout(preview,prefs,discovery,area);
+    assert.notDeepEqual(poses[2],base[3]);
+    const refilled = preview.filter(c=>c.discovery).concat({id:"new",discovery:true},preview.filter(c=>!c.discovery));
+    const filled = groupedHandLayout(refilled,prefs,discovery,area);
+    assert.notDeepEqual(filled[3],poses[2]);
+    assert.deepEqual(cards.map(c=>c.id),["d1","d2","d3","h1","h2"]);
+  }
+});
+
+test("separate hands share focus priority and keep collection available when the ordinary hand is empty", () => {
+  const hand = {...settings,enabled:true}, discovery = {...settings,side:"left",enabled:true,merged:false};
+  const cards = [{id:"d1",discovery:true},{id:"d2",discovery:true},{id:"h1"}];
+  const poses = groupedHandLayout(cards,hand,discovery,area);
+  assert.equal(hoverGroupedHandIndex(poses,poses[2].x,poses[2].y,poses[0],0),2);
+  const onlyDiscovery = cards.slice(0,2), empty = handLayout(1,hand,area)[0];
+  assert.equal(handIntakeIndex(onlyDiscovery,poses.slice(0,2),hand,discovery,area,empty.x,empty.y),0);
+  assert.equal(handIntakeIndex(cards,poses,{...hand,enabled:false},discovery,area,empty.x,empty.y),null);
+  const sameEdge = groupedHandLayout(cards,hand,{...discovery,side:"bottom"},area);
+  assert.ok(sameEdge[2].x > sameEdge[1].x);
 });

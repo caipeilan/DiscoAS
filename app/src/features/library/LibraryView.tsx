@@ -151,16 +151,14 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
           <div className="empty-art">
             <Icon name="library" size={34} />
           </div>
-          <h2>{t("从一个喜欢的歌单开始")}</h2>
-          <p>
-            {t("支持网易云、QQ 音乐、酷狗、酷我、汽水和 Spotify 的公开歌单与专辑，以及 YouTube 与 Bilibili 视频来源。")}
-          </p>
+          <h2>{t("试着导入一个歌单吧")}</h2>
           <button
             className="button primary"
+            disabled={!!busy}
             onClick={() => openImport()}
           >
-            <Icon name="link" />
-            {t("粘贴歌单链接")}
+            <Icon name="plus" />
+            {t("添加歌单")}
           </button>
           <button
             className="text-button"
@@ -177,7 +175,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
               importSample()
             }
           >
-            {t("试用原版示例歌单")}
+            {t("或者试试作者的歌单？")}
           </button>
         </div>
       ) : filtered.length === 0 ? (

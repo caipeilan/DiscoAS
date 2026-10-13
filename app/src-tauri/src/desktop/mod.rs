@@ -8,12 +8,14 @@ pub mod fonts;
 pub mod geometry;
 pub mod hand;
 pub mod hand_actions;
+pub mod hand_discovery;
 pub mod hand_dock;
 mod hand_input;
 pub mod library;
 pub mod monitors;
 pub mod playback;
 pub mod preferences;
+pub mod rendering;
 #[cfg(windows)]
 mod preview_keyboard;
 pub mod shortcuts;

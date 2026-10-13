@@ -1,4 +1,4 @@
-import type { HandCard, HandRect, HandSettings } from "../../types";
+import type { HandCard, HandRect, HandSettings, HandDiscoverySettings } from "../../types";
 
 export interface CardPose { x: number; y: number; angle: number; width: number; height: number; scale: number }
 const clamp = (v: number, low: number, high: number) => Math.max(low, Math.min(high, v));
@@ -83,6 +83,51 @@ export function reorderCards<T extends { id: string }>(cards: T[], id: string, i
   return reordered;
 }
 
+export function groupSettings(card: HandCard, hand: HandSettings, discovery?: HandDiscoverySettings): HandSettings {
+  return card.discovery && discovery && (!hand.enabled || !discovery.merged) ? { ...hand, ...discovery } : hand;
+}
+
+export function groupedHandLayout(cards: HandCard[], hand: HandSettings, discovery: HandDiscoverySettings | undefined, area: HandRect, active = -1, fontSize = 14): CardPose[] {
+  const d = cards.filter(c => c.discovery), h = cards.filter(c => !c.discovery);
+  if (!discovery || !d.length) return handLayout(cards.length, hand, area, active, fontSize);
+  const own = { ...hand, ...discovery };
+  if (!h.length && !hand.enabled) return handLayout(cards.length, own, area, active, fontSize);
+  if (discovery.merged) return handLayout(cards.length, hand.enabled ? hand : own, area, active, fontSize);
+  if (own.side === hand.side && d.length && h.length) {
+    const all = handLayout(cards.length + 1, hand, area, active < d.length ? active : active < 0 ? -1 : active + 1, fontSize);
+    return all.filter((_, index) => index !== d.length);
+  }
+  const a = handLayout(d.length, own, area, active < d.length ? active : -1, fontSize);
+  const b = handLayout(h.length, hand, area, active >= d.length ? active - d.length : -1, fontSize);
+  return a.concat(b);
+}
+
+export function reorderHandGroups(cards: HandCard[], id: string, index: number, intake: number | null = null): HandCard[] {
+  const chosen = cards.find(c => c.id === id); if (!chosen) return cards;
+  const d = cards.filter(c => c.discovery), h = cards.filter(c => !c.discovery);
+  if (chosen.discovery && intake !== null) {
+    h.splice(intake, 0, { ...chosen, discovery: false }); return d.filter(c => c.id !== id).concat(h);
+  }
+  return chosen.discovery ? reorderCards(d, id, Math.min(d.length-1, index)).concat(h)
+    : d.concat(reorderCards(h, id, Math.max(0, index-d.length)));
+}
+
+export function handIntakeIndex(cards: HandCard[], poses: CardPose[], hand: HandSettings, discovery: HandDiscoverySettings | undefined, area: HandRect, x: number, y: number, fontSize = 14): number | null {
+  if (!hand.enabled || !discovery?.enabled) return null;
+  const count = cards.filter(c => c.discovery).length, held = poses.slice(count);
+  const along = hand.side === "bottom" ? x : y;
+  const insertion = () => { const index = held.findIndex(p => along < (hand.side === "bottom" ? p.x : p.y)); return index < 0 ? held.length : index; };
+  if (discovery.merged) {
+    const last = poses[count-1]; if (!last) return null;
+    const boundary = hand.side === "bottom" ? last.x : last.y;
+    const close = hand.side === "bottom" ? y > area.top+area.height-last.height*1.5
+      : hand.side === "left" ? x < area.left+last.width*1.5 : x > area.left+area.width-last.width*1.5;
+    return along > boundary+18*last.width/156 && close ? insertion() : null;
+  }
+  const targets = held.length ? held : handLayout(1, hand, area, -1, fontSize);
+  return targets.some(p => Math.abs(x-p.x) < p.width/2+24 && Math.abs(y-p.y) < p.height/2+24) ? insertion() : null;
+}
+
 export function hoverHandIndex(poses: CardPose[], side: HandSettings["side"], x: number, y: number, raised: CardPose | null = null, raisedIndex = -1): number {
   const contains = (p: CardPose) => {
     const angle = -p.angle * Math.PI / 180;
@@ -100,4 +145,18 @@ export function hoverHandIndex(poses: CardPose[], side: HandSettings["side"], x:
   });
   if (nearest >= 0) return nearest;
   return raised && contains(raised) ? raisedIndex : -1;
+}
+
+export function hoverGroupedHandIndex(poses: CardPose[], x: number, y: number, raised: CardPose | null, raisedIndex: number): number {
+  const contains = (p: CardPose) => {
+    const angle = -p.angle*Math.PI/180, dx = x-p.x, dy = y-p.y;
+    return Math.abs(dx*Math.cos(angle)-dy*Math.sin(angle)) <= p.width*p.scale/2 && Math.abs(dx*Math.sin(angle)+dy*Math.cos(angle)) <= p.height*p.scale/2;
+  };
+  let index = -1, distance = Infinity;
+  poses.forEach((pose, i) => {
+    if (!contains(pose)) return;
+    const value = Math.hypot((x-pose.x)/pose.width, (y-pose.y)/pose.height);
+    if (value < distance) { index = i; distance = value; }
+  });
+  return index >= 0 ? index : raised && contains(raised) ? raisedIndex : -1;
 }

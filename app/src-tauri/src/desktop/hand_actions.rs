@@ -48,21 +48,53 @@ pub fn play_position(app: &tauri::AppHandle, index: usize) {
     tauri::async_runtime::spawn(async move {
         let result = async {
             let cache = app.state::<Arc<Cache>>();
-            let id = {
+            let (id, discovery) = {
                 let _operation = cache.operation.lock().await;
-                if !MusicSetting::load(&app)
-                    .map_err(|e| e.to_string())?
-                    .hand
-                    .enabled
+                let settings = MusicSetting::load(&app).map_err(|e| e.to_string())?;
+                if !settings.hand.enabled
+                    && !(settings.hand_discovery.enabled && settings.hand_discovery.merged)
                 {
                     return Ok::<_, String>(());
                 }
-                store(&app)?
-                    .load()?
-                    .cards
-                    .get(index)
-                    .map(|card| card.id.clone())
+                let discovery = if settings.hand_discovery.enabled && settings.hand_discovery.merged
+                {
+                    Some(super::hand_discovery::service(&app)?.get_state().await?)
+                } else {
+                    None
+                };
+                let discovery_count = discovery.as_ref().map_or(0, |s| s.songs.len());
+                if index < discovery_count {
+                    let state = discovery.unwrap();
+                    let card = super::hand_discovery::project(&state)[index].clone();
+                    (None, Some((card, state.batch_epoch)))
+                } else {
+                    (
+                        store(&app)?
+                            .load()?
+                            .cards
+                            .get(index - discovery_count)
+                            .map(|card| card.id.clone()),
+                        None,
+                    )
+                }
             };
+            if let Some((card, epoch)) = discovery {
+                if hand::visible(&app) {
+                    app.emit_to("hand", "hand-discovery-play-requested", &card.id)
+                        .map_err(|_| "错误：手牌窗口不可用")?;
+                } else {
+                    let args = PlaySongArgs {
+                        platform: card.song.platform.clone(),
+                        song_id: card.song.song_id.clone(),
+                        playlist_id: card.song.playlist_id.clone(),
+                        typename: card.song.typename.clone(),
+                        filename: card.song.filename.clone(),
+                    };
+                    super::hand_discovery::play_hand_discovery_card(app.clone(), args, epoch)
+                        .await?;
+                    super::hand_discovery::refresh_hand_discovery(app.clone()).await?;
+                }
+            }
             if let Some(id) = id {
                 play_hand_card(app.clone(), id, cache).await?;
             }
@@ -86,6 +118,15 @@ pub async fn collect_hand_card(
         return Err("错误：预览中不能收牌".into());
     }
     let card = service(&app)?.collect_hand_card(&args, batch_epoch).await?;
+    if MusicSetting::load(&app)
+        .map_err(|e| e.to_string())?
+        .hand_discovery
+        .enabled
+    {
+        super::hand_discovery::service(&app)?
+            .sync_hand_exclusions()
+            .await?;
+    }
     let _ = app.emit("discovery-history-changed", ());
     crate::commands::publish_discovery_state(&app, cache.inner()).await;
     crate::commands::spawn_preload(app.clone(), cache.inner().clone());
@@ -136,6 +177,15 @@ pub async fn play_hand_card(
 }
 async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {
     service(app)?.sync_hand_exclusions().await?;
+    if MusicSetting::load(app)
+        .map_err(|e| e.to_string())?
+        .hand_discovery
+        .enabled
+    {
+        super::hand_discovery::service(app)?
+            .sync_hand_exclusions()
+            .await?;
+    }
     hand::refresh(app).await?;
     crate::commands::publish_discovery_state(app, cache).await;
     crate::commands::spawn_preload(app.clone(), cache.clone());

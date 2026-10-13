@@ -16,12 +16,13 @@ interface SurfaceContext {
   dockMoving: boolean; phase: string; active: string | null; drag: Drag | null; flying: Flying | null; discarding: Discarding[];
   busy: string; error: string; clearConfirm: boolean; hidden: boolean; cardsMounted: boolean; dockPoint: {x:number;y:number} | null;
   setError: Setter<string>;
+  layoutKey: string;
 }
 /** Serializes native regions and acknowledges the committed coordinate layout before presentation. */
 export function useHandSurface(context: SurfaceContext) {
   const { snapshot, current, setSnapshot, mounted, stage, toolbarElement, toolbarBounds, dragRef, drawingBounds,
     arrivalDrawing, dragDrawing, dockMoving, phase, active, drag, flying, discarding, busy, error, clearConfirm,
-    hidden, cardsMounted, dockPoint, setError } = context;
+    hidden, cardsMounted, dockPoint, setError, layoutKey } = context;
   const renderedSurface = useRef(snapshot.surface); renderedSurface.current = snapshot.surface;
   const surfaceLayout = useRef<{ surface: HandSurface; promise: Promise<void>; complete: () => void } | null>(null);
   const reportedRegions = useRef<{ generation: number; dragging: boolean; rects: HandRect[]; drawingBounds: HandRect | null } | null>(null);
@@ -114,7 +115,7 @@ export function useHandSurface(context: SurfaceContext) {
     return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); if (scheduleRegions.current === schedule) scheduleRegions.current = () => {}; };
   }, [snapshot.generation, snapshot.preview, snapshot.expanded, snapshot.cards, snapshot.settings, snapshot.gui.font_size,
     snapshot.workArea, snapshot.surface?.left, snapshot.surface?.top, snapshot.surface?.width, snapshot.surface?.height, snapshot.surface?.scale,
-    phase, active, drag?.id, drag?.index, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving]);
+    phase, active, drag?.id, drag?.index, drag?.intake, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving, layoutKey]);
 
   useLayoutEffect(() => () => {
     surfaceLayout.current?.complete(); surfaceLayout.current = null;

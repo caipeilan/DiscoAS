@@ -22,6 +22,7 @@ export interface Preferences {
   history_limit: number;
   discovery_keybindings: DiscoveryKeybindings;
   hand: HandSettings;
+  hand_discovery: HandDiscoverySettings;
   playlist_albums: PlaylistSetting[];
 }
 export interface DiscoveryKeybindings {
@@ -42,7 +43,9 @@ export const defaultHandSettings: HandSettings = {
   shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
   play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
 };
-export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean }
+export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edge_distance" | "position" | "overlap" | "tilt"> { enabled: boolean; merged: boolean; text_outline_enabled: boolean; text_outline_width: number; liquid_strength: number }
+export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, text_outline_enabled: true, text_outline_width: 1, liquid_strength: 100, side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
+export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean; discovery?: boolean; placeholder?: boolean }
 export interface CollectedHandCard { id: string; discovery: DiscoveryState }
 export interface HandRect { left: number; top: number; width: number; height: number }
 export interface HandPoint { x: number; y: number }
@@ -50,6 +53,7 @@ export interface HandSurface { left: number; top: number; width: number; height:
 export interface HandDockSnapshot {
   generation: number; count: number; settings: HandSettings; gui: GuiSettings;
   workArea: HandRect; workAreas: HandRect[]; dockPoint: HandPoint | null; expanded: boolean;
+  discoverySettings?: HandDiscoverySettings; discovery?: DiscoveryState | null;
 }
 export interface HandSnapshot {
   cardOrder?: string[];
@@ -57,6 +61,7 @@ export interface HandSnapshot {
   keys: DiscoveryKeybindings; workArea: HandRect; preview: boolean; focus: boolean; expanded: boolean;
   workAreas?: HandRect[]; dockPoint?: HandPoint | null; surface?: HandSurface;
   arrival: { id: string; rect: HandRect; mysteryCover?: string | null } | null;
+  discoverySettings?: HandDiscoverySettings; discovery?: DiscoveryState | null;
 }
 export interface HandVisibility { generation: number; expanded: boolean; focus: boolean; surface?: HandSurface }
 export interface DiscoveryWeighting {
@@ -129,6 +134,7 @@ export interface DesktopPreferences {
   spotify_playback_mode: "scheme" | "pause_then_scheme" | "extension";
   spotify_defaults_version: number;
   browser_playback_mode: "extension" | "direct";
+  rendering_mode: "auto" | "integrated" | "discrete" | "cpu";
 }
 export interface LibraryProgress {
   requestId: string;
@@ -301,6 +307,7 @@ export const emptyState: AppState = {
     spotify_playback_mode: "extension",
     spotify_defaults_version: 1,
     browser_playback_mode: "extension",
+    rendering_mode: "auto",
   },
   guiSettings: defaultGuiSettings,
   settings: {
@@ -320,6 +327,7 @@ export const emptyState: AppState = {
     history_limit: 200,
     discovery_keybindings: { up: "W", left: "A", down: "S", right: "D", select: "Enter", replace: "R" },
     hand: defaultHandSettings,
+    hand_discovery: defaultHandDiscoverySettings,
     playlist_albums: [],
   },
   playlists: [],

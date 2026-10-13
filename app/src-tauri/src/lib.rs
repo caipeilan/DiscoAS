@@ -57,6 +57,17 @@ fn dismiss_splash(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
+async fn startup_ready(app: tauri::AppHandle) -> Result<(), String> {
+    if app.state::<StartupPending>().0.load(Ordering::Relaxed) {
+        desktop::monitors::position_splash(&app)?;
+        if let Some(window) = app.get_webview_window("splash") {
+            desktop::floating_window::show(&window, true)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn finish_startup(app: tauri::AppHandle) {
     if app
         .state::<StartupPending>()
@@ -168,18 +179,29 @@ pub fn run() {
         .manage(library::ShortcutRecording::default())
         .manage(desktop::hand::HandState::default())
         .manage(desktop::hand_actions::HandActionsState::default())
+        .manage(desktop::hand_discovery::HandDiscoveryState::default())
         .manage(desktop::hand_dock::DockState::default())
         .manage(AtomicBool::new(false))
         .manage(StartupPending(AtomicBool::new(true)))
         .manage(StartupShowMain(AtomicBool::new(true)))
         .setup(|app| {
-            if let Some(window) = app.get_webview_window("overlay") {
-                desktop::floating_window::install(&window, false)?;
-            }
             paths::init_user_data_dirs(app.handle())?;
             let setting = settings::music_setting::MusicSetting::load(app.handle())?;
             let (options, preferences_warning) =
                 desktop_preferences::DesktopPreferences::load_with_warning(app.handle())?;
+            app.manage(desktop::rendering::ActiveRendering(options.rendering_mode.clone()));
+            for configuration in &app.config().app.windows {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), configuration)?
+                    .additional_browser_args(&desktop::rendering::browser_args(app.handle()))
+                    .build()?;
+            }
+            if let Some(window) = app.get_webview_window("overlay") {
+                desktop::floating_window::install(&window, false)?;
+            }
+            if let Some(window) = app.get_webview_window("splash") {
+                desktop::floating_window::install(&window, true)?;
+                desktop::floating_window::ignore_cursor(&window, true)?;
+            }
             if options.spotify_playback_mode == "extension" {
                 if app
                     .state::<spotify_playback::PlaybackService>()
@@ -269,11 +291,6 @@ pub fn run() {
                     }
                 }
             });
-            if !show_main_on_startup {
-                finish_startup(app.handle().clone());
-            } else if let Some(splash) = app.get_webview_window("splash") {
-                let _ = splash.show();
-            }
             library::refresh_enabled_on_startup(app.handle().clone());
             let startup_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -313,6 +330,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             finish_startup,
+            startup_ready,
             desktop::tray_menu::tray_menu_ready,
             desktop::tray_menu::present_tray_menu,
             desktop::tray_menu::dismiss_tray_menu,
@@ -333,6 +351,12 @@ pub fn run() {
             desktop::hand_actions::discard_hand_card,
             desktop::hand_actions::clear_hand,
             desktop::hand_actions::reorder_hand,
+            desktop::hand_discovery::refresh_hand_discovery,
+            desktop::hand_discovery::hand_discovery_displayed,
+            desktop::hand_discovery::replace_hand_discovery_card,
+            desktop::hand_discovery::collect_hand_discovery_card,
+            desktop::hand_discovery::play_hand_discovery_card,
+            desktop::hand_discovery::reorder_hand_discovery,
             desktop::hand::toggle_hand,
             desktop::hand::toggle_hand_expanded,
             desktop::hand::hide_hand,

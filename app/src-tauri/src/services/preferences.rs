@@ -10,6 +10,7 @@ pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindin
     }
     setting.discovery_weighting.validate()?;
     setting.hand.validate()?;
+    setting.hand_discovery.validate()?;
     if setting.replacement_limit > 100 {
         return Err("错误：替换次数应为 0–100".into());
     }

@@ -74,6 +74,65 @@ impl HandSettings {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HandDiscoverySettings {
+    pub enabled: bool,
+    pub merged: bool,
+    pub text_outline_enabled: bool,
+    pub text_outline_width: f64,
+    pub liquid_strength: f64,
+    pub side: HandSide,
+    pub scale: f64,
+    pub edge_distance: f64,
+    pub position: f64,
+    pub overlap: f64,
+    pub tilt: f64,
+}
+impl Default for HandDiscoverySettings {
+    fn default() -> Self {
+        let hand = HandSettings::default();
+        Self {
+            enabled: false,
+            merged: true,
+            text_outline_enabled: true,
+            text_outline_width: 1.0,
+            liquid_strength: 100.0,
+            side: hand.side,
+            scale: hand.scale,
+            edge_distance: hand.edge_distance,
+            position: hand.position,
+            overlap: hand.overlap,
+            tilt: hand.tilt,
+        }
+    }
+}
+impl HandDiscoverySettings {
+    pub fn layout(&self) -> HandSettings {
+        HandSettings {
+            enabled: self.enabled,
+            side: self.side,
+            scale: self.scale,
+            edge_distance: self.edge_distance,
+            position: self.position,
+            overlap: self.overlap,
+            tilt: self.tilt,
+            ..Default::default()
+        }
+    }
+    pub fn validate(&self) -> Result<(), String> {
+        self.layout().validate()?;
+        if !self.liquid_strength.is_finite() || !(0.0..=100.0).contains(&self.liquid_strength) {
+            return Err("错误：Liquid 强度应为 0–100%".into());
+        }
+        if !self.text_outline_width.is_finite() || !(0.05..=5.0).contains(&self.text_outline_width)
+        {
+            return Err("错误：文字描边粗细应为 0.05–5px".into());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod shortcut_settings_tests {
     use super::*;
@@ -90,6 +149,36 @@ mod shortcut_settings_tests {
             settings
         );
         assert!(settings.validate().is_ok());
+        let mut discovery: HandDiscoverySettings =
+            serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert!(discovery.text_outline_enabled);
+        assert_eq!(discovery.text_outline_width, 1.0);
+        assert_eq!(discovery.liquid_strength, 100.0);
+        discovery.text_outline_enabled = false;
+        discovery.text_outline_width = 0.7;
+        discovery.liquid_strength = 42.5;
+        assert_eq!(
+            serde_json::from_str::<HandDiscoverySettings>(
+                &serde_json::to_string(&discovery).unwrap()
+            )
+            .unwrap(),
+            discovery
+        );
+        discovery.text_outline_width = 6.0;
+        assert!(discovery.validate().is_err());
+    }
+
+    #[test]
+    fn liquid_intensity_accepts_off_and_rejects_invalid_saved_values() {
+        let mut discovery = HandDiscoverySettings::default();
+        for strength in [0.0, 0.25, 50.0, 100.0] {
+            discovery.liquid_strength = strength;
+            assert!(discovery.validate().is_ok());
+        }
+        for strength in [-1.0, 100.1, f64::NAN, f64::INFINITY] {
+            discovery.liquid_strength = strength;
+            assert!(discovery.validate().is_err());
+        }
     }
 }
 
@@ -100,6 +189,8 @@ pub struct HandCard {
     pub song: SongCardDto,
     pub collected_at: u64,
     pub mystery_revealed: bool,
+    #[serde(default)]
+    pub discovery: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,6 +217,7 @@ impl StoredHandCard {
             song,
             collected_at: self.collected_at,
             mystery_revealed: self.song.mystery_mode && self.revealed,
+            discovery: false,
         }
     }
     pub fn playback_args(&self) -> PlaySongArgs {
