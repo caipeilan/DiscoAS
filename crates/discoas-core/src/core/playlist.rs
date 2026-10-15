@@ -13,6 +13,7 @@
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::error::{AppError, AppResult};
 
@@ -113,22 +114,19 @@ impl Playlist {
     /// 随机抽取 n 首不重复的歌曲 ID。
     /// 对照旧版 `get_random_song(number)`：不足时返回全部，n<=0 返回空。
     pub fn get_random_song(&self, number: usize) -> Vec<String> {
-        let mut seen = std::collections::HashSet::new();
-        let mut copy: Vec<String> = self
-            .song_ids
+        self.eligible_song_ids(&HashSet::new())
+            .choose_multiple(&mut thread_rng(), number)
+            .map(|id| (*id).to_owned())
+            .collect()
+    }
+
+    pub(crate) fn eligible_song_ids(&self, excluded: &HashSet<String>) -> Vec<&str> {
+        let mut seen = HashSet::with_capacity(self.song_ids.len());
+        self.song_ids
             .iter()
-            .filter(|s| !s.is_empty() && seen.insert((*s).clone()))
-            .cloned()
-            .collect();
-        let n = number.min(copy.len());
-        if n == 0 {
-            return Vec::new();
-        }
-        // 对照 Python random.sample(self.songs, number)：不重复抽样
-        let mut rng = thread_rng();
-        copy.shuffle(&mut rng);
-        copy.truncate(n);
-        copy
+            .map(String::as_str)
+            .filter(|id| !id.is_empty() && !excluded.contains(*id) && seen.insert(*id))
+            .collect()
     }
 }
 

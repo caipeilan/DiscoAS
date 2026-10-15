@@ -106,22 +106,21 @@ pub async fn prepare_song_cover(cache: &Arc<Cache>, url: &str) -> Result<Option<
     if url.is_empty() {
         return Ok(None);
     }
-    if let Some(bytes) = cache.get_image(url).await {
-        return Ok(data_uri(&bytes));
+    if let Some(image) = cache.get_prepared_image(url).await {
+        return Ok(image.data_uri.as_deref().map(str::to_owned));
     }
     // A concurrent foreground batch and background batch share a URL request.
     let lock = cache.image_request_lock(url).await;
     let _guard = lock.lock().await;
-    if let Some(bytes) = cache.get_image(url).await {
-        return Ok(data_uri(&bytes));
+    if let Some(image) = cache.get_prepared_image(url).await {
+        return Ok(image.data_uri.as_deref().map(str::to_owned));
     }
     let bytes = download(url).await?;
-    let encoded = data_uri(&bytes);
-    if encoded.is_none() && crate::platforms::local::is_cover_reference(url) {
+    if crate::platforms::local::is_cover_reference(url) && image_mime(&bytes).is_none() {
         return Ok(None);
     }
-    cache.cache_image(url.to_string(), bytes).await;
-    Ok(encoded)
+    let image = cache.cache_prepared_image(url.to_string(), bytes).await;
+    Ok(image.data_uri.as_deref().map(str::to_owned))
 }
 
 pub async fn refresh_library_cover(
@@ -209,8 +208,8 @@ fn prune(root: &Path, keep: &Path, budget: u64) -> std::io::Result<()> {
 }
 
 pub async fn read_cached_image(cache: &Arc<Cache>, url: &str) -> Option<String> {
-    if let Some(bytes) = cache.get_image(url).await {
-        return data_uri(&bytes);
+    if let Some(image) = cache.get_prepared_image(url).await {
+        return image.data_uri.as_deref().map(str::to_owned);
     }
     // get_image intentionally has no remote fallback.
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -326,15 +325,22 @@ mod tests {
             }
         });
         let cache = Cache::new();
+        let hand_cache = Cache::independent(&cache);
         let (a, b, c) = tokio::join!(
             prepare_song_cover(&cache, &url),
-            prepare_song_cover(&cache, &url),
-            prepare_song_cover(&cache, &url)
+            prepare_song_cover(&hand_cache, &url),
+            prepare_song_cover(&hand_cache, &url)
         );
         let expected = a.unwrap().unwrap();
         assert_eq!(cache.get_image(&url).await.unwrap().len(), 6 * 1024 * 1024);
         assert_eq!(b.unwrap().unwrap(), expected);
         assert_eq!(c.unwrap().unwrap(), expected);
+        let main_image = cache.get_prepared_image(&url).await.unwrap();
+        let hand_image = hand_cache.get_prepared_image(&url).await.unwrap();
+        assert!(Arc::ptr_eq(&main_image, &hand_image));
+        let (_, retained) = cache.image_cache_stats().await;
+        assert_eq!(retained, main_image.bytes.len() + expected.len());
+        assert!(retained <= 32 * 1024 * 1024);
         assert_eq!(
             prepare_song_cover(&cache, &url).await.unwrap().unwrap(),
             expected

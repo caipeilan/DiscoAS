@@ -79,7 +79,6 @@ impl HandSettings {
 pub struct HandDiscoverySettings {
     pub enabled: bool,
     pub merged: bool,
-    pub text_outline_enabled: bool,
     pub text_outline_width: f64,
     pub liquid_strength: f64,
     pub side: HandSide,
@@ -95,7 +94,6 @@ impl Default for HandDiscoverySettings {
         Self {
             enabled: false,
             merged: true,
-            text_outline_enabled: true,
             text_outline_width: 1.0,
             liquid_strength: 100.0,
             side: hand.side,
@@ -151,12 +149,14 @@ mod shortcut_settings_tests {
         assert!(settings.validate().is_ok());
         let mut discovery: HandDiscoverySettings =
             serde_json::from_str(r#"{"enabled":true}"#).unwrap();
-        assert!(discovery.text_outline_enabled);
         assert_eq!(discovery.text_outline_width, 1.0);
         assert_eq!(discovery.liquid_strength, 100.0);
-        discovery.text_outline_enabled = false;
-        discovery.text_outline_width = 0.7;
-        discovery.liquid_strength = 42.5;
+        discovery = serde_json::from_str(
+            r#"{"enabled":true,"text_outline_enabled":false,"text_outline_width":0.7,"liquid_strength":42.5}"#,
+        )
+        .unwrap();
+        assert_eq!(discovery.text_outline_width, 0.7);
+        assert_eq!(discovery.liquid_strength, 42.5);
         assert_eq!(
             serde_json::from_str::<HandDiscoverySettings>(
                 &serde_json::to_string(&discovery).unwrap()

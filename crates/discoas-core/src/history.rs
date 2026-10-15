@@ -139,15 +139,14 @@ impl HistoryStore {
             Err(error) => Err(error.into()),
         }
     }
-    fn save(&self, snapshot: &HistorySnapshot) -> AppResult<()> {
-        let mut compact = snapshot.clone();
-        for row in compact.discovered.iter_mut().chain(&mut compact.selected) {
+    fn save(&self, snapshot: &mut HistorySnapshot) -> AppResult<()> {
+        for row in snapshot.discovered.iter_mut().chain(&mut snapshot.selected) {
             row.cover_data_uri = None;
         }
-        crate::storage::atomic_write(&self.path, &serde_json::to_vec_pretty(&compact)?)
+        crate::storage::atomic_write(&self.path, &serde_json::to_vec_pretty(snapshot)?)
     }
     pub fn clear(&self) -> AppResult<()> {
-        self.save(&HistorySnapshot::default())
+        self.save(&mut HistorySnapshot::default())
     }
 
     /// Apply to unchanged rows only; an in-flight repair cannot undo a clear or new selection.
@@ -172,7 +171,7 @@ impl HistoryStore {
             }
         }
         if changed > 0 {
-            self.save(&snapshot)?;
+            self.save(&mut snapshot)?;
         }
         Ok(changed)
     }
@@ -208,7 +207,7 @@ impl HistoryStore {
             }
         }
         if changed > 0 {
-            self.save(&snapshot)?;
+            self.save(&mut snapshot)?;
         }
         Ok(changed)
     }
@@ -219,7 +218,7 @@ impl HistoryStore {
         let before = (snapshot.discovered.len(), snapshot.selected.len());
         normalize_snapshot(&mut snapshot);
         if before != (snapshot.discovered.len(), snapshot.selected.len()) {
-            self.save(&snapshot)?;
+            self.save(&mut snapshot)?;
         }
         Ok(())
     }
@@ -231,6 +230,19 @@ impl HistoryStore {
         songs: &[SongCardDto],
         new_round: bool,
     ) -> AppResult<()> {
+        self.record_events(songs, new_round, None).map(|_| ())
+    }
+    pub fn record_selected(&self, song: &SongCardDto, _limit: u32) -> AppResult<()> {
+        self.record_events(&[], false, Some(song)).map(|_| ())
+    }
+
+    /// Display and selection from one accepted action share a single atomic commit.
+    pub(crate) fn record_events(
+        &self,
+        songs: &[SongCardDto],
+        new_round: bool,
+        selected: Option<&SongCardDto>,
+    ) -> AppResult<HistorySnapshot> {
         let mut snapshot = self.load()?;
         let now = now();
         for song in songs {
@@ -239,17 +251,15 @@ impl HistoryStore {
             upsert(&mut snapshot.discovered, entry);
         }
         snapshot.weighting.displayed(songs, new_round);
+        if let Some(song) = selected {
+            let mut entry = HistoryEntry::from_song(song);
+            entry.selected_at = Some(now);
+            upsert(&mut snapshot.selected, entry);
+            snapshot.weighting.selected(song);
+        }
         normalize_snapshot(&mut snapshot);
-        self.save(&snapshot)
-    }
-    pub fn record_selected(&self, song: &SongCardDto, _limit: u32) -> AppResult<()> {
-        let mut snapshot = self.load()?;
-        let mut entry = HistoryEntry::from_song(song);
-        entry.selected_at = Some(now());
-        upsert(&mut snapshot.selected, entry);
-        snapshot.weighting.selected(song);
-        normalize_snapshot(&mut snapshot);
-        self.save(&snapshot)
+        self.save(&mut snapshot)?;
+        Ok(snapshot)
     }
     /// Exclusion is platform + song, including when the same song is in another source.
     pub fn excluded_song_ids(
@@ -360,7 +370,7 @@ impl HistoryStore {
         }
         let mut weighting = self.load()?.weighting;
         weighting.mutate(mutation);
-        self.save(&HistorySnapshot {
+        self.save(&mut HistorySnapshot {
             discovered: rows
                 .iter()
                 .filter(|row| row.discovered_at.is_some())
@@ -601,7 +611,7 @@ mod tests {
             true,
         );
         store
-            .save(&HistorySnapshot {
+            .save(&mut HistorySnapshot {
                 discovered: rows.clone(),
                 selected: rows,
                 weighting,
@@ -725,7 +735,7 @@ mod tests {
         b.discovered_at = Some(2);
         b.selected_at = Some(20);
         store
-            .save(&HistorySnapshot {
+            .save(&mut HistorySnapshot {
                 discovered: vec![a.clone(), b.clone()],
                 selected: vec![a, b],
                 ..Default::default()

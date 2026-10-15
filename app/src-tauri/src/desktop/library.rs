@@ -337,16 +337,15 @@ async fn refresh_source_job(
         .lock()
         .unwrap() = None;
     let settings_after = repository.load_settings()?;
-    changed_with_invalidation(
-        app,
-        cache,
-        source_refresh_changes_discovery(
-            &settings_before,
-            &settings_after,
-            &SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename),
-        ),
-    )
-    .await;
+    let invalidated = source_refresh_changes_discovery(
+        &settings_before,
+        &settings_after,
+        &SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename),
+    );
+    if invalidated {
+        cache.invalidate_source_snapshot();
+    }
+    changed_with_invalidation(app, cache, invalidated).await;
     progress(app, &job, "done", count, Some(count));
     Ok(())
 }

@@ -33,7 +33,7 @@ export function HandWindow() {
   } : null;
   return <div ref={stage} tabIndex={-1} className={`hand-stage hand-${phase}`} data-side={snapshot.settings.side} data-preview={snapshot.preview || undefined}
     data-hidden={hidden || undefined} data-expanded={snapshot.expanded} data-input-mode={inputMode}
-    style={{ "--hand-card-height": `${cardSize.height}px`, "--hand-glass-outline": `${snapshot.discoverySettings?.text_outline_enabled === false ? 0 : snapshot.discoverySettings?.text_outline_width ?? 1}px`, width: surface?.width, height: surface?.height,
+    style={{ "--hand-card-height": `${cardSize.height}px`, "--hand-glass-outline": `${snapshot.discoverySettings?.text_outline_width ?? 1}px`, width: surface?.width, height: surface?.height,
       "--hand-glass-filter": liquid ? `blur(${.22 * liquid}px) saturate(${100 + .6 * liquid}%)` : "none",
       "--hand-glass-opacity": `${100 - .54 * liquid}%`, "--hand-glass-highlight": `${.7 * liquid}%`,
       transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties} onContextMenu={(e) => e.preventDefault()}>

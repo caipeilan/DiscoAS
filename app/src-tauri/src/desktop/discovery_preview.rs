@@ -19,7 +19,6 @@ pub struct PreviewState {
     keyboard_generation: Arc<AtomicU64>,
     session: Mutex<Option<Session>>,
 }
-#[derive(Clone)]
 struct Session {
     generation: u64,
     state: DiscoveryStateDto,
@@ -302,9 +301,12 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
             tokio::time::sleep(std::time::Duration::from_millis(24)).await;
             let state = app.state::<PreviewState>();
             let _lifecycle = state.lifecycle.lock().unwrap();
-            let current = state.session.lock().unwrap().clone();
-            let Some(current) = current.filter(|s| s.generation == generation) else {
-                break;
+            let close_rect = {
+                let session = state.session.lock().unwrap();
+                let Some(current) = session.as_ref().filter(|s| s.generation == generation) else {
+                    break;
+                };
+                current.close
             };
             let Some(window) = app.get_webview_window("overlay") else {
                 stop_in_lifecycle(&app, false);
@@ -331,7 +333,7 @@ fn observe_pointer(app: tauri::AppHandle, generation: u64) {
                         let _ = app.emit_to("overlay", "preview-pointer", next);
                     }
                     // The exit control is the only hit target; card rectangles always pass through.
-                    let close = current.close.is_some_and(|r| r.contains(next.x, next.y));
+                    let close = close_rect.is_some_and(|r| r.contains(next.x, next.y));
                     if close != intercepting_close
                         && super::floating_window::ignore_cursor(&window, !close).is_ok()
                     {
@@ -369,21 +371,24 @@ fn observe_keyboard(
             };
             let state = app.state::<PreviewState>();
             let _lifecycle = state.lifecycle.lock().unwrap();
-            let current = state.session.lock().unwrap().clone();
-            let Some(current) = current.filter(|s| s.generation == generation) else {
-                break;
-            };
-            let expected = match key.event.action {
-                "up" => &current.keys.up,
-                "left" => &current.keys.left,
-                "down" => &current.keys.down,
-                "right" => &current.keys.right,
-                "select" => &current.keys.select,
-                "replace" => &current.keys.replace,
-                _ => continue,
+            let matches_binding = {
+                let session = state.session.lock().unwrap();
+                let Some(current) = session.as_ref().filter(|s| s.generation == generation) else {
+                    break;
+                };
+                let expected = match key.event.action {
+                    "up" => &current.keys.up,
+                    "left" => &current.keys.left,
+                    "down" => &current.keys.down,
+                    "right" => &current.keys.right,
+                    "select" => &current.keys.select,
+                    "replace" => &current.keys.replace,
+                    _ => continue,
+                };
+                expected == &key.binding
             };
             // Discard buffered input after a draft binding change.
-            if expected == &key.binding {
+            if matches_binding {
                 let _ = app.emit_to("overlay", "preview-key", key.event);
             }
         }

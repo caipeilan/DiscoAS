@@ -50,6 +50,18 @@ export function useHandInput(context: HandInputContext) {
   const paintDrag = () => {
     dragFrame.current = 0;
     const held = dragRef.current; if (!held?.ready) return;
+    if (held.positionDirty) {
+      held.positionDirty = false;
+      const state = current.current, card = held.card;
+      const settings = groupSettings(card, state.settings, state.discoverySettings);
+      const x = held.pose.x + held.dx, y = held.pose.y + held.dy;
+      const index = reorderIndex(held.groupPoses, settings.side, x, y) + held.groupOffset;
+      const intake = card.discovery ? handIntakeIndex(state.cards, held.restPoses, state.settings, state.discoverySettings, state.workArea, x, y, state.gui.font_size) : null;
+      const playable = intake === null && canPlayDrag(settings.side, held.dx, held.dy, settings.scale);
+      const changed = held.index !== index || held.playable !== playable || held.intake !== intake;
+      held.index = index; held.intake = intake; held.playable = playable;
+      if (changed && !held.ending) setDrag({ ...held });
+    }
     held.element.style.setProperty("--card-x", `${held.dx}px`);
     held.element.style.setProperty("--card-y", `${held.dy}px`);
     held.element.style.setProperty("--drag-angle", `${Math.max(-8, Math.min(8, held.dx*.05))}deg`);
@@ -65,7 +77,11 @@ export function useHandInput(context: HandInputContext) {
     if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
   };
   const endDrag = async (event: React.PointerEvent) => {
-    const held = dragRef.current; if (!held || event.pointerId !== held.pointerId) return;
+    const held = dragRef.current; if (!held || held.ending || event.pointerId !== held.pointerId) return;
+    if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) updateDragPosition(held, event.clientX, event.clientY);
+    held.ending = true;
+    await held.prepared.catch(() => {});
+    if (dragRef.current !== held) return;
     const state = current.current;
     const card = state.cards.find((c) => c.id === held.id);
     const moved = Math.hypot(held.dx, held.dy) > 8;
@@ -73,11 +89,9 @@ export function useHandInput(context: HandInputContext) {
     const valid = canPlayDrag(settings.side, held.dx, held.dy, settings.scale);
     if (!card || state.preview) { cancelDrag(); return; }
     if (!moved) { cancelDrag(); if (card.discovery) void operation("play_hand_card", card, readPose(held.element)); return; }
-    held.ending = true;
-    await held.prepared.catch(() => {});
-    if (dragRef.current !== held) return;
-    if (card.discovery && held.intake !== null) { cancelAnimationFrame(dragFrame.current); paintDrag(); void operation("collect_hand_discovery_card", card, readPose(held.element), held.intake); cancelDrag(); return; }
-    if (valid) { cancelAnimationFrame(dragFrame.current); paintDrag(); void operation("play_hand_card", card, readPose(held.element)); cancelDrag(); return; }
+    cancelAnimationFrame(dragFrame.current); paintDrag();
+    if (card.discovery && held.intake !== null) { void operation("collect_hand_discovery_card", card, readPose(held.element), held.intake); cancelDrag(); return; }
+    if (valid) { void operation("play_hand_card", card, readPose(held.element)); cancelDrag(); return; }
     const from = state.cards.findIndex((c) => c.id === held.id);
     const reordered = reorderHandGroups(state.cards, held.id, held.index);
     if (from !== held.index) {
@@ -94,30 +108,28 @@ export function useHandInput(context: HandInputContext) {
     const visualPose = readPose(e.currentTarget);
     e.currentTarget.focus({ preventScroll: true }); releaseHandMotion(e.currentTarget); e.currentTarget.getAnimations().forEach((animation) => animation.cancel());
     const point = toCanvas(e.clientX, e.clientY);
+    const discoveryCount = snapshot.cards.filter(c => c.discovery).length;
     const held: Drag = { id: card.id, index: snapshot.cards.findIndex((c) => c.id === card.id), playable: false, pointerId: e.pointerId, startX: point.x, startY: point.y, dx: 0, dy: 0, pose: visualPose, element: e.currentTarget,
-      intake: null, restPoses: [...restPosesRef.current], ready: false, ending: false, prepared: Promise.resolve() };
+      intake: null, restPoses: [...restPosesRef.current], ready: false, ending: false, prepared: Promise.resolve(),
+      card, groupPoses: card.discovery ? restPosesRef.current.slice(0, discoveryCount) : restPosesRef.current.slice(discoveryCount), groupOffset: card.discovery ? 0 : discoveryCount, positionDirty: false };
     dragDrawing.current = handPoseBounds(visualPose);
     dragRef.current = held; setDrag(held); setInputMode("pointer"); setHover(card.id); setSelected(card.id);
     held.prepared = commitRegions.current().then(() => {
       if (dragRef.current !== held) return;
-      held.ready = true; setDrag({ ...held }); paintDrag();
+      held.ready = true;
+      if (!held.ending) { setDrag({ ...held }); paintDrag(); }
     }).catch((error) => { if (dragRef.current === held) { cancelDrag(); setError(errorText(error)); } });
   };
-  const onCardPointerMove = (card: HandCard, e: React.PointerEvent<HTMLDivElement>) => {
-    const held = dragRef.current; if (!held || held.ending || held.id !== card.id) return;
-    const point = toCanvas(e.clientX, e.clientY);
+  const updateDragPosition = (held: Drag, clientX: number, clientY: number) => {
+    const point = toCanvas(clientX, clientY);
     const dx = point.x-held.startX, dy = point.y-held.startY;
-    const settings = groupSettings(card, snapshot.settings, snapshot.discoverySettings);
-    const discoveryCount = snapshot.cards.filter(c => c.discovery).length;
-    const groupPoses = card.discovery ? held.restPoses.slice(0, discoveryCount) : held.restPoses.slice(discoveryCount);
-    const index = reorderIndex(groupPoses, settings.side, held.pose.x+dx, held.pose.y+dy) + (card.discovery ? 0 : discoveryCount);
-    const intake = card.discovery ? handIntakeIndex(snapshot.cards, held.restPoses, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, held.pose.x+dx, held.pose.y+dy, snapshot.gui.font_size) : null;
-    const playable = intake === null && canPlayDrag(settings.side, dx, dy, settings.scale);
-    const changed = held.index !== index || held.playable !== playable || held.intake !== intake;
-    held.dx = dx; held.dy = dy; held.index = index; held.playable = playable; held.intake = intake;
-    if (changed && held.ready) setDrag({ ...held });
+    if (held.dx !== dx || held.dy !== dy) held.positionDirty = true;
+    held.dx = dx; held.dy = dy;
+  };
+  const onCardPointerMove = (card: HandCard, e: React.PointerEvent<HTMLDivElement>) => {
+    const held = dragRef.current; if (!held || held.ending || held.id !== card.id || e.pointerId !== held.pointerId) return;
+    updateDragPosition(held, e.clientX, e.clientY);
     if (held.ready && !dragFrame.current) dragFrame.current = requestAnimationFrame(paintDrag);
-
   };
   const keyboardRef = useRef(keyboard); keyboardRef.current = keyboard;
   const pointerHandler = ([x, y]: [number, number, boolean]) => {

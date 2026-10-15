@@ -7,3 +7,4 @@
 pub mod cache;
 pub mod discover;
 pub mod playlist;
+pub(crate) mod source_snapshot;

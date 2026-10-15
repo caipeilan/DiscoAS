@@ -78,3 +78,51 @@ test("an immediate fast drag waits for the native drawing surface before paintin
     assert.equal(operations[0].pose.x,480); assert.equal(context.dragRef.current,null);
   } finally { Object.assign(globalThis,saved); delete globalThis.__handInputTest; }
 });
+
+test("pointer bursts use one calculation per frame and release commits the latest coordinates", async () => {
+  const compile = file => ts.transpileModule(fs.readFileSync(new URL(file,import.meta.url),"utf8"),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext}}).outputText;
+  const layout = await import(`data:text/javascript;base64,${Buffer.from(compile("../src/features/hand/handLayout.ts")).toString("base64")}`);
+  const saved = {requestAnimationFrame:globalThis.requestAnimationFrame,cancelAnimationFrame:globalThis.cancelAnimationFrame};
+  const imports = {react:"react","../../services/desktop":"bridge","../../i18n":"i18n","../settings/discoveryKeybindings":"keys","./handLayout":"layout","./handDrawingBounds":"bounds","./handMotion":"motion","./handControllerTypes":"types"};
+  try {
+    for (const count of [10,50,100]) for (const discovery of [false,true]) {
+      let calculations=0, sequence=0;
+      const frames=new Map(), calls=[], operations=[], values=new Map(), states=[];
+      globalThis.requestAnimationFrame=callback=>{frames.set(++sequence,callback);return sequence;};
+      globalThis.cancelAnimationFrame=id=>frames.delete(id);
+      const cards=Array.from({length:count},(_,i)=>({id:`card-${i}`,discovery:discovery&&i===0}));
+      const settings={enabled:true,side:"bottom",scale:1,edge_distance:12,position:50,overlap:45,tilt:12};
+      const discoverySettings={...settings,enabled:discovery,merged:false,side:"left"};
+      const workArea={left:0,top:0,width:1400,height:900};
+      const poses=layout.groupedHandLayout(cards,settings,discoverySettings,workArea,-1,14);
+      const card=cards[discovery?0:1], pose=poses[discovery?0:1], gate=deferred();
+      const element={style:{setProperty:(name,value)=>values.set(name,value),removeProperty:name=>values.delete(name)},focus(){},getAnimations:()=>[],setPointerCapture(){},hasPointerCapture:()=>false};
+      const snapshot={generation:1,expanded:true,preview:false,cards,settings,discoverySettings,workArea,gui:{font_size:14}};
+      const context={snapshot,current:{current:snapshot},mounted:{current:true},dockMoving:false,stage:{current:null},busyRef:{current:""},selectedRef:{current:null},hoverRef:{current:null},inputRef:{current:"pointer"},pointer:{current:null},toolbarBounds:{current:null},posesRef:{current:poses},restPosesRef:{current:poses},dragRef:{current:null},dragFrame:{current:0},dragDrawing:{current:null},
+        setDrag:value=>states.push(value),setInputMode(){},setHover(){},setSelected(){},setSnapshot(){},setError:error=>assert.fail(error),toCanvas:(x,y)=>({x,y}),scheduleRegions:{current(){}},commitRegions:{current:()=>gate.promise},operation:async(name,card,pose,insert)=>operations.push({name,id:card.id,insert})};
+      globalThis.__handInputTest={react:{useRef:value=>({current:value}),useEffect(){}},bridge:{desktop:true,call:async(name,args)=>calls.push({name,args}),onDesktopEvent:async()=>()=>{}},i18n:{errorText:String},keys:{keybindingFromEvent:()=>""},
+        layout:{...layout,reorderIndex(...args){calculations++;return layout.reorderIndex(...args);}},bounds:{handPoseBounds:p=>({left:p.x-p.width/2,top:p.y-p.height/2,width:p.width,height:p.height})},motion:{releaseHandMotion(){}},types:{readPose:()=>({...pose,x:pose.x+parseFloat(values.get("--card-x")||0),y:pose.y+parseFloat(values.get("--card-y")||0)})}};
+      const hook=compile("../src/features/hand/useHandInput.ts").replace(/import\s+\{([^}]+)\}\s+from\s+"([^"]+)";/g,(_,names,path)=>`const {${names}} = globalThis.__handInputTest.${imports[path]};`);
+      const {useHandInput}=await import(`data:text/javascript;base64,${Buffer.from(hook).toString("base64")}#${count}-${discovery}`);
+      const input=useHandInput(context);
+      input.onCardPointerDown(card,{button:0,pointerId:8,clientX:pose.x,clientY:pose.y,currentTarget:element,target:{closest:()=>null},preventDefault(){}});
+      gate.resolve(); await context.dragRef.current.prepared;
+      const target=poses.at(-1);
+      for(let i=1;i<=200;i++) input.onCardPointerMove(card,{pointerId:8,clientX:pose.x+(target.x-pose.x)*i/200,clientY:discovery?pose.y+(target.y-pose.y)*i/200:pose.y});
+      assert.equal(calculations,0); assert.equal(frames.size,1);
+      const frame=[...frames.values()][0]; frames.clear(); frame();
+      assert.equal(calculations,1);
+      const last=discovery?poses[1]:poses[0];
+      const x=last.x, y=discovery?last.y:pose.y;
+      const expected=discovery?layout.handIntakeIndex(cards,poses,settings,discoverySettings,workArea,x,y,14):0;
+      await input.endDrag({pointerId:8,clientX:x,clientY:y});
+      assert.equal(calculations,2); assert.equal(frames.size,0); assert.equal(context.dragRef.current,null);
+      if(discovery) {
+        assert.notEqual(expected,null); assert.deepEqual(operations,[{name:"collect_hand_discovery_card",id:card.id,insert:expected}]);
+      } else {
+        assert.equal(operations.length,0); assert.equal(calls.length,1); assert.equal(calls[0].args.ids[0],card.id);
+      }
+      assert.ok(states.length<=4);
+    }
+  } finally {Object.assign(globalThis,saved);delete globalThis.__handInputTest;}
+});

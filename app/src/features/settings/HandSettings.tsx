@@ -85,10 +85,9 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
           <NumberField decimal label={t("Liquid 强度")} value={discovery.liquid_strength} min={0} max={100} suffix="%" onChange={v => setDiscovery("liquid_strength", v)} />
         </div>
       </SettingRow>
-      <SettingRow title={t("文字描边")}><Toggle label={t("文字描边")} value={discovery.text_outline_enabled} onChange={v => setDiscovery("text_outline_enabled", v)} /></SettingRow>
-      {discovery.text_outline_enabled && <SettingRow title={t("描边粗细")} description={t("以14px字号为基准，随字号等比例缩放。") }>
+      <SettingRow title={t("描边粗细")}>
         <NumberField decimal label={t("描边粗细")} value={discovery.text_outline_width} min={.05} max={5} suffix="px" onChange={v => setDiscovery("text_outline_width", v)} />
-      </SettingRow>}
+      </SettingRow>
       {(!discovery.merged || !value.enabled) && <>
         <SettingRow title={t("迷你发现位置")}><Select label={t("迷你发现位置")} value={discovery.side} options={[
           { value: "bottom", label: t("屏幕底部") }, { value: "left", label: t("屏幕左侧") }, { value: "right", label: t("屏幕右侧") },

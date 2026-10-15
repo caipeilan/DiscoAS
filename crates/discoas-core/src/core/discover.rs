@@ -9,6 +9,7 @@ use crate::{
     settings::music_setting::{MusicSetting, PlaylistAlbum},
     storage::LibraryStore,
 };
+use rand::seq::SliceRandom;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -69,30 +70,15 @@ pub fn select_batch_weighted(
     } else {
         0
     };
-    let eligible = Playlist {
-        platform: playlist.platform.clone(),
-        playlist_type: playlist.playlist_type,
-        playlist_id: playlist.playlist_id.clone(),
-        playlist_album_name: playlist.playlist_album_name.clone(),
-        song_ids: playlist
-            .song_ids
-            .iter()
-            .filter(|id| !excluded_song_ids.contains(*id))
-            .cloned()
-            .collect(),
-    };
+    let eligible = playlist.eligible_song_ids(excluded_song_ids);
     let picked = if weights.is_empty() {
-        eligible.get_random_song(normal_count + mystery_count)
+        eligible
+            .choose_multiple(&mut rand::thread_rng(), normal_count + mystery_count)
+            .map(|id| (*id).to_owned())
+            .collect()
     } else {
-        let mut seen = HashSet::new();
-        let ids: Vec<_> = eligible
-            .song_ids
-            .iter()
-            .filter(|id| !id.is_empty() && seen.insert((*id).clone()))
-            .cloned()
-            .collect();
         select_weighted_ids(
-            ids,
+            &eligible,
             normal_count + mystery_count,
             weights,
             &mut rand::thread_rng(),
@@ -123,27 +109,36 @@ pub fn select_batch_weighted(
 }
 
 fn select_weighted_ids(
-    mut ids: Vec<String>,
+    ids: &[&str],
     count: usize,
     weights: &HashMap<String, f64>,
     rng: &mut impl rand::Rng,
 ) -> AppResult<Vec<String>> {
     use rand::distributions::{Distribution, WeightedIndex};
-    let mut picked = Vec::new();
-    for _ in 0..count.min(ids.len()) {
-        // Public callers can supply weights directly. Keep every candidate
-        // selectable even for invalid input, without truncating decimal weights.
-        let distribution = WeightedIndex::new(ids.iter().map(|id| {
-            let weight = weights.get(id).copied().unwrap_or(100.0);
-            if weight.is_finite() {
-                weight.clamp(1.0, 100_000.0)
-            } else {
-                1.0
-            }
-        }))
-        .map_err(|_| AppError::Platform("错误：发现权重设置无效".into()))?;
+    let count = count.min(ids.len());
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    // Public callers can supply weights directly. Keep every candidate
+    // selectable even for invalid input, without truncating decimal weights.
+    let mut distribution = WeightedIndex::new(ids.iter().map(|id| {
+        let weight = weights.get(*id).copied().unwrap_or(100.0);
+        if weight.is_finite() {
+            weight.clamp(1.0, 100_000.0)
+        } else {
+            1.0
+        }
+    }))
+    .map_err(|_| AppError::Platform("错误：发现权重设置无效".into()))?;
+    let mut picked = Vec::with_capacity(count);
+    for pick in 0..count {
         let index = distribution.sample(rng);
-        picked.push(ids.swap_remove(index));
+        picked.push(ids[index].to_owned());
+        if pick + 1 < count {
+            distribution
+                .update_weights(&[(index, &0.0)])
+                .map_err(|_| AppError::Platform("错误：发现权重设置无效".into()))?;
+        }
     }
     Ok(picked)
 }
@@ -261,16 +256,59 @@ async fn load_batch(
 ) -> AppResult<Vec<SongCardDto>> {
     let kind = TypeName::parse(&source.typename)?;
     let playlist = Playlist::from_json(&source.name, kind, &source.playlist_album_id, source_data)?;
-    let selected = select_batch_weighted(
+    let snapshot = format!("{:x}", md5::compute(serde_json::to_vec(source_data)?));
+    load_prepared_batch(
+        source_data,
         &playlist,
+        &snapshot,
+        setting,
+        loader,
+        cache,
+        excluded_song_ids,
+        weights,
+    )
+    .await
+}
+
+pub(crate) async fn load_snapshot_batch(
+    snapshot: &super::source_snapshot::SourceSnapshot,
+    setting: &MusicSetting,
+    cache: &Cache,
+    excluded_song_ids: &HashSet<String>,
+    weights: &HashMap<String, f64>,
+) -> AppResult<Vec<SongCardDto>> {
+    let loader = platforms::detail_loader_for(&snapshot.playlist.platform)?;
+    load_prepared_batch(
+        &snapshot.raw,
+        &snapshot.playlist,
+        &snapshot.fingerprint,
+        setting,
+        loader.as_ref(),
+        Some(cache),
+        excluded_song_ids,
+        weights,
+    )
+    .await
+}
+
+async fn load_prepared_batch(
+    source_data: &Value,
+    playlist: &Playlist,
+    snapshot: &str,
+    setting: &MusicSetting,
+    loader: &dyn SongDetailLoader,
+    cache: Option<&Cache>,
+    excluded_song_ids: &HashSet<String>,
+    weights: &HashMap<String, f64>,
+) -> AppResult<Vec<SongCardDto>> {
+    let selected = select_batch_weighted(
+        playlist,
         setting.number_of_discovered_songs as usize,
         setting.have_mystery_song,
         setting.num_of_mystery_song as usize,
         excluded_song_ids,
         weights,
     )?;
-    // Snapshot identity prevents a refreshed local source from reusing older details.
-    let snapshot = format!("{:x}", md5::compute(serde_json::to_vec(source_data)?));
     if loader.supports_batch_details() {
         let mut details =
             load_batch_canonical_details(source_data, &selected.songs, loader, cache, &snapshot)
@@ -325,6 +363,25 @@ pub async fn load_one_card_cached(
         loader.as_ref(),
         Some(cache),
         &snapshot,
+    )
+    .await
+    .ok_or_else(|| AppError::Platform("歌曲信息不可用".into()))
+}
+
+pub(crate) async fn load_snapshot_card(
+    snapshot: &super::source_snapshot::SourceSnapshot,
+    setting: &MusicSetting,
+    cache: &Cache,
+    song: SongCardDto,
+) -> AppResult<SongCardDto> {
+    let loader = platforms::detail_loader_for(&song.platform)?;
+    load_card(
+        Some(song),
+        &snapshot.raw,
+        setting,
+        loader.as_ref(),
+        Some(cache),
+        &snapshot.fingerprint,
     )
     .await
     .ok_or_else(|| AppError::Platform("歌曲信息不可用".into()))
@@ -867,17 +924,33 @@ mod tests {
         let weights = HashMap::from([("a".into(), 1.25), ("b".into(), 1.75)]);
         let mut a_picks = 0;
         for _ in 0..10_000 {
-            let picked =
-                select_weighted_ids(vec!["a".into(), "b".into()], 1, &weights, &mut rng).unwrap();
+            let picked = select_weighted_ids(&["a", "b"], 1, &weights, &mut rng).unwrap();
             a_picks += usize::from(picked[0] == "a");
         }
         // Expected a share is 1.25 / 3.0, rather than the 1 / 2 produced by
         // truncating both decimals to one. Seeded draws make this repeatable.
         assert!((3_900..4_450).contains(&a_picks), "a draws: {a_picks}");
-        let picked =
-            select_weighted_ids(vec!["a".into(), "b".into()], 15, &weights, &mut rng).unwrap();
+        let picked = select_weighted_ids(&["a", "b"], 15, &weights, &mut rng).unwrap();
         assert_eq!(picked.len(), 2);
         assert_eq!(picked.iter().collect::<HashSet<_>>().len(), 2);
+    }
+
+    #[test]
+    fn later_weighted_draws_use_only_the_remaining_weight() {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(207);
+        let weights = HashMap::from([("a".into(), 1.0), ("b".into(), 2.0), ("c".into(), 7.0)]);
+        let mut second_a = 0;
+        for _ in 0..20_000 {
+            let picked = select_weighted_ids(&["a", "b", "c"], 2, &weights, &mut rng).unwrap();
+            assert_ne!(picked[0], picked[1]);
+            second_a += usize::from(picked[1] == "a");
+        }
+        // P(second=a) = P(first=b) * 1/8 + P(first=c) * 1/3 = 31/120.
+        assert!(
+            (4_800..5_550).contains(&second_a),
+            "second a draws: {second_a}"
+        );
     }
 
     #[test]

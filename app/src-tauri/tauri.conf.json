@@ -69,6 +69,7 @@
     "homepage": "https://github.com/caipeilan/DiscoAS",
     "shortDescription": "Discover a song from your music library",
     "resources": {
+      "../../assets/最伟大的作品.png": "最伟大的作品.png",
       "installer/spicetify/extract.ps1": "spicetify/extract.ps1",
       "installer/spicetify/LICENSE": "spicetify/LICENSE",
       "installer/spicetify/spicetify-2.45.3-windows-x64.zip": "spicetify/spicetify-2.45.3-windows-x64.zip"

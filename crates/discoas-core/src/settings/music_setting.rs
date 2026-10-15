@@ -304,7 +304,6 @@ mod tests {
         edited.discovery_keybindings.up = "ArrowUp".into();
         edited.hand_discovery.enabled = true;
         edited.hand_discovery.text_outline_width = 0.7;
-        edited.hand_discovery.text_outline_enabled = false;
         edited.playlist_albums[0].playlist_album_name = "New name".into();
         edited.playlist_albums[0].playlist_album_remark = "Only a remark".into();
         edited.playlist_albums[0].update_time = "later".into();

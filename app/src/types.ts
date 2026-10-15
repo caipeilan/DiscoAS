@@ -43,8 +43,8 @@ export const defaultHandSettings: HandSettings = {
   shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
   play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
 };
-export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edge_distance" | "position" | "overlap" | "tilt"> { enabled: boolean; merged: boolean; text_outline_enabled: boolean; text_outline_width: number; liquid_strength: number }
-export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, text_outline_enabled: true, text_outline_width: 1, liquid_strength: 100, side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
+export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edge_distance" | "position" | "overlap" | "tilt"> { enabled: boolean; merged: boolean; text_outline_width: number; liquid_strength: number }
+export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, text_outline_width: 1, liquid_strength: 100, side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
 export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean; discovery?: boolean; placeholder?: boolean }
 export interface CollectedHandCard { id: string; discovery: DiscoveryState }
 export interface HandRect { left: number; top: number; width: number; height: number }

@@ -79,6 +79,7 @@
 :root .floating-content .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot[data-preview-hover="true"] .song-card { transform: translateY(calc(-6px * var(--card-scale, 1))); border-color: transparent; }
 @keyframes discovery-card-replacement { from { opacity: .25; scale: .98; } to { opacity: 1; scale: 1; } }
 :root .discovery-body[data-hand-mode] .song-card:disabled { opacity: 1; }
+:root .overlay-opening .discovery-body:not([data-preview="true"]) .song-card:disabled { opacity: 1; }
 .floating-shell.overlay-closing:has(.discovery-body[data-collecting]) {
   opacity: 1; transform: translateY(0); transition: none;
 }

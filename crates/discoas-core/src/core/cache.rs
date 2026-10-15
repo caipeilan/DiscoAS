@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{watch, Mutex, Semaphore, SemaphorePermit};
 
+use super::source_snapshot::SourceSnapshots;
 use crate::model::SongCardDto;
 use crate::platforms::SongDetail;
 
@@ -49,18 +50,35 @@ fn batch_identity(batch: &[SongCardDto]) -> BatchIdentity {
 
 #[derive(Default)]
 struct ImageCache {
-    entries: HashMap<String, (Arc<[u8]>, u64)>,
+    entries: HashMap<String, (Arc<CachedImage>, u64)>,
     bytes: usize,
     clock: u64,
 }
 
+pub(crate) struct CachedImage {
+    pub bytes: Arc<[u8]>,
+    pub data_uri: Option<Arc<str>>,
+}
+impl CachedImage {
+    fn new(bytes: Vec<u8>) -> Arc<Self> {
+        let data_uri = crate::image_cache::data_uri(&bytes).map(Arc::from);
+        Arc::new(Self {
+            bytes: bytes.into(),
+            data_uri,
+        })
+    }
+    fn len(&self) -> usize {
+        self.bytes.len() + self.data_uri.as_ref().map_or(0, |data| data.len())
+    }
+}
+
 impl ImageCache {
-    fn insert(&mut self, url: String, data: Vec<u8>, budget: usize) {
-        if data.len() > budget {
-            return;
-        }
+    fn insert(&mut self, url: String, data: Arc<CachedImage>, budget: usize) {
         if let Some((old, _)) = self.entries.remove(&url) {
             self.bytes -= old.len();
+        }
+        if data.len() > budget {
+            return;
         }
         while self.bytes + data.len() > budget {
             let Some(oldest) = self
@@ -77,10 +95,10 @@ impl ImageCache {
         }
         self.clock = self.clock.wrapping_add(1);
         self.bytes += data.len();
-        self.entries.insert(url, (data.into(), self.clock));
+        self.entries.insert(url, (data, self.clock));
     }
 
-    fn get(&mut self, url: &str) -> Option<Arc<[u8]>> {
+    fn get(&mut self, url: &str) -> Option<Arc<CachedImage>> {
         let (bytes, used) = self.entries.get_mut(url)?;
         self.clock = self.clock.wrapping_add(1);
         *used = self.clock;
@@ -92,6 +110,27 @@ impl ImageCache {
 struct DetailCache {
     entries: HashMap<String, (SongDetail, Instant, u64)>,
     clock: u64,
+}
+
+struct Resources {
+    images: Mutex<ImageCache>,
+    details: Mutex<DetailCache>,
+    detail_requests: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    detail_slots: Semaphore,
+    image_requests: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    sources: SourceSnapshots,
+}
+impl Default for Resources {
+    fn default() -> Self {
+        Self {
+            images: Mutex::new(ImageCache::default()),
+            details: Mutex::new(DetailCache::default()),
+            detail_requests: Mutex::new(HashMap::new()),
+            detail_slots: Semaphore::new(4),
+            image_requests: Mutex::new(HashMap::new()),
+            sources: SourceSnapshots::default(),
+        }
+    }
 }
 
 /// Releasing a worker must not depend on an asynchronous cleanup being polled.
@@ -130,12 +169,7 @@ pub struct Cache {
     /// after cancellation. Separate from the generation of queued preload work.
     current_batch_epoch: AtomicU64,
     batch_metadata_revision: AtomicU64,
-    /// 图片缓存：URL → bytes。对照旧版 `_image_cache`。
-    images: Mutex<ImageCache>,
-    details: Mutex<DetailCache>,
-    detail_requests: Mutex<HashMap<String, Arc<Mutex<()>>>>,
-    detail_slots: Semaphore,
-    image_requests: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    resources: Arc<Resources>,
     /// 歌曲批次缓存。对照旧版 `_cached_song_batches`。
     pub song_batches: Mutex<Vec<Vec<SongCardDto>>>,
     /// 当前正在展示的批次（取消未选歌时插回队头，对照旧版 `self.songs`）。
@@ -157,11 +191,7 @@ impl Default for Cache {
             generation_changes: watch::channel(0).0,
             current_batch_epoch: AtomicU64::new(0),
             batch_metadata_revision: AtomicU64::new(0),
-            images: Mutex::new(ImageCache::default()),
-            details: Mutex::new(DetailCache::default()),
-            detail_requests: Mutex::new(HashMap::new()),
-            detail_slots: Semaphore::new(4),
-            image_requests: Mutex::new(HashMap::new()),
+            resources: Arc::new(Resources::default()),
             song_batches: Mutex::new(Vec::new()),
             current_batch: Mutex::new(None),
             requeued_batch: Mutex::new(None),
@@ -296,10 +326,11 @@ impl Cache {
         Arc::new(Self::default())
     }
 
-    /// Independent batches share the host's persistent-operation lock.
+    /// Independent batches share immutable resources and the persistent-operation lock.
     pub fn independent(parent: &Arc<Self>) -> Arc<Self> {
         Arc::new(Self {
             operation: parent.operation.clone(),
+            resources: parent.resources.clone(),
             ..Self::default()
         })
     }
@@ -490,22 +521,57 @@ impl Cache {
 
     /// 缓存图片。对照旧版 `_image_cache[url] = data`。
     pub async fn cache_image(&self, url: String, data: Vec<u8>) {
-        self.images.lock().await.insert(url, data, IMAGE_BUDGET);
+        self.cache_prepared_image(url, data).await;
+    }
+
+    pub(crate) async fn cache_prepared_image(
+        &self,
+        url: String,
+        data: Vec<u8>,
+    ) -> Arc<CachedImage> {
+        let image = CachedImage::new(data);
+        self.resources
+            .images
+            .lock()
+            .await
+            .insert(url, image.clone(), IMAGE_BUDGET);
+        image
+    }
+
+    pub(crate) async fn get_prepared_image(&self, url: &str) -> Option<Arc<CachedImage>> {
+        self.resources.images.lock().await.get(url)
+    }
+
+    pub(crate) fn source_snapshot(
+        &self,
+        store: &crate::storage::LibraryStore,
+        platform: &str,
+        id: &str,
+        kind: super::playlist::TypeName,
+    ) -> crate::AppResult<Arc<super::source_snapshot::SourceSnapshot>> {
+        self.resources.sources.load(store, platform, id, kind)
+    }
+
+    /// Call after committing an active source refresh; settings keep the parsed source.
+    pub fn invalidate_source_snapshot(&self) {
+        self.resources.sources.clear();
     }
 
     /// 取缓存图片。对照旧版 `_image_cache.get(url)`。
     pub async fn get_image(&self, url: &str) -> Option<Arc<[u8]>> {
-        self.images.lock().await.get(url)
+        self.get_prepared_image(url)
+            .await
+            .map(|image| image.bytes.clone())
     }
 
-    /// URL-byte cache only; batch data URIs and decoded UI images are separate allocations.
+    /// Retained image bytes plus encoded data URIs; UI payloads and decoded images are separate.
     pub async fn image_cache_stats(&self) -> (usize, usize) {
-        let images = self.images.lock().await;
+        let images = self.resources.images.lock().await;
         (images.entries.len(), images.bytes)
     }
 
     pub async fn get_detail(&self, key: &str) -> Option<SongDetail> {
-        let mut details = self.details.lock().await;
+        let mut details = self.resources.details.lock().await;
         details
             .entries
             .retain(|_, (_, created, _)| created.elapsed() < DETAIL_TTL);
@@ -517,7 +583,7 @@ impl Cache {
     }
 
     pub async fn cache_detail(&self, key: String, detail: SongDetail) {
-        let mut details = self.details.lock().await;
+        let mut details = self.resources.details.lock().await;
         details
             .entries
             .retain(|_, (_, created, _)| created.elapsed() < DETAIL_TTL);
@@ -536,20 +602,21 @@ impl Cache {
         details.entries.insert(key, (detail, Instant::now(), clock));
     }
     pub async fn detail_request_lock(&self, key: &str) -> Arc<Mutex<()>> {
-        let mut requests = self.detail_requests.lock().await;
+        let mut requests = self.resources.detail_requests.lock().await;
         if requests.len() > DETAIL_CAPACITY * 2 {
             requests.retain(|_, lock| Arc::strong_count(lock) > 1);
         }
         requests.entry(key.to_string()).or_default().clone()
     }
     pub async fn detail_slot(&self) -> SemaphorePermit<'_> {
-        self.detail_slots
+        self.resources
+            .detail_slots
             .acquire()
             .await
             .expect("detail semaphore is never closed")
     }
     pub async fn image_request_lock(&self, url: &str) -> Arc<Mutex<()>> {
-        let mut requests = self.image_requests.lock().await;
+        let mut requests = self.resources.image_requests.lock().await;
         if requests.len() > 256 {
             requests.retain(|_, lock| Arc::strong_count(lock) > 1);
         }
@@ -726,22 +793,25 @@ mod tests {
     #[test]
     fn image_eviction_retains_recent_items_and_replacement_counts_only_new_bytes() {
         let mut images = ImageCache::default();
-        images.insert("a".into(), vec![1; 4], 12);
-        images.insert("b".into(), vec![2; 4], 12);
-        images.insert("c".into(), vec![3; 4], 12);
+        images.insert("a".into(), CachedImage::new(vec![1; 4]), 12);
+        images.insert("b".into(), CachedImage::new(vec![2; 4]), 12);
+        images.insert("c".into(), CachedImage::new(vec![3; 4]), 12);
         let shared = images.get("a").unwrap();
-        assert_eq!(shared.as_ref(), &[1; 4]);
+        assert_eq!(shared.bytes.as_ref(), &[1; 4]);
         assert!(Arc::ptr_eq(&shared, &images.get("a").unwrap()));
-        images.insert("d".into(), vec![4; 4], 12);
+        images.insert("d".into(), CachedImage::new(vec![4; 4]), 12);
         assert!(images.get("b").is_none());
         assert!(images.get("a").is_some() && images.get("c").is_some());
         assert_eq!(images.bytes, 12);
-        images.insert("a".into(), vec![5; 2], 12);
+        images.insert("a".into(), CachedImage::new(vec![5; 2]), 12);
         assert_eq!(images.bytes, 10);
         assert_eq!(images.entries.len(), 3);
-        images.insert("oversized".into(), vec![0; 13], 12);
+        images.insert("oversized".into(), CachedImage::new(vec![0; 13]), 12);
         assert_eq!(images.bytes, 10);
         assert_eq!(images.entries.len(), 3);
+        images.insert("a".into(), CachedImage::new(vec![0; 13]), 12);
+        assert!(images.get("a").is_none());
+        assert_eq!(images.bytes, 8);
     }
 
     #[tokio::test]
@@ -788,6 +858,7 @@ mod tests {
     #[tokio::test]
     async fn detail_cache_expires_successes_and_has_a_bounded_lru_capacity() {
         let cache = Cache::new();
+        let hand_cache = Cache::independent(&cache);
         let detail = SongDetail {
             name: "cached".into(),
             artist_names: vec![],
@@ -797,12 +868,23 @@ mod tests {
         for index in 0..DETAIL_CAPACITY {
             cache.cache_detail(index.to_string(), detail.clone()).await;
         }
-        assert!(cache.get_detail("0").await.is_some());
+        assert!(hand_cache.get_detail("0").await.is_some());
         cache.cache_detail("new".into(), detail).await;
-        assert_eq!(cache.details.lock().await.entries.len(), DETAIL_CAPACITY);
+        assert_eq!(
+            cache.resources.details.lock().await.entries.len(),
+            DETAIL_CAPACITY
+        );
         assert!(cache.get_detail("1").await.is_none());
-        cache.details.lock().await.entries.get_mut("new").unwrap().1 = Instant::now() - DETAIL_TTL;
-        assert!(cache.get_detail("new").await.is_none());
+        cache
+            .resources
+            .details
+            .lock()
+            .await
+            .entries
+            .get_mut("new")
+            .unwrap()
+            .1 = Instant::now() - DETAIL_TTL;
+        assert!(hand_cache.get_detail("new").await.is_none());
     }
 
     #[tokio::test]
