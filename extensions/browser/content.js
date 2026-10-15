@@ -1,7 +1,7 @@
 (() => {
   const extensionApi = globalThis.browser ?? globalThis.chrome;
   let binding = null, observedVideo = null, tried = false, confirmed = false;
-  let pageActive = true, pageEpoch = 0;
+  let pageActive = true, pageEpoch = 0, pausedByDiscoAS = false;
   // DiscoAS switches by a full tab navigation. A site's later SPA navigation
   // must not let an old media element confirm the requested new URL.
   const loadedIdentity = DiscoASBrowser.identity(location.href);
@@ -18,11 +18,19 @@
   }
   function accept(value) {
     if (!pageActive || !value || value.requestId === binding?.requestId) return;
-    binding = value; confirmed = !!value.confirmed; tried = false;
+    binding = value; confirmed = !!value.confirmed; tried = false; pausedByDiscoAS = false;
     tick();
   }
   async function tick() {
-    if (!pageActive || !binding || confirmed) return;
+    if (!pageActive || !binding || pausedByDiscoAS) return;
+    if (confirmed) {
+      const actual = DiscoASBrowser.identity(location.href), video = mainVideo();
+      if (!actual || !video || inAd() || video.error || video.readyState < 2) return;
+      await send({ type: "discoas-observation", requestId: binding.requestId,
+        playing: !video.paused && !video.ended, ended: video.ended,
+        position: video.currentTime, duration: video.duration });
+      return;
+    }
     const request = binding;
     const epoch = pageEpoch;
     const current = () => pageActive && pageEpoch === epoch && binding === request && !confirmed && (() => {
@@ -40,7 +48,7 @@
     if (!current() || mainVideo() !== video) return;
     if (observedVideo !== video) {
       observedVideo = video;
-      ["playing", "pause", "loadeddata", "error", "ended"].forEach((event) => video.addEventListener(event, tick));
+      ["playing", "pause", "loadeddata", "error", "ended", "timeupdate"].forEach((event) => video.addEventListener(event, tick));
     }
     if (!tried && video.readyState >= 2 && !ad && video.paused && !video.ended) {
       tried = true;
@@ -65,6 +73,7 @@
     if (message.type === "discoas-pause" && pageActive) {
       // Avoid racing an old playing event with navigation to the new request.
       confirmed = true;
+      pausedByDiscoAS = true;
       mainVideo()?.pause();
     }
   });
@@ -77,5 +86,5 @@
     requestBinding();
   });
   requestBinding();
-  setInterval(tick, 750);
+  setInterval(tick, 250);
 })();

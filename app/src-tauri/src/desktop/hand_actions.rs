@@ -141,6 +141,41 @@ pub async fn play_hand_card(
     id: String,
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
+    play_card(&app, id, cache.inner(), None).await
+}
+pub(super) async fn play_automatically(app: &tauri::AppHandle, token: u64) -> Result<(), String> {
+    let cache = app.state::<Arc<Cache>>();
+    let id = {
+        let _operation = cache.operation.lock().await;
+        let automation = app.state::<super::auto_hand::AutoHandService>();
+        if !automation.current(token) {
+            return Ok(());
+        }
+        let settings = MusicSetting::load(app).map_err(|e| e.to_string())?;
+        if !settings.hand.enabled
+            || !settings.hand.auto_play
+            || preview(app)
+            || super::discovery_preview::isolated(app)
+        {
+            automation.empty(token);
+            return Ok(());
+        }
+        let ordinary = store(app)?.load()?;
+        let Some(card) = settings.hand.auto_play_position.pick(&ordinary.cards) else {
+            automation.empty(token);
+            return Ok(());
+        };
+        automation.prepare(token, card.playback_args());
+        card.id.clone()
+    };
+    play_card(app, id, cache.inner(), Some(token)).await
+}
+async fn play_card(
+    app: &tauri::AppHandle,
+    id: String,
+    cache: &Arc<Cache>,
+    automatic: Option<u64>,
+) -> Result<(), String> {
     if preview(&app) || super::discovery_preview::isolated(&app) {
         return Err("错误：预览中不能播放歌曲".into());
     }
@@ -154,6 +189,12 @@ pub async fn play_hand_card(
         discoas_core::platforms::build_scheme_url(&args).map_err(|e| e.to_string())?
     };
     let _operation = cache.operation.lock().await;
+    if automatic.is_some_and(|token| {
+        !app.state::<super::auto_hand::AutoHandService>()
+            .current(token)
+    }) {
+        return Ok(());
+    }
     if preview(&app)
         || !MusicSetting::load(&app)
             .map_err(|e| e.to_string())?
@@ -167,12 +208,17 @@ pub async fn play_hand_card(
         index,
         card: card.clone(),
     });
-    if let Err(error) = super::playback::dispatch(&app, &args, Some(&card.song), url).await {
+    let result = if let Some(token) = automatic {
+        super::playback::dispatch_automatically(app, &args, &card.song, url, token).await
+    } else {
+        super::playback::dispatch(app, &args, Some(&card.song), url).await
+    };
+    if let Err(error) = result {
         clear_pending(&app);
         return Err(error);
     }
     store(&app)?.remove(&id)?;
-    changed(&app, cache.inner()).await?;
+    changed(app, cache).await?;
     Ok(())
 }
 async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {

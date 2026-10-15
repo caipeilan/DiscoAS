@@ -17,6 +17,8 @@ pub struct HandSettings {
     pub reveal_mystery: bool,
     pub resident: bool,
     pub keep_discovery_open: bool,
+    pub auto_play: bool,
+    pub auto_play_position: AutoPlayPosition,
     pub shortcut: String,
     pub play_shortcuts: [String; 9],
     pub side: HandSide,
@@ -35,10 +37,27 @@ pub enum HandSide {
     #[default]
     Bottom,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoPlayPosition {
+    #[default]
+    First,
+    Last,
+}
+impl AutoPlayPosition {
+    pub fn pick<T>(self, cards: &[T]) -> Option<&T> {
+        match self {
+            Self::First => cards.first(),
+            Self::Last => cards.last(),
+        }
+    }
+}
 impl Default for HandSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            auto_play: false,
+            auto_play_position: AutoPlayPosition::First,
             reveal_mystery: false,
             resident: false,
             keep_discovery_open: false,

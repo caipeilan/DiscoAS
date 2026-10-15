@@ -46,6 +46,12 @@ const ICONS: &[(&str, &[u8])] = &[
     ),
 ];
 const FRESH: Duration = Duration::from_secs(30);
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -86,6 +92,10 @@ struct Report {
     rejected: bool,
     error: String,
     waiting_for_ad: bool,
+    observed: bool,
+    ended: bool,
+    position: Option<f64>,
+    duration: Option<f64>,
 }
 #[derive(Default)]
 struct Connection {
@@ -94,6 +104,7 @@ struct Connection {
     seen: Option<Instant>,
     result: Option<(u64, Result<(), String>)>,
     advertisement: Option<(u64, Instant)>,
+    observation: Option<(u64, discoas_core::auto_hand::Observation, Instant)>,
 }
 pub struct Bridge {
     sender: mpsc::Sender<Command>,
@@ -107,6 +118,17 @@ impl Drop for Bridge {
     }
 }
 impl Bridge {
+    pub fn observation(&self, request_id: u64) -> Option<discoas_core::auto_hand::Observation> {
+        let state = self.state.lock().ok()?;
+        if !state.connected {
+            return None;
+        }
+        state
+            .observation
+            .as_ref()
+            .filter(|(id, _, seen)| *id == request_id && seen.elapsed() < Duration::from_secs(3))
+            .map(|(_, value, _)| value.clone())
+    }
     pub fn folder(&self, browser: ExtensionBrowser) -> PathBuf {
         self.extension_path.join(match browser {
             ExtensionBrowser::Chromium => "chromium",
@@ -366,6 +388,7 @@ fn serve(
             if let Ok(mut s) = state.lock() {
                 s.result = None;
                 s.advertisement = None;
+                s.observation = None;
             }
             let Ok(json) = serde_json::to_string(&command) else {
                 return;
@@ -388,6 +411,34 @@ fn serve(
                             && p.request_id == newest.load(Ordering::SeqCst)
                     });
                     if let Some(expected) = matching {
+                        if report.observed
+                            && report.platform == expected.platform
+                            && s.result.as_ref().is_some_and(|(id, result)| {
+                                *id == report.request_id && result.is_ok()
+                            })
+                        {
+                            let progress = report
+                                .position
+                                .zip(report.duration)
+                                .map(|(position, duration)| discoas_core::auto_hand::Progress {
+                                    position,
+                                    duration,
+                                    updated_at: unix_ms(),
+                                })
+                                .filter(|p| p.valid());
+                            s.observation = Some((
+                                report.request_id,
+                                discoas_core::auto_hand::Observation {
+                                    platform: report.platform.clone(),
+                                    identity: report.song_id.clone(),
+                                    signal: discoas_core::auto_hand::Signal::Browser,
+                                    playing: report.playing,
+                                    ended: report.ended,
+                                    progress,
+                                },
+                                last_seen,
+                            ));
+                        }
                         if report.waiting_for_ad {
                             s.advertisement = Some((report.request_id, last_seen));
                         }
@@ -545,6 +596,25 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(20));
             }
             assert_eq!(bridge.outcome(1), Some(Ok(())));
+            socket
+                .send(Message::Text(
+                    serde_json::json!({
+                        "requestId":1,"platform":"YouTube","songId":"abcdefghijk","observed":true,
+                        "playing":true,"position":99.1,"duration":100.0
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .unwrap();
+            for _ in 0..50 {
+                if bridge.observation(1).is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let progress = bridge.observation(1).unwrap().progress.unwrap();
+            assert_eq!(progress.position, 99.1);
+            assert!(bridge.observation(2).is_none());
             assert_eq!(
                 bridge.connected_browser(),
                 Some(if origin.starts_with("moz-extension://") {
@@ -566,6 +636,7 @@ mod tests {
             socket.send(Message::Text("{\"requestId\":1,\"platform\":\"YouTube\",\"songId\":\"abcdefghijk\",\"playing\":true}".into())).unwrap();
             std::thread::sleep(Duration::from_millis(150));
             assert_eq!(bridge.outcome(2), None);
+            assert!(bridge.observation(2).is_none());
             let _ = socket.close(None);
             drop(socket);
             drop(bridge);

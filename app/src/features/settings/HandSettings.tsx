@@ -46,6 +46,17 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
       <SettingRow title={t("进入手牌时揭晓神秘歌曲")}><Toggle label={t("进入手牌时揭晓神秘歌曲")} value={value.reveal_mystery} onChange={(v) => set("reveal_mystery", v)} /></SettingRow>
       <SettingRow title={t("收牌后保留发现界面")}><Toggle label={t("收牌后保留发现界面")} value={value.keep_discovery_open} onChange={(v) => set("keep_discovery_open", v)} /></SettingRow>
       <SettingRow title={t("手牌常驻")}><Toggle label={t("手牌常驻")} value={value.resident} onChange={(v) => set("resident", v)} /></SettingRow>
+      <SettingRow title={t("自动打出手牌（实验）")} description={t("优先读取播放进度，在曲终前自动打出；无法读取进度时检测曲目变化。YouTube／Bilibili 需使用浏览器扩展播放。") }>
+        <Toggle label={t("自动打出手牌（实验）")} value={value.auto_play} onChange={(v) => set("auto_play", v)} />
+      </SettingRow>
+      {value.auto_play && <>
+        <SettingRow title={t("下一首使用")}><Select label={t("下一首使用")} value={value.auto_play_position} options={[
+          { value: "first", label: t("普通手牌的第一张") }, { value: "last", label: t("普通手牌的最后一张") },
+        ]} onChange={(v) => set("auto_play_position", v as HandPreferences["auto_play_position"])} /></SettingRow>
+        <SettingRow title={t("窗口标题后备检测")} description={t("只要是通过原平台方式（随机切歌、选择特定歌曲）进行切歌，都会被DiscoAS强制切换哦")}>
+          <span className="muted">{t("接口不可用时自动启用")}</span>
+        </SettingRow>
+      </>}
       </>}
       <SettingRow title={t("手牌快捷键")}><ShortcutRecorder label={t("手牌快捷键")} value={value.shortcut} onChange={(v) => set("shortcut", v)} /></SettingRow>
       <details className="hand-shortcut-settings">

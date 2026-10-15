@@ -91,6 +91,14 @@
       const actual = identity(sender.url || sender.tab?.url || "");
       if (!actual) return null;
       if (message.type === "discoas-ready") return binding;
+      if (message.type === "discoas-observation" && binding.confirmed && binding.requestId > 0 && message.requestId === binding.requestId) {
+        // The sender's actual URL supplies identity for end/progress and SPA track changes.
+        report({ requestId: binding.requestId, platform: actual.platform, songId: actual.songId,
+          observed: true, playing: message.playing === true, ended: message.ended === true,
+          position: Number.isFinite(message.position) ? message.position : null,
+          duration: Number.isFinite(message.duration) ? message.duration : null });
+        return null;
+      }
       if (message.type !== "discoas-state" || message.requestId !== binding.requestId) return null;
       // URL identity is taken from the browser's sender, not from the webpage payload.
       // Confirmation is latched: a later automatic B must never fail a chosen A.

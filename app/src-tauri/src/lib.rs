@@ -179,6 +179,7 @@ pub fn run() {
         .manage(library::ShortcutRecording::default())
         .manage(desktop::hand::HandState::default())
         .manage(desktop::hand_actions::HandActionsState::default())
+        .manage(desktop::auto_hand::AutoHandService::default())
         .manage(desktop::hand_discovery::HandDiscoveryState::default())
         .manage(desktop::hand_dock::DockState::default())
         .manage(AtomicBool::new(false))
@@ -239,6 +240,7 @@ pub fn run() {
             }
             desktop::tray_menu::create(app.handle())?;
             let hand_app = app.handle().clone();
+            app.state::<desktop::auto_hand::AutoHandService>().start(app.handle(), &setting.hand)?;
             tauri::async_runtime::spawn(async move {
                 let _ = desktop::hand::refresh(&hand_app).await;
             });
@@ -275,6 +277,7 @@ pub fn run() {
                     return;
                 };
                 desktop::hand_actions::playback_result(&playback_app, &payload);
+                playback_app.state::<desktop::auto_hand::AutoHandService>().playback_result(&payload);
                 if payload["success"].as_bool() == Some(false) {
                     if let Some(error) = payload["error"].as_str() {
                         let visible = playback_app.get_webview_window("main").is_some_and(|w| {
@@ -411,6 +414,11 @@ pub fn run() {
             browser_playback::open_browser_extension_folder,
             desktop::updates::check_for_updates
         ])
-        .run(tauri::generate_context!())
-        .expect("DiscoAS 启动失败");
+        .build(tauri::generate_context!())
+        .expect("DiscoAS 启动失败")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                app.state::<desktop::auto_hand::AutoHandService>().stop();
+            }
+        });
 }

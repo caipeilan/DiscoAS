@@ -8,6 +8,24 @@ pub async fn dispatch(
     card: Option<&SongCardDto>,
     url: String,
 ) -> Result<(), String> {
+    dispatch_with_origin(app, args, card, url, None).await
+}
+pub(super) async fn dispatch_automatically(
+    app: &tauri::AppHandle,
+    args: &PlaySongArgs,
+    card: &SongCardDto,
+    url: String,
+    token: u64,
+) -> Result<(), String> {
+    dispatch_with_origin(app, args, Some(card), url, Some(token)).await
+}
+async fn dispatch_with_origin(
+    app: &tauri::AppHandle,
+    args: &PlaySongArgs,
+    card: Option<&SongCardDto>,
+    url: String,
+    automatic: Option<u64>,
+) -> Result<(), String> {
     let options = crate::desktop_preferences::DesktopPreferences::load(app)?;
     let mut card = card.cloned();
     if let Some(card) = &mut card {
@@ -17,6 +35,22 @@ pub async fn dispatch(
         }
         card.mystery_mode = false;
     }
+    let token =
+        app.state::<super::auto_hand::AutoHandService>()
+            .begin(args, card.as_ref(), automatic)?;
+    let result = dispatch_to_platform(app, args, card.as_ref(), url, &options).await;
+    if result.is_err() && automatic.is_none() {
+        app.state::<super::auto_hand::AutoHandService>().fail(token);
+    }
+    result
+}
+async fn dispatch_to_platform(
+    app: &tauri::AppHandle,
+    args: &PlaySongArgs,
+    card: Option<&SongCardDto>,
+    url: String,
+    options: &crate::desktop_preferences::DesktopPreferences,
+) -> Result<(), String> {
     if args.platform == discoas_core::platforms::names::LOCAL {
         crate::client_window::cancel_pending();
         app.state::<crate::spotify_playback::PlaybackService>()
@@ -36,13 +70,7 @@ pub async fn dispatch(
         app.state::<crate::browser_playback::BrowserPlaybackService>()
             .cancel_pending();
         app.state::<crate::spotify_playback::PlaybackService>()
-            .invoke(
-                app.clone(),
-                args,
-                card.as_ref(),
-                url,
-                &options.spotify_playback_mode,
-            )
+            .invoke(app.clone(), args, card, url, &options.spotify_playback_mode)
             .await?;
         crate::client_window::schedule(
             app.clone(),

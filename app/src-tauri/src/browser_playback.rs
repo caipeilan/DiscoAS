@@ -21,6 +21,23 @@ pub struct BrowserBridgeStatus {
     extension_paths: Option<ExtensionPaths>,
 }
 impl BrowserPlaybackService {
+    pub fn observation(&self) -> Option<discoas_core::auto_hand::Observation> {
+        self.bridge
+            .lock()
+            .ok()?
+            .as_ref()?
+            .observation(self.newest.load(Ordering::SeqCst))
+    }
+    pub fn waiting_for_ad(&self) -> bool {
+        self.bridge
+            .lock()
+            .ok()
+            .and_then(|slot| {
+                slot.as_ref()
+                    .map(|b| b.waiting_for_ad(self.newest.load(Ordering::SeqCst)))
+            })
+            .unwrap_or(false)
+    }
     pub fn cancel_pending(&self) {
         self.newest.fetch_add(1, Ordering::SeqCst);
     }

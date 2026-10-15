@@ -356,13 +356,13 @@ test("the runtime listener keeps the response channel alive until its asynchrono
   assert.deepEqual(replies, ["binding"]);
 });
 
-function setupContent({ songId = A, paused = false, ad = false, play = null, preview = false, error = null, namespace = "chromium" } = {}) {
+function setupContent({ songId = A, platform = "YouTube", paused = false, ad = false, play = null, preview = false, error = null, namespace = "chromium" } = {}) {
   const messages = [], handlers = new Map(), intervals = [], ready = deferred();
   const readyQueue = [ready], pageHandlers = new Map();
   const site = { ad };
   let listener;
   const video = {
-    paused, ended: false, readyState: 4, error,
+    paused, ended: false, readyState: 4, error, currentTime: 1, duration: 100,
     playCalls: 0, pauseCalls: 0,
     async play() { this.playCalls++; if (play) return play(this); this.paused = false; },
     pause() { this.pauseCalls++; this.paused = true; },
@@ -372,7 +372,7 @@ function setupContent({ songId = A, paused = false, ad = false, play = null, pre
     },
   };
   const previewVideo = { ...video, paused: false };
-  const location = { href: youtube(songId) };
+  const location = { href: platform === "Bilibili" ? bili(Number(songId.split("_p")[1])) : youtube(songId) };
   const extensionApi = { runtime: {
     sendMessage(message) { messages.push(copy(message)); return message.type === "discoas-ready" ? (readyQueue.shift()?.promise ?? Promise.resolve(null)) : Promise.resolve(null); },
     onMessage: { addListener(callback) { listener = callback; } },
@@ -390,7 +390,7 @@ function setupContent({ songId = A, paused = false, ad = false, play = null, pre
   });
   runInContext(protocolSource, context);
   runInContext(contentSource, context);
-  const binding = (requestId, target = A, confirmed = false) => ({ tabId: 1, requestId, platform: "YouTube", songId: target, confirmed });
+  const binding = (requestId, target = A, confirmed = false) => ({ tabId: 1, requestId, platform, songId: target, confirmed });
   return {
     messages, video, previewVideo, location, intervals, ready, binding, site,
     bind(value) { listener({ type: "discoas-bind", binding: value }); },
@@ -527,6 +527,48 @@ test("Firefox history cache suspends stale play confirmations and restores the l
   await flush();
   assert.equal(f.messages.filter((message) => message.type === "discoas-ready").length, 2);
   assert.deepEqual(f.messages.filter((message) => message.playing).map((message) => message.requestId), [2]);
+});
+
+test("confirmed pages keep reporting progress and ended for both video platforms", async () => {
+  for (const options of [{}, { platform: "Bilibili", songId: "BV1234567890_p2" }]) {
+    const f = setupContent(options);
+    f.ready.resolve(f.binding(1, options.songId ?? A)); await flush();
+    f.video.currentTime = 99.25;
+    await f.event("timeupdate");
+    assert.deepEqual(f.messages.at(-1), { type: "discoas-observation", requestId: 1, playing: true, ended: false, position: 99.25, duration: 100 });
+    f.video.paused = true; f.video.ended = true;
+    await f.event("ended");
+    assert.equal(f.messages.at(-1).ended, true);
+    assert.equal(f.messages.at(-1).playing, false);
+    assert.equal(f.messages.filter(m => m.type === "discoas-state").length, 1);
+  }
+});
+
+test("ad ends and DiscoAS-requested pauses cannot report a playback boundary", async () => {
+  const f = setupContent(); f.ready.resolve(f.binding(1)); await flush();
+  const before = f.messages.length;
+  f.site.ad = true; f.video.ended = true;
+  await f.event("ended"); assert.equal(f.messages.length, before);
+  f.site.ad = false; f.video.ended = false;
+  f.pause(); await f.event("pause"); await f.intervals[0]();
+  assert.equal(f.messages.length, before);
+});
+
+test("observations use the sender URL and ignore old requests, frames and other tabs", async () => {
+  const f = setup(); await f.request(1, A); const id = f.stored().tabId;
+  await f.player.handle({ type: "discoas-state", requestId: 1, playing: true }, f.sender(id));
+  const observe = { type: "discoas-observation", requestId: 1, playing: true, ended: false, position: 99, duration: 100 };
+  await f.player.handle(observe, f.sender(id));
+  assert.equal(f.reports.at(-1).songId, A);
+  f.pages.get(id).url = youtube(B);
+  await f.player.handle({ ...observe, songId: A }, f.sender(id));
+  assert.equal(f.reports.at(-1).songId, B);
+  const count = f.reports.length;
+  await f.player.handle(observe, f.sender(id, youtube(A), 2));
+  await f.player.handle(observe, f.sender(id + 10, youtube(A)));
+  await f.request(2, C);
+  await f.player.handle(observe, f.sender(id, youtube(A)));
+  assert.equal(f.reports.length, count);
 });
 
 test("browser manifests use compatible background contexts and the exact application Logo", () => {

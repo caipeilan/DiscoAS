@@ -21,7 +21,7 @@ pub(crate) fn cancel_pending() {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Client {
+pub(crate) enum Client {
     Netease,
     Qq,
     Kugou,
@@ -31,7 +31,7 @@ enum Client {
 }
 
 impl Client {
-    fn from_platform(platform: &str) -> Option<Self> {
+    pub(crate) fn from_platform(platform: &str) -> Option<Self> {
         Some(match platform {
             names::NETEASE => Self::Netease,
             names::QQ => Self::Qq,
@@ -54,7 +54,7 @@ impl Client {
         }
     }
 
-    fn matches_image(self, image: &str) -> bool {
+    pub(crate) fn matches_image(self, image: &str) -> bool {
         let Some(name) = image.rsplit(['\\', '/']).next() else {
             return false;
         };
@@ -68,6 +68,14 @@ impl Client {
         };
         executables.iter().any(|exe| name.eq_ignore_ascii_case(exe))
     }
+}
+
+pub(crate) fn window_title(platform: &str) -> Option<String> {
+    windows::read_title(Client::from_platform(platform)?)
+}
+pub(crate) fn process_image(pid: u32) -> Option<String> { windows::image_for_pid(pid) }
+pub(crate) fn client_image(platform: &str) -> Option<String> {
+    windows::main_image(Client::from_platform(platform)?)
 }
 
 #[derive(Clone, Serialize)]
@@ -151,7 +159,7 @@ mod windows {
             OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
         },
         UI::WindowsAndMessaging::{
-            EnumWindows, GetClassNameW, GetWindow, GetWindowLongPtrW, GetWindowRect,
+            EnumWindows, GetClassNameW, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
             GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, ShowWindowAsync,
             GWL_EXSTYLE, GWL_STYLE, GW_OWNER, SW_MINIMIZE, WS_CHILD, WS_EX_TOOLWINDOW,
             WS_MINIMIZEBOX,
@@ -181,7 +189,7 @@ mod windows {
         minimized: bool,
     }
 
-    fn image_for_pid(pid: u32) -> Option<String> {
+    pub(super) fn image_for_pid(pid: u32) -> Option<String> {
         if pid == 0 || pid == std::process::id() {
             return None;
         }
@@ -274,6 +282,15 @@ mod windows {
         // Prefer standard minimizable main windows; custom frameless clients
         // still work when they are the sole main window. No title is read.
         choose_main(context.windows)
+    }
+
+    pub(super) fn main_image(client: Client) -> Option<String> { Some(find_main(client)?.image) }
+    pub(super) fn read_title(client: Client) -> Option<String> {
+        let window = find_main(client)?;
+        let mut title = vec![0u16; 4096];
+        // SAFETY: the selected HWND belongs to the verified client; Win32 bounds the write.
+        let length = unsafe { GetWindowTextW(window.hwnd as HWND, title.as_mut_ptr(), title.len() as i32) };
+        (length > 0).then(|| String::from_utf16_lossy(&title[..length as usize]))
     }
 
     fn choose_main(mut windows: Vec<Window>) -> Option<Window> {
