@@ -3,6 +3,23 @@ use crate::settings::{gui_setting::GuiSetting, music_setting::MusicSetting};
 use discoas_core::settings::discovery_keybindings::DiscoveryKeybindings;
 use std::path::Path;
 
+/// Run before the first settings load at startup; preserve every other stored field.
+pub fn disable_unavailable_auto_play(path: &Path) -> Result<bool, String> {
+    if discoas_core::hand::AUTO_PLAY_AVAILABLE || !path.exists() {
+        return Ok(false);
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    if stored["hand"]["auto_play"].as_bool() != Some(true) {
+        return Ok(false);
+    }
+    stored["hand"]["auto_play"] = false.into();
+    let bytes = serde_json::to_vec_pretty(&stored).map_err(|e| e.to_string())?;
+    discoas_core::platforms::storage::atomic_write(path, &bytes).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindings, String> {
     let keybindings = setting.discovery_keybindings.normalized()?;
     if setting.history_limit > 10000 {
@@ -60,6 +77,41 @@ pub fn save_gui_preferences(path: &Path, mut settings: GuiSetting) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_disables_old_auto_play_once_and_preserves_other_fields() {
+        let path = std::env::temp_dir().join(format!(
+            "discoas-retired-auto-play-{}.json",
+            rand::random::<u64>()
+        ));
+        let mut original = serde_json::json!({
+            "hand": {"enabled": true, "auto_play": true, "auto_play_position": "last", "extra": "keep"},
+            "playlist_albums": [{"name": "QQMusic", "enabled": true}],
+            "other": {"keep": [1, 2, 3]}
+        });
+        std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+        assert!(disable_unavailable_auto_play(&path).unwrap());
+        original["hand"]["auto_play"] = false.into();
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            original
+        );
+        assert!(!disable_unavailable_auto_play(&path).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stale_preferences_cannot_enable_unavailable_auto_play() {
+        let current = MusicSetting::default();
+        let mut draft = current.clone();
+        draft.hand.enabled = true;
+        draft.hand.auto_play = true;
+        let prepared = prepare_music_preferences(&current, draft).unwrap();
+        assert!(prepared.hand.enabled);
+        assert!(!prepared.hand.auto_play);
+    }
     #[test]
     fn preferences_cannot_disable_all_songs() {
         let mut s = MusicSetting::default();

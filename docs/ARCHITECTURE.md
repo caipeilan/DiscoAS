@@ -27,7 +27,7 @@
 | 历史记录、近期排除、固定记录保留与加权 | `crates/discoas-core/src/history.rs`、`weighting.rs`、`discovery_service.rs`；前端 `app/src/features/history/`、`app/src/features/settings/WeightingSettings.tsx`、`weightingCalculator.ts` |
 | 单卡替换、每批预算、状态 DTO 与信息条 | `crates/discoas-core/src/model.rs`、`discovery_service.rs`、`core/cache.rs`；前端 `app/src/features/discovery/` |
 | 手牌保存、收牌、持有排除与打出 | `crates/discoas-core/src/hand.rs`、`discovery_service.rs`；桌面 `app/src-tauri/src/desktop/hand.rs`、`playback.rs`；前端 `app/src/features/hand/`、`features/settings/HandSettings.tsx` |
-| 自动打出手牌（实验） | 核心 `auto_hand.rs` 的观察状态、去重与提前量；桌面 `desktop/auto_hand.rs`、`auto_hand_native.rs`；普通手牌 `hand_actions.rs` 与共用 `playback.rs`；网页 `services/browser_bridge.rs`、`extensions/browser/` |
+| 自动打出手牌（已隐藏停用，保留代码） | 核心 `auto_hand.rs` 的观察状态、去重与提前量；桌面 `desktop/auto_hand.rs`、`auto_hand_native.rs`；普通手牌 `hand_actions.rs` 与共用 `playback.rs`；网页 `services/browser_bridge.rs`、`extensions/browser/` |
 | 迷你发现 | `HandDiscoverySettings`、`DiscoveryService::for_hand`、`Cache::independent`；桌面 `desktop/hand_discovery.rs`；共享手牌窗口、Logo 浮窗和设置预览 |
 | 穿透尺寸预览、原生指针和按键观察 | `app/src-tauri/src/desktop/discovery_preview.rs`、`preview_keyboard.rs`；前端 `app/src/features/settings/useDiscoveryPreview.ts`、`app/src/features/discovery/` |
 | 导入进度、取消与网络任务提交 | `platforms::PlaylistFetcher::fetch_with_progress`、`app/src-tauri/src/services/library_jobs.rs`、`desktop/library.rs` |
@@ -76,6 +76,8 @@
 当前来源的 JSON、歌曲 ID 视图与内容指纹由 `core/source_snapshot.rs` 按完整路径、文件长度、修改和创建时间复用，只保留一个当前来源。文件版本变化时重建，当前来源导入或更新提交成功后主动清除该快照；抽歌设置变化保留来源快照。已捕获的只读快照可继续完成在途准备，提交仍检查原有 epoch / generation。主发现与迷你发现通过 `Cache::independent` 共用来源、成功详情、封面及请求锁和四个详情并发额度；批次、替换预算和预加载取消各自独立。封面字节与 Base64 结果一起缓存，共享预算为 32 MiB，发送给前端的载荷和解码图像另占内存。
 
 详情缓存只保存成功结果，临时 HTTP 错误最多重试一次，间隔 250 毫秒；访问限制、来源不存在、限流与无效平台数据不自动重试。网易云通过可选的 `SongDetailLoader` 批量入口合并同批缺失详情，按 ID 映射响应，保留单曲兼容入口。批量请求按缓存标识排序取得单曲锁，等待后重查成功缓存，再占用全局详情额度；不得反向取得锁。失败详情不进入预加载队列，当前失败卡片在再次打开时按原身份修复，不重抽或重复推进历史轮次。预加载任务通过 generation watch 取消过期准备；`PreloadGuard` 在取消或退出时释放运行标记，不能仅在正常返回路径清理。
+
+酷我、汽水及 YouTube / Bilibili 的本地详情复用同一批量入口。`public_music::find_tracks` 一次遍历当前 `tracks_info`，只保留请求的行，重复 ID 沿用第一行；逐曲缺失或损坏仍单独返回错误，不影响同批其它歌曲。单曲入口与批量入口共用各平台的详情组装；缓存身份、请求锁、神秘投影和来源失效规则不变。
 
 历史固定保留最多 10,000 个平台 / 歌曲身份，兼容字段 `history_limit` 仅表示近期排除上限，范围 0–10,000；调整排除上限不裁掉历史。选择 / 入选模式按同平台最近符合状态的歌曲排除，排除后为零按无歌曲处理，不自动放宽。历史与加权的轮次、歌曲事件一同存入 `history/discovery_history.json`，由 `HistoryStore` 原子写入一次；`WeightStore` 只读取同一快照。删除、清空或修改状态必须同时更新对应权重事件，验证或写入失败不得出现部分更新。固定保留上限同时约束加权身份，避免另一份状态无限增长。
 
@@ -132,6 +134,8 @@ Windows 预览让卡片和背景穿透；右上退出按钮是唯一临时接受
 `MusicSetting.hand` 缺失时使用关闭、底部、10 张、非驻留、Alt+H、不揭晓神秘信息的默认值。发现确认在开启模式时调用 `collect_hand_card`，验证当前完整身份和批次 epoch，写入 `HandStore` 并记录一次选择，返回手牌 ID 与发现状态。默认先淡出其余发现内容，保留选中卡片，过渡完成后调用 `show_collected_hand_card`。手牌窗口先将收牌动画暂停在来源位置，解码封面并显示；下一帧通过 `hand_arrival_ready` 确认接住卡片，再隐藏发现浮窗并继续收牌动画。该确认只作用于对应 generation，收纳或关闭会结束等待。开启 `keep_discovery_open` 后直接收牌，只移走选中的卡片，保留本轮历史和替换预算。手牌满额不消费当前卡片。
 
 `hand/cards.json` 保存独立身份、原平台播放参数和真实元数据，不存封面 data URI；前端投影按收牌时的揭晓选项隐藏信息。切换或删除来源、重新启动或关闭模式均保留手牌。持有身份按平台 / 歌曲排除发现和替补，收牌使旧预加载准备失效；打出和弃牌重新计算持有集合。历史排除继续独立生效。打出通过共用 `desktop/playback.rs` 唤起客户端，不再记录选择或重复减权。明确播放失败将卡片放回原位置；普通协议的唤起成功沿用现有播放接口含义。
+
+自动打出手牌现已对全部平台关闭，设置中的开关、首／末张和检测方式整组隐藏。Rust 与前端的 AUTO_PLAY_AVAILABLE 固定为 false；启动时 services/preferences.rs 只将旧 JSON 中 hand.auto_play=true 原子写回 false，其它字段保留。设置加载、保存及旧草稿提交统一归为关闭，AutoHandService 不启动观察线程，直接构造的开启设置也不能启用它。普通手动打出沿用原流程。以下保留实现说明，供后续恢复代码时参考。
 
 2.0.8 的 `hand.auto_play` 默认为关闭，仅在普通手牌开启时工作；`auto_play_position` 为 `first` / `last`，读取已保存的普通手牌顺序，合并布局中的迷你发现不参与选择。Spotify 暂停适用自动打出：启用 Spotify 来源时停止观察线程的轮询，保留用户已保存的开关；手动切入 Spotify 清除原有自动请求，Spotify 的播放变化不触发自动出牌。首／末张为 Spotify 时保留该牌并消费本次信号，不跳过选牌顺序，仍可手动打出。`auto_play_detection` 为 `system` / `window` / `mixed`，旧配置默认 `mixed`。网易云、QQ、酷狗可选三种方式；酷我仅窗口名，汽水、网页和本地仅系统接口。设置页禁用当前启用歌单平台不适用的选项，保存设置和切换来源时也按同一规则纠正选择。QQ、汽水的有效进度用于曲终前切歌，初始提前约 1 秒，随后按本次运行中请求到新曲确认的延迟调整，范围 0.5–4 秒；网易云、酷狗在当前客户端只提供曲目变化。暂停不触发，重复曲目通知不连续出牌。原平台直接切歌同样触发自动打出。启动或重新开启后先建立当前播放基线，空手牌消费当前信号但不反复重试。
 
@@ -190,6 +194,8 @@ Logo 的矢量源为根 `assets/DiscoAS.svg`：黄、蓝、红从左至右叠放
 设置标题和保存按钮使用 `.settings-topbar` 固定在主内容滚动区域顶部，sticky inset 抵消主内容响应式顶部内距；日夜、字号和界面缩放共用原外观状态。顶栏层级低于 body 帮助浮层，不应用页面进入的位移动画。更改顶栏时应核验滚到本地数据仍可见且可保存，不能在顶栏上方露出正文。
 
 浏览器扩展按 `ExtensionBrowser` 导出 Chromium / Firefox 清单，`export_browser_extension` 和 `open_browser_extension_folder` 的 browser 参数可省略，默认 Chromium。Firefox 115+ 使用持久模块后台，Chromium 116+ 使用 MV3 worker，共用绑定页、自动续播和请求隔离。DTO 保留旧 `extensionPath`，新增 `extensionPaths` 和经过认证的 `connectedBrowser`；UI 的浏览器选择只决定准备目录与教程，不能误将另一浏览器的连接显示为已连接。Firefox Origin 是严格 UUID，仍需私有 token；Logo 图像与主程序字节相同，旧 Chromium 根目录保持兼容。
+
+浏览器扩展 0.4.1 的 `content.js` 保留进度观察实现，`AUTO_PLAY_AVAILABLE=false`。只在等待手动选歌的播放确认时启动 250ms 检查；确认成功、暂停旧页或页面挂起后清除定时器并解除视频监听。新请求重新等待确认；已确认绑定恢复时不启动检查。应用更新后，已有扩展需重新准备、重载并刷新播放页，才能获得这项扩展侧优化。
 
 Spicetify 私有配置与状态必须分开：移除子进程 SPICETIFY_STATE，使用应用私有 APPDATA 生成 Backup / Extracted，并明确真实 Spotify / prefs 路径；不能改变全局环境或盲目使用真实 APPDATA 的全局配置。既有全局安装保留原状态。旧混放和会触发上游迁移的目录阻止配置，保留原文件；没有干净备份时不得备份已修改的客户端。工具退出成功后还需核对扩展注册和注入字节，再报告 ready。
 
@@ -252,7 +258,7 @@ npm run tauri dev
 | 托盘、更新、安装器 | 按修改选择 `test:tray`、`test:updates`、`test:installer` |
 | 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
 | Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |
-| 自动打出手牌 | 核心 `cargo test --offline auto_hand::`；桌面 `auto_hand_native` 与 `services::browser_bridge`；`test:browser`、`test:preferences`；真实客户端曲终前切歌、首／末张、窗口静音恢复、失败回牌与自身切歌屏蔽 |
+| 自动打出手牌停用 | 核心音乐设置加载／保存与保留策略测试；桌面 `services::preferences`、`desktop::auto_hand`、`services::browser_bridge`；`test:browser`、`test:preferences`；Windows 独立旧配置启动迁移及整组设置隐藏 |
 
 `test:hand` 组合手牌布局、动画与区域提交测试。`test:preferences` 包含分组保存、部分失败与迟到快照合并。主窗口自绘控制单独验证最小化、最大化／还原、拖动、边缘缩放和关闭收至托盘；原生窗口改动核验任务栏、显示缩放、焦点与透明区域穿透。性能对比只覆盖被改动的交互和静止状态。完整交付前编译 Windows NSIS 安装包，复用已经完成的相关检查。
 

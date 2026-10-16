@@ -150,7 +150,7 @@ pub struct SongDetail {
 /// 网易云/QQ 走网络 API，其余平台读取当前来源快照。
 #[async_trait::async_trait]
 pub trait SongDetailLoader: Send + Sync {
-    /// Opt in only when the platform can fetch a whole group with one request.
+    /// Opt in when one request or snapshot pass can read a whole group.
     fn supports_batch_details(&self) -> bool {
         false
     }

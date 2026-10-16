@@ -257,6 +257,9 @@ impl MusicSetting {
     }
 
     pub fn normalize_preferences(&mut self) {
+        if !crate::hand::AUTO_PLAY_AVAILABLE {
+            self.hand.auto_play = false;
+        }
         if let Some(source) = self.playlist_albums.iter().find(|source| source.enabled) {
             self.hand.auto_play_detection =
                 self.hand.auto_play_detection.for_platform(&source.name);
@@ -293,6 +296,34 @@ fn load_from_path(path: &Path) -> AppResult<MusicSetting> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unavailable_auto_play_is_disabled_on_load_and_save() {
+        let path = std::env::temp_dir().join(format!(
+            "discoas-auto-play-disabled-{}.json",
+            rand::random::<u64>()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"hand":{"enabled":true,"auto_play":true,"auto_play_position":"last"}}"#,
+        )
+        .unwrap();
+        let mut settings = MusicSetting::load_from_path(&path).unwrap();
+        assert!(settings.hand.enabled);
+        assert!(!settings.hand.auto_play);
+        assert_eq!(
+            settings.hand.auto_play_position,
+            crate::hand::AutoPlayPosition::Last
+        );
+        settings.hand.auto_play = true;
+        settings.save_to_path(&path).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["hand"]["auto_play"], false);
+        assert_eq!(saved["hand"]["enabled"], true);
+        assert_eq!(saved["hand"]["auto_play_position"], "last");
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn discovery_configuration_ignores_bindings_and_source_metadata_but_keeps_behavior_fields() {

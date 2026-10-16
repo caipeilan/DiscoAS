@@ -74,6 +74,28 @@ pub(super) fn snapshot(
 pub struct VideoDetailLoader;
 #[async_trait::async_trait]
 impl SongDetailLoader for VideoDetailLoader {
+    fn supports_batch_details(&self) -> bool {
+        true
+    }
+
+    async fn load_batch_details(
+        &self,
+        source: &Value,
+        song_ids: &[String],
+    ) -> AppResult<std::collections::HashMap<String, AppResult<SongDetail>>> {
+        let tracks = super::public_music::find_tracks(source, song_ids);
+        Ok(song_ids
+            .iter()
+            .map(|id| {
+                let detail = tracks
+                    .get(id.as_str())
+                    .ok_or_else(|| error("本地视频信息缺失，请更新所属来源"))
+                    .and_then(|track| detail_from_track(track, false, ""));
+                (id.clone(), detail)
+            })
+            .collect())
+    }
+
     async fn load_song_detail(
         &self,
         source: &Value,
@@ -85,36 +107,44 @@ impl SongDetailLoader for VideoDetailLoader {
             .as_array()
             .and_then(|tracks| tracks.iter().find(|v| v["id"].as_str() == Some(song_id)))
             .ok_or_else(|| error("本地视频信息缺失，请更新所属来源"))?;
-        let title = track["name"]
-            .as_str()
-            .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| error("本地视频信息不完整"))?;
-        let authors: Vec<String> = track["artists"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect();
-        Ok(SongDetail {
-            name: if mystery_mode {
-                "???".into()
-            } else {
-                title.into()
-            },
-            artist_names: if mystery_mode {
-                vec!["???".into()]
-            } else {
-                authors.clone()
-            },
-            album_pic_url: if mystery_mode {
-                mystery_pic_url.into()
-            } else {
-                track["cover_url"].as_str().unwrap_or("").into()
-            },
-            real_window_name: super::build_window_name(title, &authors),
-        })
+        detail_from_track(track, mystery_mode, mystery_pic_url)
     }
+}
+
+fn detail_from_track(
+    track: &Value,
+    mystery_mode: bool,
+    mystery_pic_url: &str,
+) -> AppResult<SongDetail> {
+    let title = track["name"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| error("本地视频信息不完整"))?;
+    let authors: Vec<String> = track["artists"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    Ok(SongDetail {
+        name: if mystery_mode {
+            "???".into()
+        } else {
+            title.into()
+        },
+        artist_names: if mystery_mode {
+            vec!["???".into()]
+        } else {
+            authors.clone()
+        },
+        album_pic_url: if mystery_mode {
+            mystery_pic_url.into()
+        } else {
+            track["cover_url"].as_str().unwrap_or("").into()
+        },
+        real_window_name: super::build_window_name(title, &authors),
+    })
 }
 
 #[cfg(test)]

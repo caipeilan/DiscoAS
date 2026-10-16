@@ -2,7 +2,7 @@
 use super::auto_hand_native::{self as native, TemporaryMute};
 use discoas_core::{
     auto_hand::{supports_platform, track_title, AutoHand, Event, Target},
-    hand::AutoDetectionMode,
+    hand::{AutoDetectionMode, AUTO_PLAY_AVAILABLE},
     model::{PlaySongArgs, SongCardDto},
     settings::music_setting::MusicSetting,
 };
@@ -34,6 +34,9 @@ pub struct AutoHandService {
 impl AutoHandService {
     pub fn start(&self, app: &tauri::AppHandle, settings: &MusicSetting) -> Result<(), String> {
         self.configure(settings);
+        if !AUTO_PLAY_AVAILABLE {
+            return Ok(());
+        }
         let runtime = self.runtime.clone();
         let enabled = self.enabled.clone();
         let stopped = self.stopped.clone();
@@ -234,8 +237,10 @@ impl AutoHandService {
             .iter()
             .find(|s| s.enabled)
             .map(|s| s.name.clone());
-        let enabled =
-            hand.enabled && hand.auto_play && source.as_deref().is_none_or(supports_platform);
+        let enabled = AUTO_PLAY_AVAILABLE
+            && hand.enabled
+            && hand.auto_play
+            && source.as_deref().is_none_or(supports_platform);
         self.enabled.store(enabled, Ordering::Release);
         let mut runtime = self.runtime.lock().unwrap();
         if runtime.mode != hand.auto_play_detection || runtime.source != source {
@@ -367,7 +372,7 @@ mod tests {
     use discoas_core::{platforms::names, settings::music_setting::PlaylistAlbum};
 
     #[test]
-    fn spotify_source_disables_worker_without_changing_the_saved_preference() {
+    fn unavailable_auto_play_stays_disabled_for_every_source_and_detection_mode() {
         let service = AutoHandService::default();
         let mut settings = MusicSetting::default();
         settings.hand.enabled = true;
@@ -381,13 +386,29 @@ mod tests {
             playlist_album_remark: String::new(),
             update_time: String::new(),
         });
-        service.configure(&settings);
-        assert!(!service.enabled.load(Ordering::Acquire));
-        assert!(!service.runtime.lock().unwrap().policy.enabled());
-        assert!(settings.hand.auto_play);
-        settings.playlist_albums[0].name = names::QISHUI.into();
-        service.configure(&settings);
-        assert!(service.enabled.load(Ordering::Acquire));
-        assert!(service.runtime.lock().unwrap().policy.enabled());
+        for platform in [
+            names::SPOTIFY,
+            names::NETEASE,
+            names::QQ,
+            names::KUGOU,
+            names::KUWO,
+            names::QISHUI,
+            names::YOUTUBE,
+            names::BILIBILI,
+            names::LOCAL,
+        ] {
+            settings.playlist_albums[0].name = platform.into();
+            for mode in [
+                AutoDetectionMode::System,
+                AutoDetectionMode::Window,
+                AutoDetectionMode::Mixed,
+            ] {
+                settings.hand.auto_play_detection = mode;
+                service.configure(&settings);
+                assert!(!service.enabled.load(Ordering::Acquire));
+                assert!(!service.runtime.lock().unwrap().policy.enabled());
+                assert!(service.worker.lock().unwrap().is_none());
+            }
+        }
     }
 }

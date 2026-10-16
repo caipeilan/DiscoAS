@@ -187,6 +187,9 @@ pub fn run() {
         .manage(StartupShowMain(AtomicBool::new(true)))
         .setup(|app| {
             paths::init_user_data_dirs(app.handle())?;
+            services::preferences::disable_unavailable_auto_play(
+                &paths::music_setting_path(app.handle())?,
+            )?;
             let setting = settings::music_setting::MusicSetting::load(app.handle())?;
             let (options, preferences_warning) =
                 desktop_preferences::DesktopPreferences::load_with_warning(app.handle())?;

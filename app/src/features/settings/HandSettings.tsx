@@ -6,7 +6,7 @@ import { Select } from "../../components/Select";
 import { ShortcutRecorder } from "../../ShortcutRecorder";
 import { call, onDesktopEvent } from "../../services/desktop";
 import { t, errorText } from "../../i18n";
-import { detectionForPlatform, supportsAutoPlay, supportsDetection } from "./autoHandDetection";
+import { AUTO_PLAY_AVAILABLE, detectionForPlatform, supportsAutoPlay, supportsDetection } from "./autoHandDetection";
 
 export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { settings: Preferences; gui: GuiSettings; onChange: (value: HandPreferences) => void; onDiscoveryChange: (value: HandDiscoverySettings) => void }) {
   const value = settings.hand;
@@ -14,7 +14,7 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
   const autoPlaySupported = supportsAutoPlay(platform);
   const detection = detectionForPlatform(platform, value.auto_play_detection);
   useEffect(() => {
-    if (value.auto_play_detection !== detection) onChange({ ...value, auto_play_detection: detection });
+    if (AUTO_PLAY_AVAILABLE && value.auto_play_detection !== detection) onChange({ ...value, auto_play_detection: detection });
   }, [value, detection, onChange]);
   const discovery = settings.hand_discovery;
   const setDiscovery = <K extends keyof HandDiscoverySettings>(key: K, next: HandDiscoverySettings[K]) => onDiscoveryChange({ ...discovery, [key]: next });
@@ -53,6 +53,7 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
       <SettingRow title={t("进入手牌时揭晓神秘歌曲")}><Toggle label={t("进入手牌时揭晓神秘歌曲")} value={value.reveal_mystery} onChange={(v) => set("reveal_mystery", v)} /></SettingRow>
       <SettingRow title={t("收牌后保留发现界面")}><Toggle label={t("收牌后保留发现界面")} value={value.keep_discovery_open} onChange={(v) => set("keep_discovery_open", v)} /></SettingRow>
       <SettingRow title={t("手牌常驻")}><Toggle label={t("手牌常驻")} value={value.resident} onChange={(v) => set("resident", v)} /></SettingRow>
+      {AUTO_PLAY_AVAILABLE && <>
       <SettingRow title={t("自动打出手牌（实验）")}>
         {autoPlaySupported
           ? <Toggle label={t("自动打出手牌（实验）")} value={value.auto_play} onChange={(v) => set("auto_play", v)} />
@@ -68,6 +69,7 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
           ] as const).map(([mode, label]) => ({ value: mode, label: t(label), disabled: !supportsDetection(platform, mode) }))}
             onChange={v => set("auto_play_detection", v as HandPreferences["auto_play_detection"])} />
         </SettingRow>
+      </>}
       </>}
       </>}
       <SettingRow title={t("手牌快捷键")}><ShortcutRecorder label={t("手牌快捷键")} value={value.shortcut} onChange={(v) => set("shortcut", v)} /></SettingRow>

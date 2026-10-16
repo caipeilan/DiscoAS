@@ -376,8 +376,9 @@ test("the runtime listener keeps the response channel alive until its asynchrono
   assert.deepEqual(replies, ["binding"]);
 });
 
-function setupContent({ songId = A, platform = "YouTube", paused = false, ad = false, play = null, preview = false, error = null, namespace = "chromium" } = {}) {
+function setupContent({ songId = A, platform = "YouTube", paused = false, ad = false, play = null, preview = false, error = null, namespace = "chromium", autoPlay = false } = {}) {
   const messages = [], handlers = new Map(), intervals = [], ready = deferred();
+  const activeIntervals = new Map(), queries = { count: 0 };
   const readyQueue = [ready], pageHandlers = new Map();
   const site = { ad };
   let listener;
@@ -390,6 +391,9 @@ function setupContent({ songId = A, platform = "YouTube", paused = false, ad = f
       if (!handlers.has(type)) handlers.set(type, []);
       handlers.get(type).push(callback);
     },
+    removeEventListener(type, callback) {
+      handlers.set(type, (handlers.get(type) || []).filter((value) => value !== callback));
+    },
   };
   const previewVideo = { ...video, paused: false };
   const location = { href: platform === "Bilibili" ? bili(Number(songId.split("_p")[1])) : youtube(songId) };
@@ -401,18 +405,20 @@ function setupContent({ songId = A, platform = "YouTube", paused = false, ad = f
     URL, location,
     window: { addEventListener(type, callback) { pageHandlers.set(type, callback); } },
     document: { querySelector(selector) {
+      queries.count++;
       if (selector === "video") return preview ? previewVideo : video;
       if (selector.startsWith("#movie_player video") || selector.includes("bpx-player-video-wrap") || selector.includes("bilibili-player-video")) return video;
       return selector.includes("ad-showing") && site.ad ? {} : null;
     } },
     ...(namespace === "firefox" ? { browser: extensionApi, chrome: {} } : { chrome: extensionApi }),
-    setInterval(callback) { intervals.push(callback); return intervals.length; },
+    setInterval(callback) { intervals.push(callback); activeIntervals.set(intervals.length, callback); return intervals.length; },
+    clearInterval(id) { activeIntervals.delete(id); },
   });
   runInContext(protocolSource, context);
-  runInContext(contentSource, context);
+  runInContext(autoPlay ? contentSource.replace("const AUTO_PLAY_AVAILABLE = false;", "const AUTO_PLAY_AVAILABLE = true;") : contentSource, context);
   const binding = (requestId, target = A, confirmed = false) => ({ tabId: 1, requestId, platform, songId: target, confirmed });
   return {
-    messages, video, previewVideo, location, intervals, ready, binding, site,
+    messages, video, previewVideo, location, intervals, activeIntervals, handlers, queries, ready, binding, site,
     bind(value) { listener({ type: "discoas-bind", binding: value }); },
     pause() { listener({ type: "discoas-pause" }); },
     nextReady() { const pending = deferred(); readyQueue.push(pending); return pending; },
@@ -551,7 +557,7 @@ test("Firefox history cache suspends stale play confirmations and restores the l
 
 test("confirmed pages keep reporting progress and ended for both video platforms", async () => {
   for (const options of [{}, { platform: "Bilibili", songId: "BV1234567890_p2" }]) {
-    const f = setupContent(options);
+    const f = setupContent({ ...options, autoPlay: true });
     f.ready.resolve(f.binding(1, options.songId ?? A)); await flush();
     f.video.currentTime = 99.25;
     await f.event("timeupdate");
@@ -565,13 +571,46 @@ test("confirmed pages keep reporting progress and ended for both video platforms
 });
 
 test("ad ends and DiscoAS-requested pauses cannot report a playback boundary", async () => {
-  const f = setupContent(); f.ready.resolve(f.binding(1)); await flush();
+  const f = setupContent({ autoPlay: true }); f.ready.resolve(f.binding(1)); await flush();
   const before = f.messages.length;
   f.site.ad = true; f.video.ended = true;
   await f.event("ended"); assert.equal(f.messages.length, before);
   f.site.ad = false; f.video.ended = false;
   f.pause(); await f.event("pause"); await f.intervals[0]();
   assert.equal(f.messages.length, before);
+});
+
+test("withdrawn auto playback stops polling and media listeners after manual confirmation", async () => {
+  for (const options of [{}, { platform: "Bilibili", songId: "BV1234567890_p2", namespace: "firefox" }]) {
+    const f = setupContent(options);
+    assert.equal(f.activeIntervals.size, 0);
+    f.ready.resolve(f.binding(1, options.songId ?? A)); await flush();
+    assert.equal(f.messages.filter((message) => message.playing).length, 1);
+    assert.equal(f.activeIntervals.size, 0);
+    assert.equal([...f.handlers.values()].flat().length, 0);
+    const reads = f.queries.count, messages = f.messages.length;
+    for (let i = 0; i < 240; i++) { await f.event("timeupdate"); await f.intervals[0](); }
+    assert.equal(f.queries.count, reads);
+    assert.equal(f.messages.length, messages);
+    f.bind(f.binding(2, options.songId ?? A)); await flush();
+    assert.deepEqual(f.messages.filter((message) => message.playing).map((message) => message.requestId), [1, 2]);
+    assert.equal(f.activeIntervals.size, 0);
+  }
+});
+
+test("waiting for playback keeps confirmation available and page suspension releases its observers", async () => {
+  const f = setupContent({ ad: true });
+  f.ready.resolve(f.binding(1)); await flush();
+  assert.equal(f.activeIntervals.size, 1);
+  f.site.ad = false;
+  await [...f.activeIntervals.values()][0](); await flush();
+  assert.equal(f.messages.filter((message) => message.playing).length, 1);
+  assert.equal(f.activeIntervals.size, 0);
+  f.site.ad = true; f.bind(f.binding(2)); await flush();
+  assert.equal(f.activeIntervals.size, 1);
+  f.pageEvent("pagehide");
+  assert.equal(f.activeIntervals.size, 0);
+  assert.equal([...f.handlers.values()].flat().length, 0);
 });
 
 test("observations use the sender URL and ignore old requests, frames and other tabs", async () => {

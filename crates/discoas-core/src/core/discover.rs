@@ -989,6 +989,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn snapshot_batches_keep_first_duplicate_and_per_song_errors() {
+        let raw = json!({
+            "song_ids": ["known", "late", "broken", "missing"],
+            "tracks_info": [
+                {"id":"known","name":"Original","artists":["Artist"],"cover_url":"https://example.invalid/cover"},
+                {"id":"known","name":"Duplicate"},
+                {"id":"broken","name":" "},
+                {"id":"late","name":"Late","artists":["Author"]}
+            ]
+        });
+        let settings = MusicSetting {
+            number_of_discovered_songs: 3,
+            num_of_mystery_song: 1,
+            ..Default::default()
+        };
+        for platform in ["KuwoMusic", "QishuiMusic", "YouTube", "Bilibili"] {
+            let songs = load_one_batch(&raw, &source(platform), &settings)
+                .await
+                .unwrap();
+            assert_eq!(songs.len(), 4);
+            assert!(songs[3].mystery_mode);
+            assert_eq!(songs[3].name, "???");
+            let known = songs.iter().find(|song| song.song_id == "known").unwrap();
+            assert_eq!(known.real_metadata.as_ref().unwrap().name, "Original");
+            assert_eq!(
+                known.real_cover_url.as_deref(),
+                Some("https://example.invalid/cover")
+            );
+            let late = songs.iter().find(|song| song.song_id == "late").unwrap();
+            assert_eq!(late.real_metadata.as_ref().unwrap().name, "Late");
+            for id in ["broken", "missing"] {
+                assert!(songs
+                    .iter()
+                    .find(|song| song.song_id == id)
+                    .unwrap()
+                    .detail_error
+                    .is_some());
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn spotify_batch_uses_only_supplied_source_and_keeps_fallback_card() {
         let raw = json!({"song_ids":["known", "missing"], "tracks_info":[{"id":"known", "name":"Current source", "artists":["Artist"], "coverUrl":"https://example.invalid/cover"}]});
         let setting = MusicSetting {
