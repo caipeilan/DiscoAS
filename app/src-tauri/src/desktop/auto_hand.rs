@@ -1,7 +1,7 @@
 //! Owns the experimental observer and coordinates ordinary-hand playback.
 use super::auto_hand_native::{self as native, TemporaryMute};
 use discoas_core::{
-    auto_hand::{track_title, AutoHand, Event, Target},
+    auto_hand::{supports_platform, track_title, AutoHand, Event, Target},
     hand::AutoDetectionMode,
     model::{PlaySongArgs, SongCardDto},
     settings::music_setting::MusicSetting,
@@ -229,14 +229,15 @@ impl AutoHandService {
     }
     pub fn configure(&self, settings: &MusicSetting) {
         let hand = &settings.hand;
-        let enabled = hand.enabled && hand.auto_play;
-        self.enabled.store(enabled, Ordering::Release);
-        let mut runtime = self.runtime.lock().unwrap();
         let source = settings
             .playlist_albums
             .iter()
             .find(|s| s.enabled)
             .map(|s| s.name.clone());
+        let enabled =
+            hand.enabled && hand.auto_play && source.as_deref().is_none_or(supports_platform);
+        self.enabled.store(enabled, Ordering::Release);
+        let mut runtime = self.runtime.lock().unwrap();
         if runtime.mode != hand.auto_play_detection || runtime.source != source {
             runtime.policy.configure(false);
         }
@@ -357,5 +358,36 @@ fn publish_result(
         );
     } else if let Some(error) = error {
         let _ = app.emit("hand-error", error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use discoas_core::{platforms::names, settings::music_setting::PlaylistAlbum};
+
+    #[test]
+    fn spotify_source_disables_worker_without_changing_the_saved_preference() {
+        let service = AutoHandService::default();
+        let mut settings = MusicSetting::default();
+        settings.hand.enabled = true;
+        settings.hand.auto_play = true;
+        settings.playlist_albums.push(PlaylistAlbum {
+            name: names::SPOTIFY.into(),
+            enabled: true,
+            playlist_album_id: "test".into(),
+            typename: "playlist".into(),
+            playlist_album_name: String::new(),
+            playlist_album_remark: String::new(),
+            update_time: String::new(),
+        });
+        service.configure(&settings);
+        assert!(!service.enabled.load(Ordering::Acquire));
+        assert!(!service.runtime.lock().unwrap().policy.enabled());
+        assert!(settings.hand.auto_play);
+        settings.playlist_albums[0].name = names::QISHUI.into();
+        service.configure(&settings);
+        assert!(service.enabled.load(Ordering::Acquire));
+        assert!(service.runtime.lock().unwrap().policy.enabled());
     }
 }

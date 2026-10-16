@@ -13,6 +13,7 @@ export const translations: Record<string, [string, string]> = {
   "错误：无法静音对应客户端": ["錯誤：無法靜音對應用戶端", "Error: Cannot mute the music client"],
   "错误：自动打出未能确认播放，已暂停；手动播放后继续": ["錯誤：自動打出未能確認播放，已暫停；手動播放後繼續", "Error: Playback could not be confirmed. Auto-play is paused; play a card manually to resume."],
   "自动打出手牌（实验）": ["自動打出手牌（實驗）", "Auto-play hand (experimental)"],
+  "Spotify 暂不支持自动打出手牌": ["Spotify 暫不支援自動打出手牌", "Automatic hand playback is temporarily unavailable for Spotify"],
   "优先读取播放进度，在曲终前自动打出；无法读取进度时检测曲目变化。YouTube／Bilibili 需使用浏览器扩展播放。": ["優先讀取播放進度，在曲終前自動打出；無法讀取進度時偵測曲目變化。YouTube／Bilibili 需使用瀏覽器擴充功能播放。", "Plays before the track ends when progress is available; otherwise detects track changes. YouTube / Bilibili require browser extension playback."],
   "下一首使用": ["下一首使用", "Play next from"],
   "普通手牌的第一张": ["普通手牌的第一張", "First ordinary hand card"],

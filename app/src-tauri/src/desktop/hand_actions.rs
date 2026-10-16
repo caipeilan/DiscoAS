@@ -165,9 +165,14 @@ pub(super) async fn play_automatically(app: &tauri::AppHandle, token: u64) -> Re
             automation.empty(token);
             return Ok(());
         };
+        if !discoas_core::auto_hand::supports_platform(&card.song.platform) {
+            automation.empty(token);
+            return Ok(());
+        }
         automation.prepare(token, card.playback_args());
         card.id.clone()
     };
+    super::diagnostics::log_event(app, "auto_hand", "dispatch_started");
     play_card(app, id, cache.inner(), Some(token)).await
 }
 async fn play_card(
@@ -213,6 +218,17 @@ async fn play_card(
     } else {
         super::playback::dispatch(app, &args, Some(&card.song), url).await
     };
+    if automatic.is_some() {
+        super::diagnostics::log_event(
+            app,
+            "auto_hand",
+            if result.is_ok() {
+                "dispatch_accepted"
+            } else {
+                "dispatch_failed"
+            },
+        );
+    }
     if let Err(error) = result {
         clear_pending(&app);
         return Err(error);

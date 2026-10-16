@@ -5,7 +5,14 @@ import ts from "typescript";
 const code = ts.transpileModule(fs.readFileSync(new URL("../src/features/settings/autoHandDetection.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { supportsDetection, detectionForPlatform } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+const { supportsAutoPlay, supportsDetection, detectionForPlatform } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+
+test("Spotify is excluded from automatic playback while other sources retain support", () => {
+  assert.equal(supportsAutoPlay("Spotify"), false);
+  for (const platform of [undefined, "NeteaseCloudMusic", "QQMusic", "KugouMusic", "KuwoMusic", "QishuiMusic", "YouTube", "Bilibili", "LocalMusic"]) {
+    assert.equal(supportsAutoPlay(platform), true);
+  }
+});
 test("each supported platform disables inapplicable detection choices and repairs an existing choice", () => {
   for (const platform of ["NeteaseCloudMusic", "QQMusic", "KugouMusic", "Spotify"]) {
     for (const mode of ["system", "window", "mixed"]) {

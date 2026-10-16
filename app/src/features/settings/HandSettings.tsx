@@ -6,11 +6,12 @@ import { Select } from "../../components/Select";
 import { ShortcutRecorder } from "../../ShortcutRecorder";
 import { call, onDesktopEvent } from "../../services/desktop";
 import { t, errorText } from "../../i18n";
-import { detectionForPlatform, supportsDetection } from "./autoHandDetection";
+import { detectionForPlatform, supportsAutoPlay, supportsDetection } from "./autoHandDetection";
 
 export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { settings: Preferences; gui: GuiSettings; onChange: (value: HandPreferences) => void; onDiscoveryChange: (value: HandDiscoverySettings) => void }) {
   const value = settings.hand;
   const platform = settings.playlist_albums.find(source => source.enabled)?.name;
+  const autoPlaySupported = supportsAutoPlay(platform);
   const detection = detectionForPlatform(platform, value.auto_play_detection);
   useEffect(() => {
     if (value.auto_play_detection !== detection) onChange({ ...value, auto_play_detection: detection });
@@ -53,9 +54,11 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
       <SettingRow title={t("收牌后保留发现界面")}><Toggle label={t("收牌后保留发现界面")} value={value.keep_discovery_open} onChange={(v) => set("keep_discovery_open", v)} /></SettingRow>
       <SettingRow title={t("手牌常驻")}><Toggle label={t("手牌常驻")} value={value.resident} onChange={(v) => set("resident", v)} /></SettingRow>
       <SettingRow title={t("自动打出手牌（实验）")}>
-        <Toggle label={t("自动打出手牌（实验）")} value={value.auto_play} onChange={(v) => set("auto_play", v)} />
+        {autoPlaySupported
+          ? <Toggle label={t("自动打出手牌（实验）")} value={value.auto_play} onChange={(v) => set("auto_play", v)} />
+          : <span>{t("Spotify 暂不支持自动打出手牌")}</span>}
       </SettingRow>
-      {value.auto_play && <>
+      {autoPlaySupported && value.auto_play && <>
         <SettingRow title={t("下一首使用")}><Select label={t("下一首使用")} value={value.auto_play_position} options={[
           { value: "first", label: t("手牌的第一张") }, { value: "last", label: t("手牌的最后一张") },
         ]} onChange={(v) => set("auto_play_position", v as HandPreferences["auto_play_position"])} /></SettingRow>

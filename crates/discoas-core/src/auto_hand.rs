@@ -4,6 +4,10 @@ use std::collections::{HashMap, HashSet};
 
 pub const CONFIRM_TIMEOUT_MS: u64 = 20_000;
 
+pub fn supports_platform(platform: &str) -> bool {
+    platform != names::SPOTIFY
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Signal {
     Interface,
@@ -156,7 +160,7 @@ impl AutoHand {
         self.active.as_deref()
     }
     pub fn adopt(&mut self, platform: &str) {
-        if self.active.is_none() {
+        if self.active.is_none() && supports_platform(platform) {
             self.active = Some(platform.into());
         }
     }
@@ -171,7 +175,7 @@ impl AutoHand {
     }
     pub fn begin(&mut self, target: Target, automatic: Option<u64>, now: u64) -> Option<u64> {
         if let Some(token) = automatic {
-            if !self.current(token) {
+            if !self.current(token) || !supports_platform(&target.platform) {
                 return None;
             }
         } else {
@@ -187,7 +191,7 @@ impl AutoHand {
         self.consumed = false;
         self.timeline_floor = 0;
         let token = self.generation;
-        self.pending = self.enabled.then_some(Pending {
+        self.pending = (self.enabled && supports_platform(&target.platform)).then_some(Pending {
             token,
             automatic: automatic.is_some(),
             target: Some(target),
@@ -239,6 +243,7 @@ impl AutoHand {
     }
     pub fn observe(&mut self, value: Observation, now: u64) -> Option<Event> {
         if !self.enabled
+            || !supports_platform(&value.platform)
             || self.active.as_deref() != Some(&value.platform)
             || value.identity.is_empty()
         {
@@ -561,31 +566,51 @@ mod tests {
         assert_eq!(a.observe(native("脆弱性"), 5), None);
     }
     #[test]
-    fn spotify_artist_first_caption_confirms_the_expected_recording() {
+    fn spotify_is_inert_and_manual_playback_cancels_previous_automation() {
         let mut a = AutoHand::default();
         a.configure(true);
-        let token = a
-            .begin(
-                Target {
-                    platform: names::SPOTIFY.into(),
-                    ..target("Never Gonna Give You Up")
-                },
-                None,
-                0,
-            )
-            .unwrap();
-        let value = Observation {
-            platform: names::SPOTIFY.into(),
-            signal: Signal::Window,
-            ..observation("Rick Astley Never Gonna Give You Up")
+        a.adopt(names::SPOTIFY);
+        assert_eq!(a.active(), None);
+        a.adopt(names::QQ);
+        a.observe(observation("a"), 0);
+        let Some(Event::Play { token, .. }) = a.observe(observation("b"), 1) else {
+            panic!()
         };
-        assert_eq!(
-            a.observe(value, 1),
+        let spotify = Target {
+            platform: names::SPOTIFY.into(),
+            ..target("Never Gonna Give You Up")
+        };
+        assert_eq!(a.begin(spotify.clone(), Some(token), 2), None);
+        assert!(a.begin(spotify, None, 3).is_some());
+        assert!(!a.current(token));
+        for signal in [Signal::Interface, Signal::Window] {
+            for title in ["Never Gonna Give You Up", "next"] {
+                assert_eq!(
+                    a.observe(
+                        Observation {
+                            platform: names::SPOTIFY.into(),
+                            signal,
+                            ..progress(title, 99.5, 4)
+                        },
+                        4
+                    ),
+                    None
+                );
+            }
+        }
+        assert_eq!(a.expire(CONFIRM_TIMEOUT_MS + 4), None);
+        a.begin(target("c"), None, 30_000);
+        assert!(matches!(
+            a.observe(observation("c"), 30_001),
             Some(Event::Confirmed {
-                token,
-                automatic: false
+                automatic: false,
+                ..
             })
-        );
+        ));
+        assert!(matches!(
+            a.observe(observation("d"), 30_002),
+            Some(Event::Play { .. })
+        ));
     }
     #[test]
     fn detection_choices_are_normalized_for_the_enabled_source() {

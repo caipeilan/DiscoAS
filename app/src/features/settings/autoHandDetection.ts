@@ -1,6 +1,9 @@
 import type { HandSettings } from "../../types";
 
 export type DetectionMode = HandSettings["auto_play_detection"];
+export function supportsAutoPlay(platform: string | undefined): boolean {
+  return platform !== "Spotify";
+}
 export function supportsDetection(platform: string | undefined, mode: DetectionMode): boolean {
   if (!platform) return true;
   if (platform === "KuwoMusic") return mode === "window";
