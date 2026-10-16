@@ -145,6 +145,10 @@ pub(crate) async fn changed_with_invalidation(
     cache: &Arc<Cache>,
     invalidate_discovery: bool,
 ) {
+    if let Ok(settings) = repository(app).and_then(|r| r.load_settings()) {
+        app.state::<super::auto_hand::AutoHandService>()
+            .configure(&settings);
+    }
     if invalidate_discovery {
         cache.invalidate().await;
         super::hand_discovery::invalidate(app).await;

@@ -257,6 +257,10 @@ impl MusicSetting {
     }
 
     pub fn normalize_preferences(&mut self) {
+        if let Some(source) = self.playlist_albums.iter().find(|source| source.enabled) {
+            self.hand.auto_play_detection =
+                self.hand.auto_play_detection.for_platform(&source.name);
+        }
         self.history_limit = self.history_limit.min(MAX_HISTORY_LIMIT);
         self.cache_batches = self.cache_batches.min(5);
         self.replacement_limit = self.replacement_limit.min(100);

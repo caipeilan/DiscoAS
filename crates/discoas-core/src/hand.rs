@@ -19,6 +19,7 @@ pub struct HandSettings {
     pub keep_discovery_open: bool,
     pub auto_play: bool,
     pub auto_play_position: AutoPlayPosition,
+    pub auto_play_detection: AutoDetectionMode,
     pub shortcut: String,
     pub play_shortcuts: [String; 9],
     pub side: HandSide,
@@ -44,6 +45,33 @@ pub enum AutoPlayPosition {
     First,
     Last,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoDetectionMode {
+    System,
+    Window,
+    #[default]
+    Mixed,
+}
+impl AutoDetectionMode {
+    pub fn supported(self, platform: &str) -> bool {
+        use crate::platforms::names;
+        match platform {
+            names::KUWO => self == Self::Window,
+            names::NETEASE | names::QQ | names::KUGOU | names::SPOTIFY => true,
+            _ => self == Self::System,
+        }
+    }
+    pub fn for_platform(self, platform: &str) -> Self {
+        if self.supported(platform) {
+            self
+        } else if Self::Window.supported(platform) {
+            Self::Window
+        } else {
+            Self::System
+        }
+    }
+}
 impl AutoPlayPosition {
     pub fn pick<T>(self, cards: &[T]) -> Option<&T> {
         match self {
@@ -58,6 +86,7 @@ impl Default for HandSettings {
             enabled: false,
             auto_play: false,
             auto_play_position: AutoPlayPosition::First,
+            auto_play_detection: AutoDetectionMode::Mixed,
             reveal_mystery: false,
             resident: false,
             keep_discovery_open: false,

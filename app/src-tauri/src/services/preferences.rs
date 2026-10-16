@@ -38,6 +38,7 @@ pub fn prepare_music_preferences(
 ) -> Result<MusicSetting, String> {
     incoming.discovery_keybindings = validate_preferences(&incoming)?;
     incoming.playlist_albums = current.playlist_albums.clone();
+    incoming.normalize_preferences();
     incoming.shortcut_key = incoming.shortcut_key.trim().to_string();
     incoming.hand.shortcut = incoming.hand.shortcut.trim().to_string();
     Ok(incoming)
@@ -124,6 +125,35 @@ mod tests {
         assert_eq!(prepared.playlist_albums, current.playlist_albums);
         assert_eq!(prepared.number_of_discovered_songs, 8);
         assert_eq!(prepared.shortcut_key, "Ctrl+Shift+D");
+    }
+
+    #[test]
+    fn detection_uses_the_live_source_when_a_settings_draft_is_saved() {
+        let mut current = MusicSetting::default();
+        current
+            .playlist_albums
+            .push(crate::settings::music_setting::PlaylistAlbum {
+                name: "KuwoMusic".into(),
+                playlist_album_id: "123".into(),
+                typename: "playlist".into(),
+                playlist_album_name: String::new(),
+                playlist_album_remark: String::new(),
+                update_time: String::new(),
+                enabled: true,
+            });
+        let mut draft = MusicSetting::default();
+        draft.hand.auto_play_detection = discoas_core::hand::AutoDetectionMode::System;
+        let prepared = prepare_music_preferences(&current, draft).unwrap();
+        assert_eq!(
+            prepared.hand.auto_play_detection,
+            discoas_core::hand::AutoDetectionMode::Window
+        );
+        current.playlist_albums[0].name = "YouTube".into();
+        let prepared = prepare_music_preferences(&current, prepared).unwrap();
+        assert_eq!(
+            prepared.hand.auto_play_detection,
+            discoas_core::hand::AutoDetectionMode::System
+        );
     }
 
     #[test]

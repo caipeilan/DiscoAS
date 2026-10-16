@@ -3,7 +3,8 @@ use crate::{
     client_window::{self, Client},
     platforms::names,
 };
-use discoas_core::auto_hand::{normalize, window_identity, Observation, Progress, Signal};
+use discoas_core::auto_hand::{track_title, window_identity, Observation, Progress, Signal};
+use discoas_core::hand::AutoDetectionMode;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -129,11 +130,11 @@ impl Watched {
     }
     fn sample(&mut self, platform: &str) -> Option<Observation> {
         if self.dirty.swap(false, Ordering::AcqRel)
-            || self.last_read.elapsed() >= Duration::from_secs(3)
+            || self.last_read.elapsed() >= Duration::from_secs(1)
         {
             self.last_read = Instant::now();
             if let Ok(properties) = self.session.TryGetMediaPropertiesAsync().and_then(wait) {
-                let title = normalize(&properties.Title().ok()?.to_string());
+                let title = track_title(&properties.Title().ok()?.to_string());
                 if !title.is_empty() {
                     self.title = title;
                 }
@@ -191,12 +192,22 @@ impl Watched {
 pub struct Reader {
     manager: Option<Manager>,
     watched: HashMap<String, Watched>,
+    titles: HashMap<String, client_window::TitleReader>,
+    last_scan: Option<Instant>,
+    last_platform: Option<String>,
+    local_target: Option<String>,
+    local_session: Option<String>,
 }
 impl Reader {
     pub fn new() -> Self {
         Self {
-            manager: Manager::RequestAsync().and_then(wait).ok(),
+            manager: None,
             watched: HashMap::new(),
+            titles: HashMap::new(),
+            last_scan: None,
+            last_platform: None,
+            local_target: None,
+            local_session: None,
         }
     }
     pub fn current_platform(&self) -> Option<String> {
@@ -206,43 +217,81 @@ impl Reader {
         }
         platform_for_app(&session.SourceAppUserModelId().ok()?.to_string()).map(str::to_string)
     }
-    pub fn sample(&mut self, active: Option<&str>) -> Vec<Observation> {
-        if self.manager.is_none() {
+    pub fn sample(
+        &mut self,
+        active: Option<&str>,
+        mode: AutoDetectionMode,
+        title: Option<&str>,
+    ) -> Vec<Observation> {
+        let local_target = (active == Some(names::LOCAL))
+            .then_some(title)
+            .flatten()
+            .filter(|t| !t.is_empty());
+        if self.local_target.as_deref() != local_target {
+            self.local_target = local_target.map(str::to_owned);
+            self.local_session = None;
+        }
+        let mode = active.map_or(mode, |p| mode.for_platform(p));
+        let scan = mode != AutoDetectionMode::Window
+            && (self.last_platform.as_deref() != active
+                || self
+                    .last_scan
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(1)));
+        if scan && self.manager.is_none() {
             self.manager = Manager::RequestAsync().and_then(wait).ok();
         }
-        let mut found = HashSet::new();
-        if let Some(sessions) = self.manager.as_ref().and_then(|m| m.GetSessions().ok()) {
-            for i in 0..sessions.Size().unwrap_or(0) {
-                let Ok(session) = sessions.GetAt(i) else {
-                    continue;
-                };
-                let Ok(id) = session.SourceAppUserModelId() else {
-                    continue;
-                };
-                let id = id.to_string();
-                let platform = platform_for_app(&id)
-                    .or_else(|| (active == Some(names::LOCAL)).then_some(names::LOCAL));
-                let Some(platform) = platform else {
-                    continue;
-                };
-                if active.is_some_and(|p| p != platform) {
-                    continue;
-                }
-                found.insert(id.clone());
-                let replace = self.watched.get(&id).is_none_or(|w| w.session != session);
-                if replace {
-                    if let Some(watched) = Watched::new(session) {
-                        self.watched.insert(id, watched);
+        if scan {
+            self.last_scan = Some(Instant::now());
+            self.last_platform = active.map(str::to_string);
+            let mut found = HashSet::new();
+            if let Some(sessions) = self.manager.as_ref().and_then(|m| m.GetSessions().ok()) {
+                for i in 0..sessions.Size().unwrap_or(0) {
+                    let Ok(session) = sessions.GetAt(i) else {
+                        continue;
+                    };
+                    let Ok(id) = session.SourceAppUserModelId() else {
+                        continue;
+                    };
+                    let id = id.to_string();
+                    let platform = platform_for_app(&id)
+                        .or_else(|| (active == Some(names::LOCAL)).then_some(names::LOCAL));
+                    let Some(platform) = platform else {
+                        continue;
+                    };
+                    if active.is_some_and(|p| p != platform) {
+                        continue;
+                    }
+                    found.insert(id.clone());
+                    let replace = self.watched.get(&id).is_none_or(|w| w.session != session);
+                    if replace {
+                        if let Some(watched) = Watched::new(session) {
+                            self.watched.insert(id, watched);
+                        }
                     }
                 }
             }
+            self.watched.retain(|id, _| found.contains(id));
         }
-        self.watched.retain(|id, _| found.contains(id));
         let mut observations = Vec::new();
         let mut ambiguous = HashSet::new();
+        let mut local_candidate = None;
         for (id, watched) in &mut self.watched {
             let platform = platform_for_app(id).unwrap_or(names::LOCAL);
+            if mode == AutoDetectionMode::Window || active.is_some_and(|p| p != platform) {
+                continue;
+            }
             if let Some(value) = watched.sample(platform) {
+                if platform == names::LOCAL {
+                    if !matches_local_session(
+                        self.local_session.as_deref(),
+                        local_target,
+                        id,
+                        &value,
+                    ) {
+                        continue;
+                    }
+                    local_candidate = Some(id.clone());
+                }
                 if observations
                     .iter()
                     .any(|old: &Observation| old.platform == value.platform)
@@ -253,15 +302,18 @@ impl Reader {
             }
         }
         observations.retain(|v| !ambiguous.contains(&v.platform));
+        if !ambiguous.contains(names::LOCAL) && local_candidate.is_some() {
+            self.local_session = local_candidate;
+        }
         for platform in PLATFORMS {
-            if active.is_some_and(|p| p != platform)
-                || observations.iter().any(|v| v.platform == platform)
-            {
+            if mode == AutoDetectionMode::System || active.is_some_and(|p| p != platform) {
                 continue;
             }
-            if let Some(identity) =
-                client_window::window_title(platform).and_then(|s| window_identity(platform, &s))
-            {
+            let title = self
+                .titles
+                .entry(platform.into())
+                .or_insert_with(|| client_window::TitleReader::new(platform).unwrap());
+            if let Some(identity) = title.read().and_then(|s| window_identity(platform, &s)) {
                 observations.push(Observation {
                     platform: platform.into(),
                     identity,
@@ -274,6 +326,18 @@ impl Reader {
         }
         observations
     }
+}
+
+fn matches_local_session(
+    bound: Option<&str>,
+    title: Option<&str>,
+    id: &str,
+    value: &Observation,
+) -> bool {
+    bound.map_or_else(
+        || value.playing && title.is_some_and(|t| t == value.identity),
+        |bound| bound == id,
+    )
 }
 
 struct AudioSession {
@@ -421,6 +485,71 @@ impl Drop for TemporaryMute {
 mod tests {
     use super::*;
     #[test]
+    fn local_player_binds_by_the_requested_title_and_keeps_its_own_session() {
+        let mut value = Observation {
+            platform: names::LOCAL.into(),
+            identity: track_title("DiscoAS Local QA A"),
+            signal: Signal::Interface,
+            playing: true,
+            ended: false,
+            progress: None,
+        };
+        assert!(!matches_local_session(
+            None,
+            Some("anothertrack"),
+            "Chrome.browser",
+            &value
+        ));
+        assert!(matches_local_session(
+            None,
+            Some(&value.identity),
+            "VLC",
+            &value
+        ));
+        value.identity = track_title("DiscoAS Local QA B");
+        assert!(matches_local_session(
+            Some("VLC"),
+            Some("oldtitle"),
+            "VLC",
+            &value
+        ));
+        assert!(!matches_local_session(
+            Some("VLC"),
+            Some(&value.identity),
+            "Chrome.browser",
+            &value
+        ));
+    }
+    #[test]
+    #[ignore = "reads an installed client on the interactive Windows desktop"]
+    fn live_detection_modes() {
+        let _apartment = Apartment::init().unwrap();
+        let platform =
+            std::env::var("DISCOAS_QA_PLATFORM").unwrap_or_else(|_| names::NETEASE.into());
+        assert!(PLATFORMS.contains(&platform.as_str()));
+        for mode in [
+            AutoDetectionMode::System,
+            AutoDetectionMode::Window,
+            AutoDetectionMode::Mixed,
+        ] {
+            if !mode.supported(&platform) {
+                continue;
+            }
+            let mut reader = Reader::new();
+            let values = reader.sample(Some(&platform), mode, None);
+            println!("{platform} {mode:?}: {values:?}");
+            assert!(!values.is_empty(), "no observation in {mode:?}");
+            let began = Instant::now();
+            for _ in 0..40 {
+                reader.sample(Some(&platform), mode, None);
+            }
+            println!(
+                "{mode:?} cached sample average: {:.3} ms",
+                began.elapsed().as_secs_f64() * 1000.0 / 40.0
+            );
+        }
+    }
+    #[test]
     fn native_ids_include_soda_chinese_id_but_not_browser_or_helper() {
         assert_eq!(platform_for_app("汽水音乐"), Some(names::QISHUI));
         assert_eq!(platform_for_app("kugou"), Some(names::KUGOU));
@@ -456,11 +585,14 @@ mod tests {
     fn live_inventory_and_mute_restoration() {
         let _apartment = Apartment::init().unwrap();
         let mut reader = Reader::new();
-        let observations = reader.sample(None);
+        let observations = reader.sample(None, AutoDetectionMode::Mixed, None);
         for platform in PLATFORMS {
             let observation = observations
                 .iter()
-                .find(|v| v.platform == platform)
+                .find(|v| {
+                    v.platform == platform
+                        && (v.signal == Signal::Interface || platform == names::KUWO)
+                })
                 .unwrap_or_else(|| panic!("missing observation: {platform}"));
             println!(
                 "{platform}: {:?}, progress={}",

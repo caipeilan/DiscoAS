@@ -1,10 +1,10 @@
 //! Automatic ordinary-hand playback policy. Callers supply observations and a clock.
 use crate::platforms::names;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const CONFIRM_TIMEOUT_MS: u64 = 20_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Signal {
     Interface,
     Window,
@@ -50,7 +50,14 @@ impl Target {
         match value.signal {
             Signal::Browser => self.song_id == value.identity,
             Signal::Interface => !self.title.is_empty() && self.title == value.identity,
-            Signal::Window => !self.title.is_empty() && value.identity.starts_with(&self.title),
+            Signal::Window => {
+                !self.title.is_empty()
+                    && if matches!(self.platform.as_str(), names::KUGOU | names::SPOTIFY) {
+                        value.identity.ends_with(&self.title)
+                    } else {
+                        value.identity.starts_with(&self.title)
+                    }
+            }
         }
     }
 }
@@ -60,6 +67,35 @@ pub fn normalize(value: &str) -> String {
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+/// Catalog display annotations are absent from the client's media title.
+/// Keep version/featured-artist brackets, which identify the actual recording.
+pub fn track_title(value: &str) -> String {
+    let annotation = [
+        "手游《",
+        "游戏《",
+        "动画《",
+        "动漫《",
+        "电影《",
+        "电视剧《",
+        "剧场版《",
+        "网剧《",
+    ];
+    let mut title = value.trim();
+    loop {
+        if !title.ends_with([')', '）']) {
+            break;
+        }
+        let Some(index) = title.rfind(['(', '（']) else {
+            break;
+        };
+        let tail = title[index..].trim_start_matches(['(', '（']);
+        if !annotation.iter().any(|prefix| tail.starts_with(prefix)) {
+            break;
+        }
+        title = title[..index].trim_end();
+    }
+    normalize(title)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,14 +111,23 @@ struct Pending {
     target: Option<Target>,
     started: u64,
     deadline: u64,
-    before: Option<Observation>,
+    before: HashMap<Signal, Observation>,
+    departed: HashSet<Signal>,
+}
+struct OwnedChange {
+    target: Target,
+    seen: HashSet<Signal>,
+    deadline: u64,
+    before: HashMap<Signal, Observation>,
+    departed: HashSet<Signal>,
 }
 #[derive(Default)]
 pub struct AutoHand {
     enabled: bool,
     generation: u64,
     active: Option<String>,
-    baseline: Option<Observation>,
+    baseline: HashMap<Signal, Observation>,
+    owned: Option<OwnedChange>,
     pending: Option<Pending>,
     suspended: bool,
     consumed: bool,
@@ -97,7 +142,8 @@ impl AutoHand {
         self.enabled = enabled;
         self.generation += 1;
         self.pending = None;
-        self.baseline = None;
+        self.baseline.clear();
+        self.owned = None;
         self.active = None;
         self.suspended = false;
         self.consumed = false;
@@ -131,10 +177,11 @@ impl AutoHand {
         } else {
             self.generation += 1;
         }
-        let before = self
-            .baseline
-            .take()
-            .filter(|b| b.platform == target.platform);
+        if self.active.as_deref() != Some(&target.platform) {
+            self.baseline.clear();
+        }
+        let before = self.baseline.clone();
+        self.owned = None;
         self.active = Some(target.platform.clone());
         self.suspended = false;
         self.consumed = false;
@@ -147,6 +194,7 @@ impl AutoHand {
             started: now,
             deadline: now + CONFIRM_TIMEOUT_MS,
             before,
+            departed: HashSet::new(),
         });
         Some(token)
     }
@@ -196,31 +244,42 @@ impl AutoHand {
         {
             return None;
         }
-        if let Some(pending) = &self.pending {
+        if let Some(pending) = &mut self.pending {
             let Some(target) = &pending.target else {
                 return None;
             };
-            let repeated = pending.before.as_ref().is_some_and(|before| {
-                before.identity == value.identity && before.signal == value.signal
-            });
+            let before = pending.before.get(&value.signal);
+            let repeated = before.is_some_and(|before| before.identity == value.identity);
+            if !target.matches(&value) {
+                pending.departed.insert(value.signal);
+                return None;
+            }
             let reset = value.signal == Signal::Browser
+                || pending.departed.contains(&value.signal)
                 || value.progress.as_ref().is_some_and(|new| {
                     new.valid()
                         && new.updated_at >= pending.started
                         && (new.position < 2.0
-                            || pending
-                                .before
-                                .as_ref()
+                            || before
                                 .and_then(|b| b.progress.as_ref())
                                 .is_some_and(|old| new.position + 2.0 < old.position))
                 })
-                || (value.progress.is_none() && now.saturating_sub(pending.started) >= 500);
-            if !value.playing || !target.matches(&value) || (repeated && !reset) {
+                || (value.progress.is_none()
+                    && now.saturating_sub(pending.started) >= 500
+                    && pending.before.values().all(|v| target.matches(v)));
+            if !value.playing || (repeated && !reset) {
                 return None;
             }
             let token = pending.token;
             let automatic = pending.automatic;
             let elapsed = now.saturating_sub(pending.started) as f64 / 1000.0;
+            let owned = OwnedChange {
+                target: target.clone(),
+                seen: HashSet::from([value.signal]),
+                deadline: now + CONFIRM_TIMEOUT_MS,
+                before: pending.before.clone(),
+                departed: pending.departed.clone(),
+            };
             // Timeline updates may lag title updates. Do not treat the old near-end position as the new song's end.
             self.timeline_floor = pending.started;
             if elapsed < 10.0 {
@@ -235,21 +294,58 @@ impl AutoHand {
                     },
                 );
             }
-            self.baseline = Some(value);
+            self.owned = Some(owned);
+            self.baseline.insert(value.signal, value);
             self.pending = None;
             self.consumed = false;
             return Some(Event::Confirmed { token, automatic });
         }
+        if let Some(owned) = &mut self.owned {
+            if !owned.seen.contains(&value.signal) {
+                // Each observer catches up independently: an old native notification must not
+                // undo a window confirmation and consume the next card.
+                if owned.target.matches(&value) || now < owned.deadline {
+                    if !owned.target.matches(&value) {
+                        owned.departed.insert(value.signal);
+                    }
+                    let replay = owned
+                        .before
+                        .get(&value.signal)
+                        .is_some_and(|v| owned.target.matches(v));
+                    if value.playing
+                        && owned.target.matches(&value)
+                        && (!replay
+                            || owned.departed.contains(&value.signal)
+                            || now >= owned.deadline)
+                    {
+                        owned.seen.insert(value.signal);
+                    }
+                    self.baseline.insert(value.signal, value);
+                    return None;
+                }
+                owned.seen.insert(value.signal);
+            }
+        }
         if self.suspended {
-            self.baseline = Some(value);
+            self.baseline.insert(value.signal, value);
             return None;
         }
-        let changed = self.baseline.as_ref().is_some_and(|old| {
+        let old = self
+            .baseline
+            .get(&value.signal)
+            .or_else(|| self.baseline.values().next());
+        let changed = old.is_some_and(|old| {
             if old.signal == value.signal {
                 old.identity != value.identity
             } else {
-                !old.identity.starts_with(&value.identity)
-                    && !value.identity.starts_with(&old.identity)
+                let same = if matches!(value.platform.as_str(), names::KUGOU | names::SPOTIFY) {
+                    old.identity.ends_with(&value.identity)
+                        || value.identity.ends_with(&old.identity)
+                } else {
+                    old.identity.starts_with(&value.identity)
+                        || value.identity.starts_with(&old.identity)
+                };
+                !same
             }
         });
         if changed {
@@ -262,9 +358,27 @@ impl AutoHand {
                     && p.updated_at >= self.timeline_floor
                     && p.duration - p.position <= self.lead_seconds(&value.platform)
             });
+        let looped = value.playing
+            && old.is_some_and(|old| {
+                old.playing
+                    && old
+                        .progress
+                        .as_ref()
+                        .zip(value.progress.as_ref())
+                        .is_some_and(|(before, after)| {
+                            before.valid()
+                                && after.valid()
+                                && before.updated_at >= self.timeline_floor
+                                && after.updated_at > before.updated_at
+                                && before.duration - before.position
+                                    <= self.lead_seconds(&value.platform) + 1.0
+                                && after.position < 2.0
+                                && before.position > after.position + 2.0
+                        })
+            });
         // A pause is not a track change. Stopped/changing native states are accepted once the new title arrives.
-        let fire = !self.consumed && (changed || near_end || value.ended);
-        self.baseline = Some(value.clone());
+        let fire = !self.consumed && (changed || near_end || looped || value.ended);
+        self.baseline.insert(value.signal, value.clone());
         if !fire {
             return None;
         }
@@ -277,7 +391,8 @@ impl AutoHand {
             target: None,
             started: now,
             deadline: now + CONFIRM_TIMEOUT_MS,
-            before: Some(value.clone()),
+            before: self.baseline.clone(),
+            departed: HashSet::new(),
         });
         Some(Event::Play {
             token,
@@ -373,9 +488,144 @@ mod tests {
         let old: HandSettings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
         assert!(!old.auto_play);
         assert_eq!(old.auto_play_position, AutoPlayPosition::First);
+        assert_eq!(
+            old.auto_play_detection,
+            crate::hand::AutoDetectionMode::Mixed
+        );
         assert_eq!(AutoPlayPosition::First.pick(&[3, 1, 2]), Some(&3));
         assert_eq!(AutoPlayPosition::Last.pick(&[3, 1, 2]), Some(&2));
         assert_eq!(AutoPlayPosition::Last.pick::<u8>(&[]), None);
+    }
+    #[test]
+    fn netease_catalog_annotation_does_not_block_playback_confirmation() {
+        let title = "モア！ジャンプ！モア！ (feat. 花里みのり&桐谷遥&桃井愛莉&日野森雫&初音ミク)";
+        assert_eq!(
+            track_title(&format!("{title} (手游《世界计划 多彩舞台》曲目)")),
+            normalize(title)
+        );
+        assert_ne!(track_title("a (Live)"), track_title("a"));
+        let mut a = engine();
+        let token = a
+            .begin(
+                Target {
+                    title: track_title(&format!("{title} (手游《世界计划 多彩舞台》曲目)")),
+                    ..target("song")
+                },
+                None,
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            a.observe(observation(title), 1),
+            Some(Event::Confirmed {
+                token,
+                automatic: false
+            })
+        );
+        assert!(matches!(
+            a.observe(observation("next"), 2),
+            Some(Event::Play { .. })
+        ));
+    }
+    #[test]
+    fn kugou_artist_first_caption_matches_the_song_without_triggering_on_startup() {
+        let mut a = AutoHand::default();
+        a.configure(true);
+        a.adopt(names::KUGOU);
+        let native = |title: &str| Observation {
+            platform: names::KUGOU.into(),
+            ..observation(title)
+        };
+        let window = |title: &str| Observation {
+            signal: Signal::Window,
+            ..native(title)
+        };
+        a.observe(native("脆弱性"), 0);
+        assert_eq!(a.observe(window("にほしか脆弱性"), 1), None);
+        let Some(Event::Play { token, .. }) = a.observe(window("虻瀬親愛なるあなたは火葬"), 2)
+        else {
+            panic!()
+        };
+        a.begin(
+            Target {
+                platform: names::KUGOU.into(),
+                ..target("脆弱性")
+            },
+            Some(token),
+            3,
+        );
+        assert!(matches!(
+            a.observe(window("にほしか脆弱性"), 4),
+            Some(Event::Confirmed { .. })
+        ));
+        assert_eq!(a.observe(native("脆弱性"), 5), None);
+    }
+    #[test]
+    fn spotify_artist_first_caption_confirms_the_expected_recording() {
+        let mut a = AutoHand::default();
+        a.configure(true);
+        let token = a
+            .begin(
+                Target {
+                    platform: names::SPOTIFY.into(),
+                    ..target("Never Gonna Give You Up")
+                },
+                None,
+                0,
+            )
+            .unwrap();
+        let value = Observation {
+            platform: names::SPOTIFY.into(),
+            signal: Signal::Window,
+            ..observation("Rick Astley Never Gonna Give You Up")
+        };
+        assert_eq!(
+            a.observe(value, 1),
+            Some(Event::Confirmed {
+                token,
+                automatic: false
+            })
+        );
+    }
+    #[test]
+    fn detection_choices_are_normalized_for_the_enabled_source() {
+        use crate::{
+            hand::AutoDetectionMode as Mode,
+            settings::music_setting::{MusicSetting, PlaylistAlbum},
+        };
+        for platform in [
+            names::NETEASE,
+            names::QQ,
+            names::KUGOU,
+            names::KUWO,
+            names::QISHUI,
+            names::SPOTIFY,
+            names::YOUTUBE,
+            names::BILIBILI,
+            names::LOCAL,
+        ] {
+            for mode in [Mode::System, Mode::Window, Mode::Mixed] {
+                let mut settings = MusicSetting::default();
+                settings.hand.auto_play_detection = mode;
+                settings.playlist_albums.push(PlaylistAlbum {
+                    name: platform.into(),
+                    enabled: true,
+                    playlist_album_id: "test".into(),
+                    typename: "playlist".into(),
+                    playlist_album_name: String::new(),
+                    playlist_album_remark: String::new(),
+                    update_time: String::new(),
+                });
+                settings.normalize_preferences();
+                let expected = match platform {
+                    names::KUWO => Mode::Window,
+                    names::QISHUI | names::YOUTUBE | names::BILIBILI | names::LOCAL => Mode::System,
+                    _ => mode,
+                };
+                assert_eq!(settings.hand.auto_play_detection, expected, "{platform}");
+                assert!(expected.supported(platform));
+            }
+        }
     }
     #[test]
     fn repeated_metadata_and_pause_do_not_play_cards() {
@@ -660,5 +910,73 @@ mod tests {
                 automatic: false
             })
         );
+    }
+    #[test]
+    fn mixed_sources_do_not_replay_lagging_own_changes_or_skip_the_next_song() {
+        let mut a = engine();
+        let window = |title: &str| Observation {
+            signal: Signal::Window,
+            ..observation(title)
+        };
+        a.observe(observation("start"), 0);
+        a.observe(window("startartist"), 0);
+        for index in 0..6 {
+            let now = 30_000 * index + 1;
+            let next = format!("external{index}");
+            let own = format!("hand{index}");
+            let Some(Event::Play { token, .. }) = a.observe(window(&format!("{next}artist")), now)
+            else {
+                panic!("missed song {index}")
+            };
+            a.begin(target(&own), Some(token), now + 1);
+            assert!(matches!(
+                a.observe(window(&format!("{own}artist")), now + 2),
+                Some(Event::Confirmed { .. })
+            ));
+            assert_eq!(
+                a.observe(observation(&next), now + 3),
+                None,
+                "late metadata must not consume another card"
+            );
+            assert_eq!(a.observe(observation(&own), now + 4), None);
+            assert_eq!(a.observe(window(&format!("{own}artist")), now + 5), None);
+        }
+    }
+    #[test]
+    fn replayed_card_does_not_confirm_the_old_interface_title_before_the_window_returns() {
+        let mut a = engine();
+        let window = |title: &str| Observation {
+            signal: Signal::Window,
+            ..observation(title)
+        };
+        a.observe(observation("a"), 0);
+        a.observe(window("aartist"), 0);
+        let Some(Event::Play { token, .. }) = a.observe(window("bartist"), 1) else {
+            panic!()
+        };
+        a.begin(target("a"), Some(token), 2);
+        assert_eq!(a.observe(observation("a"), 600), None);
+        assert!(matches!(
+            a.observe(window("aartist"), 700),
+            Some(Event::Confirmed { .. })
+        ));
+        assert_eq!(a.observe(observation("a"), 800), None);
+        assert_eq!(a.observe(observation("b"), 900), None);
+        assert_eq!(a.observe(observation("a"), 1000), None);
+        assert!(matches!(
+            a.observe(window("cartist"), 2000),
+            Some(Event::Play { .. })
+        ));
+    }
+    #[test]
+    fn repeated_track_timeline_reset_is_an_end_signal_once() {
+        let mut a = engine();
+        // Repeat-one can return to zero without ever changing its title or reporting stopped.
+        a.observe(progress("a", 98.0, 10), 10);
+        assert!(matches!(
+            a.observe(progress("a", 0.2, 20), 20),
+            Some(Event::Play { .. })
+        ));
+        assert_eq!(a.observe(progress("a", 0.3, 30), 30), None);
     }
 }

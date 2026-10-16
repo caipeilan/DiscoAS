@@ -70,13 +70,13 @@ impl Client {
     }
 }
 
-pub(crate) fn window_title(platform: &str) -> Option<String> {
-    windows::read_title(Client::from_platform(platform)?)
+pub(crate) fn process_image(pid: u32) -> Option<String> {
+    windows::image_for_pid(pid)
 }
-pub(crate) fn process_image(pid: u32) -> Option<String> { windows::image_for_pid(pid) }
 pub(crate) fn client_image(platform: &str) -> Option<String> {
     windows::main_image(Client::from_platform(platform)?)
 }
+pub(crate) use windows::TitleReader;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,10 +159,10 @@ mod windows {
             OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
         },
         UI::WindowsAndMessaging::{
-            EnumWindows, GetClassNameW, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
-            GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, ShowWindowAsync,
-            GWL_EXSTYLE, GWL_STYLE, GW_OWNER, SW_MINIMIZE, WS_CHILD, WS_EX_TOOLWINDOW,
-            WS_MINIMIZEBOX,
+            EnumWindows, GetClassNameW, GetWindow, GetWindowLongPtrW, GetWindowRect,
+            GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
+            ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, SW_MINIMIZE, WS_CHILD,
+            WS_EX_TOOLWINDOW, WS_MINIMIZEBOX,
         },
     };
 
@@ -210,9 +210,12 @@ mod windows {
     }
 
     fn inspect(hwnd: HWND) -> Option<Window> {
+        inspect_with_visibility(hwnd, false)
+    }
+    fn inspect_with_visibility(hwnd: HWND, include_hidden: bool) -> Option<Window> {
         // SAFETY: Win32 checks handle validity; all borrowed buffers have sufficient capacity.
         unsafe {
-            if IsWindow(hwnd) == 0 || IsWindowVisible(hwnd) == 0 {
+            if IsWindow(hwnd) == 0 || (!include_hidden && IsWindowVisible(hwnd) == 0) {
                 return None;
             }
             let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
@@ -257,13 +260,14 @@ mod windows {
 
     struct Enumeration {
         client: Client,
+        include_hidden: bool,
         windows: Vec<Window>,
     }
 
     unsafe extern "system" fn collect(hwnd: HWND, param: LPARAM) -> i32 {
         // SAFETY: EnumWindows calls synchronously while the stack context is alive.
         let context = &mut *(param as *mut Enumeration);
-        if let Some(window) = inspect(hwnd) {
+        if let Some(window) = inspect_with_visibility(hwnd, context.include_hidden) {
             if context.client.matches_image(&window.image) {
                 context.windows.push(window);
             }
@@ -272,8 +276,12 @@ mod windows {
     }
 
     fn find_main(client: Client) -> Option<Window> {
+        find_main_with_visibility(client, false)
+    }
+    fn find_main_with_visibility(client: Client, include_hidden: bool) -> Option<Window> {
         let mut context = Enumeration {
             client,
+            include_hidden,
             windows: Vec::new(),
         };
         if unsafe { EnumWindows(Some(collect), (&mut context as *mut Enumeration) as isize) } == 0 {
@@ -284,13 +292,51 @@ mod windows {
         choose_main(context.windows)
     }
 
-    pub(super) fn main_image(client: Client) -> Option<String> { Some(find_main(client)?.image) }
-    pub(super) fn read_title(client: Client) -> Option<String> {
-        let window = find_main(client)?;
-        let mut title = vec![0u16; 4096];
-        // SAFETY: the selected HWND belongs to the verified client; Win32 bounds the write.
-        let length = unsafe { GetWindowTextW(window.hwnd as HWND, title.as_mut_ptr(), title.len() as i32) };
-        (length > 0).then(|| String::from_utf16_lossy(&title[..length as usize]))
+    pub(super) fn main_image(client: Client) -> Option<String> {
+        Some(find_main_with_visibility(client, true)?.image)
+    }
+    /// Reuse the verified main HWND, including while minimized or hidden in the tray.
+    pub(crate) struct TitleReader {
+        client: Client,
+        window: Option<Window>,
+        searched: Option<Instant>,
+    }
+    impl TitleReader {
+        pub(crate) fn new(platform: &str) -> Option<Self> {
+            Some(Self {
+                client: Client::from_platform(platform)?,
+                window: None,
+                searched: None,
+            })
+        }
+        pub(crate) fn read(&mut self) -> Option<String> {
+            if let Some(window) = &self.window {
+                let mut pid = 0;
+                if unsafe { IsWindow(window.hwnd as HWND) } == 0
+                    || unsafe { GetWindowThreadProcessId(window.hwnd as HWND, &mut pid) } == 0
+                    || pid != window.pid
+                {
+                    self.window = None;
+                }
+            }
+            if self.window.is_none() {
+                if self
+                    .searched
+                    .is_some_and(|last| last.elapsed() < Duration::from_secs(1))
+                {
+                    return None;
+                }
+                self.searched = Some(Instant::now());
+                self.window =
+                    find_main(self.client).or_else(|| find_main_with_visibility(self.client, true));
+            }
+            let window = self.window.as_ref()?;
+            let mut title = [0u16; 4096];
+            let length = unsafe {
+                GetWindowTextW(window.hwnd as HWND, title.as_mut_ptr(), title.len() as i32)
+            };
+            (length > 0).then(|| String::from_utf16_lossy(&title[..length as usize]))
+        }
     }
 
     fn choose_main(mut windows: Vec<Window>) -> Option<Window> {

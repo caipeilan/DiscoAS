@@ -36,12 +36,14 @@ export interface DiscoveryKeybindings {
 export interface HandSettings {
   enabled: boolean; reveal_mystery: boolean; resident: boolean; keep_discovery_open: boolean;
   auto_play: boolean; auto_play_position: "first" | "last";
+  auto_play_detection: "system" | "window" | "mixed";
   shortcut: string; play_shortcuts: string[]; side: "left" | "right" | "bottom"; capacity: number;
   scale: number; edge_distance: number; position: number; overlap: number; tilt: number;
 }
 export const defaultHandSettings: HandSettings = {
   enabled: false, reveal_mystery: false, resident: false, keep_discovery_open: false,
   auto_play: false, auto_play_position: "first",
+  auto_play_detection: "mixed",
   shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
   play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
 };

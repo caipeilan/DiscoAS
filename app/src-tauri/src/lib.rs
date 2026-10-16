@@ -240,7 +240,7 @@ pub fn run() {
             }
             desktop::tray_menu::create(app.handle())?;
             let hand_app = app.handle().clone();
-            app.state::<desktop::auto_hand::AutoHandService>().start(app.handle(), &setting.hand)?;
+            app.state::<desktop::auto_hand::AutoHandService>().start(app.handle(), &setting)?;
             tauri::async_runtime::spawn(async move {
                 let _ = desktop::hand::refresh(&hand_app).await;
             });

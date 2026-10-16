@@ -1,9 +1,10 @@
 //! Owns the experimental observer and coordinates ordinary-hand playback.
 use super::auto_hand_native::{self as native, TemporaryMute};
 use discoas_core::{
-    auto_hand::{normalize, AutoHand, Event, Target},
-    hand::HandSettings,
+    auto_hand::{track_title, AutoHand, Event, Target},
+    hand::AutoDetectionMode,
     model::{PlaySongArgs, SongCardDto},
+    settings::music_setting::MusicSetting,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -15,6 +16,9 @@ use tauri::{Emitter, Manager};
 struct Runtime {
     policy: AutoHand,
     request: Option<(u64, PlaySongArgs)>,
+    mode: AutoDetectionMode,
+    source: Option<String>,
+    title: String,
 }
 struct Worker {
     wake: mpsc::Sender<()>,
@@ -28,8 +32,8 @@ pub struct AutoHandService {
     worker: Mutex<Option<Worker>>,
 }
 impl AutoHandService {
-    pub fn start(&self, app: &tauri::AppHandle, hand: &HandSettings) -> Result<(), String> {
-        self.configure(hand);
+    pub fn start(&self, app: &tauri::AppHandle, settings: &MusicSetting) -> Result<(), String> {
+        self.configure(settings);
         let runtime = self.runtime.clone();
         let enabled = self.enabled.clone();
         let stopped = self.stopped.clone();
@@ -44,6 +48,7 @@ impl AutoHandService {
                 let mut reader = None;
                 let mut muted: Option<(u64, TemporaryMute)> = None;
                 while !stopped.load(Ordering::Acquire) {
+                    let mut interval = std::time::Duration::from_millis(250);
                     let active = enabled.load(Ordering::Acquire)
                         && !super::hand::preview(&app)
                         && !super::discovery_preview::isolated(&app)
@@ -60,8 +65,18 @@ impl AutoHandService {
                     }
                     if active {
                         let reader = reader.get_or_insert_with(native::Reader::new);
-                        let platform = runtime.lock().unwrap().policy.active().map(str::to_string);
-                        let mut values = reader.sample(platform.as_deref());
+                        let (platform, mode, title) = {
+                            let mut runtime = runtime.lock().unwrap();
+                            if let Some(source) = runtime.source.clone() {
+                                runtime.policy.adopt(&source);
+                            }
+                            (
+                                runtime.policy.active().map(str::to_string),
+                                runtime.mode,
+                                runtime.title.clone(),
+                            )
+                        };
+                        let mut values = reader.sample(platform.as_deref(), mode, Some(&title));
                         if let Some(browser) = app
                             .state::<crate::browser_playback::BrowserPlaybackService>()
                             .observation()
@@ -70,9 +85,13 @@ impl AutoHandService {
                         }
                         {
                             let mut runtime = runtime.lock().unwrap();
-                            let preferred = reader
-                                .current_platform()
-                                .filter(|p| values.iter().any(|v| v.platform == *p && v.playing));
+                            let preferred = (runtime.policy.active().is_none())
+                                .then(|| {
+                                    reader.current_platform().filter(|p| {
+                                        values.iter().any(|v| v.platform == *p && v.playing)
+                                    })
+                                })
+                                .flatten();
                             if let Some(platform) = preferred.or_else(|| {
                                 values
                                     .iter()
@@ -83,6 +102,13 @@ impl AutoHandService {
                             }
                         }
                         for value in values {
+                            if value
+                                .progress
+                                .as_ref()
+                                .is_some_and(|p| p.duration - p.position < 6.0)
+                            {
+                                interval = std::time::Duration::from_millis(100);
+                            }
                             let platform = value.platform.clone();
                             let event = runtime
                                 .lock()
@@ -170,6 +196,7 @@ impl AutoHandService {
                             }
                         }
                         if let Some((token, mute)) = &mut muted {
+                            interval = std::time::Duration::from_millis(100);
                             if !runtime.lock().unwrap().policy.waiting(*token) {
                                 muted = None;
                             } else if let Err(error) = mute.refresh() {
@@ -183,7 +210,11 @@ impl AutoHandService {
                         reader = None;
                         muted = None;
                     }
-                    let _ = receiver.recv_timeout(std::time::Duration::from_millis(100));
+                    if enabled.load(Ordering::Acquire) {
+                        let _ = receiver.recv_timeout(interval);
+                    } else if receiver.recv().is_err() {
+                        break;
+                    }
                 }
                 drop(muted);
             })
@@ -196,10 +227,23 @@ impl AutoHandService {
             let _ = worker.wake.send(());
         }
     }
-    pub fn configure(&self, hand: &HandSettings) {
+    pub fn configure(&self, settings: &MusicSetting) {
+        let hand = &settings.hand;
         let enabled = hand.enabled && hand.auto_play;
         self.enabled.store(enabled, Ordering::Release);
-        self.runtime.lock().unwrap().policy.configure(enabled);
+        let mut runtime = self.runtime.lock().unwrap();
+        let source = settings
+            .playlist_albums
+            .iter()
+            .find(|s| s.enabled)
+            .map(|s| s.name.clone());
+        if runtime.mode != hand.auto_play_detection || runtime.source != source {
+            runtime.policy.configure(false);
+        }
+        runtime.mode = hand.auto_play_detection;
+        runtime.source = source;
+        runtime.policy.configure(enabled);
+        drop(runtime);
         self.wake();
     }
     pub fn begin(
@@ -209,19 +253,21 @@ impl AutoHandService {
         automatic: Option<u64>,
     ) -> Result<u64, String> {
         let mut runtime = self.runtime.lock().unwrap();
+        let title = card.map(|c| track_title(&c.name)).unwrap_or_default();
         let token = runtime
             .policy
             .begin(
                 Target {
                     platform: args.platform.clone(),
                     song_id: args.song_id.clone(),
-                    title: card.map(|c| normalize(&c.name)).unwrap_or_default(),
+                    title: title.clone(),
                 },
                 automatic,
                 native::now_ms(),
             )
             .ok_or("错误：播放请求已更新")?;
         runtime.request = Some((token, args.clone()));
+        runtime.title = title;
         drop(runtime);
         self.wake();
         Ok(token)

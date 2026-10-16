@@ -1,5 +1,11 @@
 // Source Chinese is the stable message key. Each pair is Traditional Chinese and English.
 export const translations: Record<string, [string, string]> = {
+  "手牌的第一张": ["手牌的第一張", "First hand card"],
+  "手牌的最后一张": ["手牌的最後一張", "Last hand card"],
+  "检测方式": ["偵測方式", "Detection method"],
+  "系统接口": ["系統介面", "System interface"],
+  "窗口名变化": ["視窗名稱變化", "Window title changes"],
+  "混合": ["混合", "Mixed"],
   "错误：无法启动自动打出手牌": ["錯誤：無法啟動自動打出手牌", "Error: Cannot start automatic hand playback"],
   "错误：无法静音对应客户端，自动打出已暂停": ["錯誤：無法靜音對應用戶端，自動打出已暫停", "Error: Cannot mute the music client; automatic hand playback is paused"],
   "错误：无法读取客户端音频会话": ["錯誤：無法讀取用戶端音訊工作階段", "Error: Cannot read the client's audio sessions"],
