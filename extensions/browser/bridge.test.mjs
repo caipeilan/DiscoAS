@@ -123,6 +123,26 @@ test("automatic next video preserves initial confirmation and next choice reuses
   assert.equal(f.operations.filter((op) => op.type === "create").length, 1);
 });
 
+test("replaying a video cannot bind its old near-end document to the new request", async () => {
+  for (const [platform, songId] of [["YouTube", A], ["Bilibili", "BV1234567890_p1"]]) {
+    const f = setup();
+    await f.request(1, songId, platform);
+    const id = f.stored().tabId;
+    await f.player.handle({ type: "discoas-state", requestId: 1, playing: true }, f.sender(id));
+    f.hooks.sendMessage = async (tabId, message) => {
+      // Simulate the old document still receiving messages while navigation commits.
+      if (message.type === "discoas-bind")
+        await f.player.handle({ type: "discoas-state", requestId: message.binding.requestId, playing: true }, f.sender(tabId));
+    };
+    await f.request(2, songId, platform);
+    assert.equal(f.reports.some(report => report.requestId === 2), false);
+    const freshBinding = await f.player.handle({ type: "discoas-ready" }, f.sender(id));
+    assert.equal(freshBinding.requestId, 2);
+    await f.player.handle({ type: "discoas-state", requestId: 2, playing: true }, f.sender(id));
+    assert.equal(f.reports.at(-1).requestId, 2);
+  }
+});
+
 test("reports from unrelated tabs, embedded frames, old requests and other videos are ignored", async () => {
   const f = setup();
   await f.request(7, A);

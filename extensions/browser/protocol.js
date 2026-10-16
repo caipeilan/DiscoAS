@@ -57,7 +57,7 @@
       const work = tail.then(async () => {
         await ready;
         if (!current()) return;
-        let tab;
+        let tab, created = false;
         if (binding) {
           try { tab = await tabs.get(binding.tabId); } catch { binding = null; }
           // A user who navigates the bound tab away leaves the controlled session.
@@ -74,11 +74,14 @@
           await tabs.update(tab.id, { url: expected.url, active: true });
         } else {
           tab = await tabs.create({ url: expected.url, active: true });
+          created = true;
           binding = { tabId: tab.id, ...expected, requestId: request.requestId, confirmed: false };
           await save();
         }
         // A fast page may have asked for its binding before tabs.create resolved.
-        if (current())
+        // A reused tab's old document may still be alive after update resolves.
+        // Let the new document request its binding instead of resuming old near-end media.
+        if (created && current())
           await tabs.sendMessage(tab.id, { type: "discoas-bind", binding }).catch(() => {});
       });
       tail = work.catch(() => {});
