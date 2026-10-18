@@ -9,7 +9,7 @@ async function compiled(file) {
   return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 }
 const { parseNumberInput, commitNumberInput, stepNumberInput } = await compiled("../src/components/numberInput.ts");
-const { parseSongBasis, calculateDiscoveryWeighting } = await compiled("../src/features/settings/weightingCalculator.ts");
+const { parseSongBasis, calculateDiscoveryWeighting, recommendedSoftBand } = await compiled("../src/features/settings/weightingCalculator.ts");
 test("continuous preferences accept fractional values while counts remain integers", () => {
   assert.equal(parseNumberInput("14.125", true), 14.125);
   assert.equal(parseNumberInput("0,25", true), .25);
@@ -47,4 +47,12 @@ test("calculated cadence scales with playlist and batch size without promising r
   assert.equal(calculateDiscoveryWeighting(1000000,1).boost_after_batches,10000);
   assert.equal(calculateDiscoveryWeighting(1000000,1).boost_per_batch,.01);
   assert.ok(calculateDiscoveryWeighting(1000,10).recovery_batches<calculateDiscoveryWeighting(1000,2).recovery_batches);
+});
+test("ranked soft band defaults to ten percent of the enabled playlist or twenty", () => {
+  assert.equal(recommendedSoftBand(0), 20);
+  assert.equal(recommendedSoftBand(-5), 20);
+  assert.equal(recommendedSoftBand(1.5), 20);
+  assert.equal(recommendedSoftBand(1), 1);
+  assert.equal(recommendedSoftBand(20), 2);
+  assert.equal(recommendedSoftBand(5013), 501);
 });

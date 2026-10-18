@@ -15,6 +15,8 @@ export interface Preferences {
   cache_batches: number;
   preload_deduplication: boolean;
   discovery_weighting: DiscoveryWeighting;
+  weighting_mode: DiscoveryWeightingMode;
+  ranked_weighting: RankedWeighting;
   replacement_limit: number;
   refreshing_after_cancel: boolean;
   shortcut_key: string;
@@ -78,6 +80,27 @@ export interface DiscoveryWeighting {
   boost_per_batch: number;
   max_weight: number;
 }
+export type DiscoveryWeightingMode = "none" | "traditional" | "ranked";
+export interface RankedWeighting {
+  soft_band: number;
+  time_cooling: boolean;
+  time_cooling_strength: number;
+  time_cooling_batches: number;
+  revival: boolean;
+  revival_gain: number;
+  revival_wait: number;
+  revival_span: number;
+}
+export const defaultRankedWeighting: RankedWeighting = {
+  soft_band: 20,
+  time_cooling: false,
+  time_cooling_strength: 0.85,
+  time_cooling_batches: 50,
+  revival: false,
+  revival_gain: 0.5,
+  revival_wait: 200,
+  revival_span: 200,
+};
 export interface DiscoveryState {
   songs: Song[];
   batchEpoch: number;
@@ -331,6 +354,8 @@ export const emptyState: AppState = {
     discovery_weighting: { enabled: false, base_weight: 100, discovered_penalty: 20,
       selected_penalty: 40, recovery_batches: 5, boost_after_batches: 10,
       boost_per_batch: 5, max_weight: 500 },
+    weighting_mode: "none",
+    ranked_weighting: defaultRankedWeighting,
     replacement_limit: 1,
     refreshing_after_cancel: false,
     shortcut_key: "Alt+D",

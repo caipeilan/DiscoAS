@@ -180,6 +180,15 @@ export function Settings({
             <Toggle label={t("预加载批次间去重")} value={draft.preload_deduplication}
               onChange={(value) => set("preload_deduplication", value)} />
           </SettingRow>
+          <SettingRow title={t("每次发现替换数")}>
+            <NumberField label={t("每次发现替换数")} value={draft.replacement_limit} min={0} max={100}
+              suffix={t("次")} onChange={(value) => set("replacement_limit", value)} />
+          </SettingRow>
+        </section>
+        </>)}
+        {panel("exclusion", <>
+        <section className="settings-section">
+          <h2>{t("排除偏好")}</h2>
           <SettingRow title={t("近期歌曲排除")} description={t("按平台与歌曲排除，切换同平台歌单后仍生效，排除数量超上限后最早被记录的歌曲会被释放")}>
             <Select
               label={t("近期歌曲排除")}
@@ -195,14 +204,11 @@ export function Settings({
           <SettingRow title={t("排除上限")} description={t("最高10000首，仅排除实际展示的歌曲，不排除平台自动播放的曲目")}>
             <NumberField label={t("排除上限")} value={draft.history_limit} min={0} max={10000} onChange={(value) => set("history_limit", value)} />
           </SettingRow>
-          <SettingRow title={t("每次发现替换数")}>
-            <NumberField label={t("每次发现替换数")} value={draft.replacement_limit} min={0} max={100}
-              suffix={t("次")} onChange={(value) => set("replacement_limit", value)} />
-          </SettingRow>
         </section>
         </>)}
         {panel("weighting", <>
-        <WeightingSettings value={draft.discovery_weighting} onChange={(value) => set("discovery_weighting", value)}
+        <WeightingSettings mode={draft.weighting_mode} traditional={draft.discovery_weighting} ranked={draft.ranked_weighting}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
           songCount={enabledSource?.songCount || 0} sourceIdentity={enabledSource ? JSON.stringify([enabledSource.platform, enabledSource.kind, enabledSource.id]) : ""}
           drawCount={total} />
         </>)}

@@ -45,6 +45,18 @@ impl WeightSnapshot {
             })
             .collect())
     }
+    /// Current discovery round for a platform; ranked age-based options use it.
+    pub(crate) fn round(&self, platform: &str) -> u64 {
+        self.rounds.get(platform).copied().unwrap_or(0)
+    }
+    /// Round of the later display or selection event, if either was recorded.
+    pub(crate) fn last_round(&self, platform: &str, id: &str) -> Option<u64> {
+        let event = self.songs.get(&key(platform, id))?;
+        match (event.discovered, event.selected) {
+            (None, None) => None,
+            (left, right) => Some(left.unwrap_or(0).max(right.unwrap_or(0))),
+        }
+    }
     pub(crate) fn displayed(&mut self, songs: &[SongCardDto], new_round: bool) {
         let Some(song) = songs.first() else {
             return;

@@ -93,6 +93,66 @@ fn finite_clamp(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscoveryWeightingMode {
+    #[default]
+    None,
+    Traditional,
+    Ranked,
+}
+
+/// Relative rank weights for the ranked discovery mode. The hard window and
+/// the soft band are expressed in songs; optional cooling and revival are in
+/// platform discovery rounds.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct RankedWeighting {
+    pub soft_band: u32,
+    pub time_cooling: bool,
+    pub time_cooling_strength: f64,
+    pub time_cooling_batches: u32,
+    pub revival: bool,
+    pub revival_gain: f64,
+    pub revival_wait: u32,
+    pub revival_span: u32,
+}
+impl Default for RankedWeighting {
+    fn default() -> Self {
+        Self {
+            soft_band: 20,
+            time_cooling: false,
+            time_cooling_strength: 0.85,
+            time_cooling_batches: 50,
+            revival: false,
+            revival_gain: 0.5,
+            revival_wait: 200,
+            revival_span: 200,
+        }
+    }
+}
+impl RankedWeighting {
+    pub fn validate(&self) -> Result<(), String> {
+        let mut normalized = self.clone();
+        normalized.normalize();
+        if &normalized == self {
+            Ok(())
+        } else {
+            Err("错误：排序加权设置超出范围".into())
+        }
+    }
+    pub fn normalize(&mut self) {
+        let defaults = Self::default();
+        self.soft_band = self.soft_band.min(MAX_HISTORY_LIMIT);
+        self.time_cooling_strength =
+            finite_clamp(self.time_cooling_strength, 0.0, 0.95, defaults.time_cooling_strength);
+        self.time_cooling_batches = self.time_cooling_batches.clamp(1, 10_000);
+        self.revival_gain = finite_clamp(self.revival_gain, 0.0, 2.0, defaults.revival_gain);
+        self.revival_wait = self.revival_wait.min(10_000);
+        self.revival_span = self.revival_span.clamp(1, 10_000);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HistoryExclusion {
     #[default]
@@ -145,7 +205,12 @@ pub struct MusicSetting {
     /// 缓存批数，0 = 禁用预加载
     pub cache_batches: u32,
     pub preload_deduplication: bool,
+    /// Legacy absolute weighting configuration, used by `Traditional` mode.
     pub discovery_weighting: DiscoveryWeighting,
+    /// Selects the active weighting model; the legacy enabled flag stays in sync.
+    pub weighting_mode: DiscoveryWeightingMode,
+    /// Relative rank weighting used by `weighting_mode == Ranked`.
+    pub ranked_weighting: RankedWeighting,
     pub replacement_limit: u32,
     /// 取消后是否刷新
     pub refreshing_after_cancel: bool,
@@ -174,6 +239,8 @@ impl Default for MusicSetting {
             cache_batches: 2,
             preload_deduplication: false,
             discovery_weighting: DiscoveryWeighting::default(),
+            weighting_mode: DiscoveryWeightingMode::None,
+            ranked_weighting: RankedWeighting::default(),
             replacement_limit: 1,
             refreshing_after_cancel: false,
             shortcut_key: "Alt+D".to_string(),
@@ -256,6 +323,18 @@ impl MusicSetting {
         }
     }
 
+    /// Resolved weighting model. A settings file that predates `weighting_mode`
+    /// keeps the legacy `discovery_weighting.enabled` switch.
+    pub fn weighting_mode(&self) -> DiscoveryWeightingMode {
+        if self.weighting_mode == DiscoveryWeightingMode::None
+            && self.discovery_weighting.enabled
+        {
+            DiscoveryWeightingMode::Traditional
+        } else {
+            self.weighting_mode
+        }
+    }
+
     pub fn normalize_preferences(&mut self) {
         if !crate::hand::AUTO_PLAY_AVAILABLE {
             self.hand.auto_play = false;
@@ -267,7 +346,11 @@ impl MusicSetting {
         self.history_limit = self.history_limit.min(MAX_HISTORY_LIMIT);
         self.cache_batches = self.cache_batches.min(5);
         self.replacement_limit = self.replacement_limit.min(100);
+        self.weighting_mode = self.weighting_mode();
+        self.discovery_weighting.enabled =
+            self.weighting_mode == DiscoveryWeightingMode::Traditional;
         self.discovery_weighting.normalize();
+        self.ranked_weighting.normalize();
     }
 }
 
@@ -372,6 +455,12 @@ mod tests {
         edited.discovery_weighting.enabled = true;
         assert!(!original.has_same_discovery_configuration(&edited));
         edited.discovery_weighting.enabled = false;
+        edited.weighting_mode = DiscoveryWeightingMode::Traditional;
+        assert!(!original.has_same_discovery_configuration(&edited));
+        edited.weighting_mode = DiscoveryWeightingMode::None;
+        edited.ranked_weighting.soft_band = 50;
+        assert!(!original.has_same_discovery_configuration(&edited));
+        edited.ranked_weighting.soft_band = RankedWeighting::default().soft_band;
         for field in ["name", "playlist_album_id", "typename", "enabled"] {
             let mut changed = serde_json::to_value(&edited).unwrap();
             changed["playlist_albums"][1][field] = match field {
@@ -539,6 +628,7 @@ mod tests {
         assert_eq!(legacy.base_weight, 100.0);
         assert!(legacy.validate().is_ok());
         let settings = MusicSetting {
+            weighting_mode: DiscoveryWeightingMode::Traditional,
             discovery_weighting: DiscoveryWeighting {
                 enabled: true,
                 base_weight: 100.125,
@@ -589,5 +679,67 @@ mod tests {
         let mut normalized = valid.clone();
         normalized.normalize();
         assert_eq!(normalized, valid);
+    }
+
+    #[test]
+    fn legacy_enabled_weighting_migrates_to_traditional_and_modes_sync_the_legacy_flag() {
+        let path = std::env::temp_dir().join(format!(
+            "discoas-weighting-mode-{}.json",
+            rand::random::<u64>()
+        ));
+        std::fs::write(&path, r#"{"discovery_weighting":{"enabled":true}}"#).unwrap();
+        let migrated = MusicSetting::load_from_path(&path).unwrap();
+        assert_eq!(migrated.weighting_mode, DiscoveryWeightingMode::Traditional);
+        assert!(migrated.discovery_weighting.enabled);
+        std::fs::remove_file(&path).unwrap();
+
+        let mut ranked = MusicSetting::default();
+        ranked.weighting_mode = DiscoveryWeightingMode::Ranked;
+        ranked.discovery_weighting.enabled = true;
+        ranked.normalize_preferences();
+        assert_eq!(ranked.weighting_mode, DiscoveryWeightingMode::Ranked);
+        assert!(!ranked.discovery_weighting.enabled);
+
+        let mut legacy = MusicSetting::default();
+        legacy.discovery_weighting.enabled = true;
+        assert_eq!(
+            legacy.weighting_mode(),
+            DiscoveryWeightingMode::Traditional
+        );
+        legacy.normalize_preferences();
+        assert_eq!(legacy.weighting_mode, DiscoveryWeightingMode::Traditional);
+        assert!(legacy.discovery_weighting.enabled);
+
+        let mut none = MusicSetting::default();
+        none.normalize_preferences();
+        assert_eq!(none.weighting_mode, DiscoveryWeightingMode::None);
+        assert!(!none.discovery_weighting.enabled);
+        let serialized = serde_json::to_value(&none).unwrap();
+        assert_eq!(serialized["weighting_mode"], "none");
+        assert_eq!(serialized["ranked_weighting"]["soft_band"], 20);
+    }
+
+    #[test]
+    fn ranked_weighting_normalizes_bounds_and_serializes_defaults() {
+        let mut invalid = RankedWeighting {
+            soft_band: 20_000,
+            time_cooling_strength: f64::NAN,
+            time_cooling_batches: 0,
+            revival_gain: 5.0,
+            revival_span: 0,
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+        invalid.normalize();
+        assert_eq!(invalid.soft_band, MAX_HISTORY_LIMIT);
+        assert_eq!(invalid.time_cooling_batches, 1);
+        assert_eq!(invalid.revival_span, 1);
+        assert!((invalid.time_cooling_strength - 0.85).abs() < 1e-9);
+        assert_eq!(invalid.revival_gain, 2.0);
+        assert!(invalid.validate().is_ok());
+        let serialized = serde_json::to_value(RankedWeighting::default()).unwrap();
+        assert_eq!(serialized["soft_band"], 20);
+        assert_eq!(serialized["time_cooling"], false);
+        assert_eq!(serialized["revival"], false);
     }
 }

@@ -17,7 +17,9 @@ use crate::{
         CanonicalSongMetadata, DiscoveryStateDto, HistoryCoverDto, HistoryIdentity,
         HistoryMutationDto, PlaySongArgs, SongCardDto,
     },
-    settings::music_setting::{HistoryExclusion, MusicSetting, PlaylistAlbum, MAX_HISTORY_LIMIT},
+    settings::music_setting::{
+        DiscoveryWeightingMode, HistoryExclusion, MusicSetting, PlaylistAlbum, MAX_HISTORY_LIMIT,
+    },
     storage::LibraryStore,
 };
 use std::{
@@ -77,6 +79,16 @@ impl SamplingInputs {
     }
 }
 
+/// Ranked mode ranks by recent activity; `Off` keeps the hard window empty and
+/// starts the soft band at the newest song.
+fn ranked_scope(setting: &MusicSetting) -> (HistoryExclusion, u32) {
+    if setting.history_exclusion == HistoryExclusion::Off {
+        (HistoryExclusion::Discovered, 0)
+    } else {
+        (setting.history_exclusion, setting.history_limit)
+    }
+}
+
 #[derive(Clone)]
 pub struct DiscoveryService {
     store: LibraryStore,
@@ -122,10 +134,18 @@ impl DiscoveryService {
         setting: &MusicSetting,
         platform: &str,
     ) -> Result<HashSet<String>, String> {
-        let mut ids = self
-            .history
-            .excluded_song_ids(platform, setting.history_exclusion, setting.history_limit)
-            .map_err(|e| e.to_string())?;
+        let ranked = setting.weighting_mode() == DiscoveryWeightingMode::Ranked;
+        let (mode, limit) = if ranked {
+            ranked_scope(setting)
+        } else {
+            (setting.history_exclusion, setting.history_limit)
+        };
+        let mut ids = if mode == HistoryExclusion::Off || limit == 0 {
+            HashSet::new()
+        } else {
+            let history = self.history.load().map_err(|error| error.to_string())?;
+            history.exclusion_ids(platform, mode, limit, ranked)
+        };
         if setting.hand.enabled {
             ids.extend(HandStore::new(self.store.root()).held_ids(platform)?);
         }
@@ -222,30 +242,48 @@ impl DiscoveryService {
 
     fn sampling_inputs(&self, setting: &MusicSetting) -> Result<SamplingInputs, String> {
         let (source, snapshot) = self.source_snapshot(setting)?;
+        let mode = setting.weighting_mode();
         let history = if (setting.history_exclusion != HistoryExclusion::Off
             && setting.history_limit > 0)
-            || setting.discovery_weighting.enabled
+            || mode != DiscoveryWeightingMode::None
         {
             self.history.load().map_err(|error| error.to_string())?
         } else {
             Default::default()
         };
-        let mut excluded = history.excluded_song_ids(
-            &source.name,
-            setting.history_exclusion,
-            setting.history_limit,
-        );
+        let ranked = mode == DiscoveryWeightingMode::Ranked;
+        let (rank_mode, limit) = if ranked {
+            ranked_scope(setting)
+        } else {
+            (setting.history_exclusion, setting.history_limit)
+        };
+        let (mut excluded, weights) = match mode {
+            DiscoveryWeightingMode::Ranked => history.ranked_weights(
+                &source.name,
+                rank_mode,
+                limit,
+                &setting.ranked_weighting,
+                &snapshot.playlist.song_ids,
+            ),
+            DiscoveryWeightingMode::Traditional => (
+                history.excluded_song_ids(&source.name, rank_mode, limit),
+                history
+                    .weighting
+                    .weights(
+                        &source.name,
+                        &snapshot.playlist.song_ids,
+                        &setting.discovery_weighting,
+                    )
+                    .map_err(|error| error.to_string())?,
+            ),
+            DiscoveryWeightingMode::None => (
+                history.excluded_song_ids(&source.name, rank_mode, limit),
+                HashMap::new(),
+            ),
+        };
         if setting.hand.enabled {
             excluded.extend(HandStore::new(self.store.root()).held_ids(&source.name)?);
         }
-        let weights = history
-            .weighting
-            .weights(
-                &source.name,
-                &snapshot.playlist.song_ids,
-                &setting.discovery_weighting,
-            )
-            .map_err(|error| error.to_string())?;
         Ok(SamplingInputs {
             source,
             snapshot,
@@ -911,7 +949,7 @@ impl DiscoveryService {
             .displayed_song_ids
             .extend(fresh.into_iter().map(|song| song.song_id));
         drop(current_session);
-        if setting.discovery_weighting.enabled {
+        if setting.weighting_mode() != DiscoveryWeightingMode::None {
             self.cache.invalidate_preloads().await;
         }
         Ok(Some(snapshot))
@@ -926,16 +964,18 @@ impl DiscoveryService {
         if setting.history_exclusion == HistoryExclusion::Off || setting.history_limit == 0 {
             return Ok(());
         }
+        let ranked = setting.weighting_mode() == DiscoveryWeightingMode::Ranked;
+        let (mode, limit) = if ranked {
+            ranked_scope(setting)
+        } else {
+            (setting.history_exclusion, setting.history_limit)
+        };
         let excluded = match snapshot {
-            Some(snapshot) => snapshot.excluded_song_ids(
-                platform,
-                setting.history_exclusion,
-                setting.history_limit,
-            ),
-            None => self
-                .history
-                .excluded_song_ids(platform, setting.history_exclusion, setting.history_limit)
-                .map_err(|error| error.to_string())?,
+            Some(snapshot) => snapshot.exclusion_ids(platform, mode, limit, ranked),
+            None => {
+                let history = self.history.load().map_err(|error| error.to_string())?;
+                history.exclusion_ids(platform, mode, limit, ranked)
+            }
         }
         .into_iter()
         .map(|song| (platform.to_string(), song))
@@ -2146,6 +2186,48 @@ mod tests {
         // A closed surface has no posted cards to acknowledge.
         cache.release_current_batch().await;
         assert!(!service.record_presented_batch().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn ranked_weighting_uses_the_soft_band_for_the_remaining_songs() {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source_many(8);
+        fixture.configure(|setting| {
+            setting.history_exclusion = HistoryExclusion::Discovered;
+            setting.history_limit = 2;
+            setting.weighting_mode = DiscoveryWeightingMode::Ranked;
+            setting.ranked_weighting.soft_band = 2;
+        });
+        let sleep = std::time::Duration::from_millis(3);
+        let history = crate::history::HistoryStore::new(&fixture.0);
+        for id in ["0", "1", "2"] {
+            history
+                .record_discovered(
+                    &[SongCardDto {
+                        platform: "Spotify".into(),
+                        song_id: id.into(),
+                        playlist_id: "source".into(),
+                        typename: "playlist".into(),
+                        ..Default::default()
+                    }],
+                    200,
+                )
+                .unwrap();
+            std::thread::sleep(sleep);
+        }
+        let service = fixture.service(Cache::new());
+        let setting = service.settings().unwrap();
+        let inputs = service.sampling_inputs(&setting).unwrap();
+        // The two newest displays are hard-excluded; the older one starts the
+        // soft band and unseen songs stay at the full relative weight.
+        assert_eq!(
+            inputs.excluded,
+            HashSet::from(["2".into(), "1".into()])
+        );
+        assert!((inputs.weights["0"] - 500.0).abs() < 1.0);
+        assert_eq!(inputs.weights["5"], 1000.0);
+        assert_eq!(service.get_status().await.unwrap().remaining_songs, 6);
     }
 
     #[tokio::test]

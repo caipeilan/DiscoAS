@@ -3,7 +3,7 @@
 use crate::{
     error::AppResult,
     model::{CanonicalSongMetadata, HistoryMutationAction, HistoryMutationDto, SongCardDto},
-    settings::music_setting::{HistoryExclusion, MAX_HISTORY_LIMIT},
+    settings::music_setting::{HistoryExclusion, RankedWeighting, MAX_HISTORY_LIMIT},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -114,6 +114,143 @@ impl HistorySnapshot {
             .map(|entry| entry.song_id.clone())
             .collect()
     }
+
+    /// Most recent display order used by the ranked weighting model. A later
+    /// selection counts as the latest activity in `Discovered` mode.
+    fn ranked_order(&self, platform: &str, mode: HistoryExclusion) -> Vec<&str> {
+        match mode {
+            HistoryExclusion::Off => Vec::new(),
+            HistoryExclusion::Selected => {
+                let mut recent: Vec<_> = self
+                    .selected
+                    .iter()
+                    .filter(|entry| entry.platform == platform && entry.selected_at.is_some())
+                    .collect();
+                recent.sort_by_key(|entry| std::cmp::Reverse(entry.selected_at.unwrap_or(0)));
+                let mut seen = HashSet::new();
+                recent
+                    .into_iter()
+                    .filter(|entry| {
+                        !entry.song_id.is_empty() && seen.insert(entry.song_id.as_str())
+                    })
+                    .map(|entry| entry.song_id.as_str())
+                    .collect()
+            }
+            HistoryExclusion::Discovered => {
+                let mut latest: HashMap<&str, u64> = HashMap::new();
+                for entry in self.discovered.iter().chain(&self.selected) {
+                    if entry.platform != platform || entry.song_id.is_empty() {
+                        continue;
+                    }
+                    let time = entry.latest();
+                    if time > 0 {
+                        latest
+                            .entry(entry.song_id.as_str())
+                            .and_modify(|value| *value = (*value).max(time))
+                            .or_insert(time);
+                    }
+                }
+                let mut recent: Vec<_> = latest.into_iter().collect();
+                recent.sort_by_key(|(_, time)| std::cmp::Reverse(*time));
+                recent.into_iter().map(|(id, _)| id).collect()
+            }
+        }
+    }
+
+    /// Hard window for the ranked model: the first `limit` songs of the ranked
+    /// activity order. The caller resolves `Off` to a ranking source first.
+    pub(crate) fn ranked_exclusion_ids(
+        &self,
+        platform: &str,
+        mode: HistoryExclusion,
+        limit: u32,
+    ) -> HashSet<String> {
+        if limit == 0 {
+            return HashSet::new();
+        }
+        self.ranked_order(platform, mode)
+            .into_iter()
+            .take(limit.min(MAX_HISTORY_LIMIT) as usize)
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Mode-aware hard window. Ranked mode orders by the latest display or
+    /// selection event and adds the soft band in `ranked_weights`.
+    pub(crate) fn exclusion_ids(
+        &self,
+        platform: &str,
+        mode: HistoryExclusion,
+        limit: u32,
+        ranked: bool,
+    ) -> HashSet<String> {
+        if ranked {
+            self.ranked_exclusion_ids(platform, mode, limit)
+        } else {
+            self.excluded_song_ids(platform, mode, limit)
+        }
+    }
+
+    /// Relative weights for the ranked model. The first `limit` songs are
+    /// excluded, the next `soft_band` songs fade from zero back to full
+    /// probability, and older or unseen songs stay at the baseline. Optional
+    /// round-based cooling and revival multiply that baseline; neither applies
+    /// to songs that were never displayed.
+    pub(crate) fn ranked_weights(
+        &self,
+        platform: &str,
+        mode: HistoryExclusion,
+        limit: u32,
+        config: &RankedWeighting,
+        playlist_ids: &[String],
+    ) -> (HashSet<String>, HashMap<String, f64>) {
+        const FULL: f64 = 1000.0;
+        let order = self.ranked_order(platform, mode);
+        let limit = limit.min(MAX_HISTORY_LIMIT) as usize;
+        let band = config.soft_band.min(MAX_HISTORY_LIMIT) as usize;
+        let round = self.weighting.round(platform);
+        let mut excluded = HashSet::new();
+        let mut weights = HashMap::new();
+        for (index, id) in order.iter().enumerate() {
+            if index < limit {
+                excluded.insert((*id).to_string());
+                continue;
+            }
+            let mut weight = if band > 0 && index < limit + band {
+                smoothstep((index - limit + 1) as f64 / band as f64)
+            } else {
+                1.0
+            };
+            if let Some(last) = self.weighting.last_round(platform, id) {
+                let age = round.saturating_sub(last) as f64;
+                if config.time_cooling {
+                    let scale = config.time_cooling_batches.max(1) as f64;
+                    weight *= (1.0 - config.time_cooling_strength * (-age / scale).exp())
+                        .max(0.02);
+                }
+                if config.revival {
+                    let wait = config.revival_wait as f64;
+                    let span = config.revival_span.max(1) as f64;
+                    weight *= 1.0
+                        + config.revival_gain
+                            * (1.0 - (-((age - wait).max(0.0)) / span).exp());
+                }
+            }
+            weights.insert((*id).to_string(), (weight * FULL).max(1.0));
+        }
+        for id in playlist_ids {
+            if id.is_empty() || excluded.contains(id) {
+                continue;
+            }
+            weights.entry(id.clone()).or_insert(FULL);
+        }
+        (excluded, weights)
+    }
+}
+
+fn smoothstep(value: f64) -> f64 {
+    let value = value.clamp(0.0, 1.0);
+    value * value * (3.0 - 2.0 * value)
 }
 
 #[derive(Debug, Clone)]
@@ -775,5 +912,113 @@ mod tests {
                 .unwrap(),
             HashSet::from(["a".into()])
         );
+    }
+
+    fn ranked_entry(id: &str, platform: &str, discovered: Option<u64>, selected: Option<u64>) -> HistoryEntry {
+        HistoryEntry {
+            song_id: id.into(),
+            platform: platform.into(),
+            playlist_id: "source".into(),
+            typename: "playlist".into(),
+            name: format!("Song {id}"),
+            artist_names: Vec::new(),
+            discovered_at: discovered,
+            selected_at: selected,
+            cover_url: String::new(),
+            cover_key: String::new(),
+            cover_data_uri: None,
+        }
+    }
+
+    #[test]
+    fn ranked_weights_order_by_latest_activity_and_ramp_the_soft_band() {
+        let snapshot = HistorySnapshot {
+            discovered: vec![
+                ranked_entry("a", "Spotify", Some(100), None),
+                ranked_entry("b", "Spotify", Some(200), Some(400)),
+                ranked_entry("c", "Spotify", Some(300), None),
+            ],
+            selected: vec![ranked_entry("b", "Spotify", None, Some(400))],
+            ..Default::default()
+        };
+        let playlist = ["a".to_string(), "b".into(), "c".into(), "d".into()];
+        assert_eq!(
+            snapshot.ranked_exclusion_ids("Spotify", HistoryExclusion::Discovered, 1),
+            HashSet::from(["b".into()])
+        );
+        assert_eq!(
+            snapshot.ranked_exclusion_ids("Spotify", HistoryExclusion::Selected, 1),
+            HashSet::from(["b".into()])
+        );
+        let config = RankedWeighting {
+            soft_band: 2,
+            ..Default::default()
+        };
+        let (excluded, weights) = snapshot.ranked_weights(
+            "Spotify",
+            HistoryExclusion::Discovered,
+            1,
+            &config,
+            &playlist,
+        );
+        assert_eq!(excluded, HashSet::from(["b".into()]));
+        // Order b(400), c(300), a(100); the first band song is at half weight.
+        assert!((weights["c"] - 500.0).abs() < 1.0);
+        assert_eq!(weights["a"], 1000.0);
+        assert_eq!(weights["d"], 1000.0);
+    }
+
+    #[test]
+    fn ranked_time_options_skip_unseen_songs_and_never_raise_the_baseline_by_themselves() {
+        let mut weighting = crate::weighting::WeightSnapshot::default();
+        weighting.displayed(&[song("a", "source", "Spotify")], true);
+        for _ in 0..10 {
+            weighting.displayed(&[song("x", "source", "Spotify")], true);
+        }
+        let snapshot = HistorySnapshot {
+            discovered: vec![
+                ranked_entry("a", "Spotify", Some(1), None),
+                ranked_entry("b", "Spotify", Some(1), None),
+            ],
+            weighting,
+            ..Default::default()
+        };
+        let playlist = ["a".to_string(), "b".into(), "c".into()];
+        let cooling = RankedWeighting {
+            soft_band: 0,
+            time_cooling: true,
+            time_cooling_strength: 0.9,
+            time_cooling_batches: 5,
+            ..Default::default()
+        };
+        let (_, weights) = snapshot.ranked_weights(
+            "Spotify",
+            HistoryExclusion::Discovered,
+            0,
+            &cooling,
+            &playlist,
+        );
+        assert!(weights["a"] < 1000.0);
+        assert_eq!(weights["b"], 1000.0);
+        assert_eq!(weights["c"], 1000.0);
+
+        let revival = RankedWeighting {
+            soft_band: 0,
+            revival: true,
+            revival_gain: 1.0,
+            revival_wait: 0,
+            revival_span: 5,
+            ..Default::default()
+        };
+        let (_, weights) = snapshot.ranked_weights(
+            "Spotify",
+            HistoryExclusion::Discovered,
+            0,
+            &revival,
+            &playlist,
+        );
+        assert!(weights["a"] > 1000.0);
+        assert_eq!(weights["b"], 1000.0);
+        assert_eq!(weights["c"], 1000.0);
     }
 }

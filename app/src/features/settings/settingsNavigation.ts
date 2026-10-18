@@ -9,7 +9,7 @@ export const settingsCategories = [
 export type SettingsCategory = typeof settingsCategories[number]["id"];
 export const settingsSections = {
   appearance: "general", startup: "general",
-  discovery: "discovery", weighting: "discovery", cover: "discovery",
+  discovery: "discovery", exclusion: "discovery", weighting: "discovery", cover: "discovery",
   hand: "hand", window: "playback", spotify: "playback", browser: "playback",
   keyboard: "keyboard", rendering: "advanced", data: "advanced",
 } as const;

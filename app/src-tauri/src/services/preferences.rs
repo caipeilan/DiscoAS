@@ -1,6 +1,7 @@
 //! Business preference validation and persistence; native shortcut registration stays at the desktop boundary.
 use crate::settings::{gui_setting::GuiSetting, music_setting::MusicSetting};
 use discoas_core::settings::discovery_keybindings::DiscoveryKeybindings;
+use discoas_core::settings::music_setting::DiscoveryWeightingMode;
 use std::path::Path;
 
 /// Run before the first settings load at startup; preserve every other stored field.
@@ -25,7 +26,11 @@ pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindin
     if setting.history_limit > 10000 {
         return Err("错误：排除上限应为 0–10000".into());
     }
-    setting.discovery_weighting.validate()?;
+    match setting.weighting_mode() {
+        DiscoveryWeightingMode::Traditional => setting.discovery_weighting.validate()?,
+        DiscoveryWeightingMode::Ranked => setting.ranked_weighting.validate()?,
+        DiscoveryWeightingMode::None => {}
+    }
     setting.hand.validate()?;
     setting.hand_discovery.validate()?;
     if setting.replacement_limit > 100 {
@@ -135,7 +140,19 @@ mod tests {
         s.replacement_limit = 101;
         assert!(validate_preferences(&s).is_err());
         s.replacement_limit = 1;
+        // Inactive models do not block saving the other model's stored draft.
         s.discovery_weighting.boost_after_batches = 1;
+        assert!(validate_preferences(&s).is_ok());
+        s.weighting_mode = DiscoveryWeightingMode::Traditional;
+        s.discovery_weighting.enabled = true;
+        assert!(validate_preferences(&s).is_err());
+        s.weighting_mode = DiscoveryWeightingMode::Ranked;
+        s.discovery_weighting.enabled = false;
+        assert!(validate_preferences(&s).is_ok());
+        s.ranked_weighting.time_cooling_batches = 0;
+        assert!(validate_preferences(&s).is_err());
+        s.ranked_weighting.time_cooling_batches = 50;
+        s.ranked_weighting.soft_band = 10001;
         assert!(validate_preferences(&s).is_err());
     }
     #[test]
