@@ -1,6 +1,8 @@
 # DiscoAS - 发现一首歌！
 
-<img src="assets/DiscoAS.png" width="30%" alt="DiscoAS Logo">
+<img src="assets/演示.gif" width="70%">
+
+<img src="assets/DiscoAS.png" width="30%" alt="DiscoAS">
 
 ## 前言
 
@@ -10,6 +12,7 @@
 
 ---
 ## 所以，怎么用？
+
 
 非常简单：
 
