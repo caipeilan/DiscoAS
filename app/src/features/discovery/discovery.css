@@ -1,5 +1,6 @@
 /* Cover geometry stays stable across pointer, keyboard, replacement, and preview states. */
 :root .discovery-body .song-card-slot { position: relative; container-type: inline-size; }
+:root .discovery-body .song-grid, :root .discovery-body .discovery-status-bar { animation: content-enter 160ms ease; }
 :root .discovery-body .song-grid { grid-template-columns: repeat(var(--discovery-columns, 5), minmax(0, 1fr)); }
 :root .floating-content .discovery-body .song-grid { grid-template-columns: repeat(var(--discovery-columns, 5), calc(200px * var(--card-scale, 1))); }
 :root .floating-content:has(> .discovery-body) { overflow: visible; }
@@ -36,7 +37,7 @@
 
 :root .discovery-body .song-replace-button {
   position: absolute; z-index: 2;
-  right: 20px; top: calc(100cqw - 49px);
+  right: 20px; top: 20px;
   width: calc(29px * var(--replacement-scale, 1) * var(--font-scale, 1));
   height: calc(29px * var(--replacement-scale, 1) * var(--font-scale, 1));
   display: grid; place-items: center; padding: 0;
@@ -50,7 +51,7 @@
 :root .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { opacity: 1; pointer-events: auto; transform: translateY(-4px); }
 :root .discovery-body .song-replace-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--accent-text); }
 :root .discovery-body .song-replace-button:disabled { cursor: default; color: var(--text-tertiary); }
-:root .floating-content .discovery-body .song-replace-button { right: calc(20px * var(--card-scale, 1)); top: calc(176px * var(--card-scale, 1) - 29px * var(--replacement-scale, 1) * var(--font-scale, 1)); }
+:root .floating-content .discovery-body .song-replace-button { right: calc(20px * var(--card-scale, 1)); top: calc(20px * var(--card-scale, 1)); }
 :root .floating-content .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-replace-button,
 :root .floating-content .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { transform: translateY(calc(-6px * var(--card-scale, 1))); }
 

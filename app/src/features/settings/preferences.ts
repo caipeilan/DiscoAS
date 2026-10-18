@@ -6,6 +6,7 @@ export function samePreferences(a: Preferences, b: Preferences) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 export function sameGuiPreferences(a: GuiSettings, b: GuiSettings) {
+  if (Boolean(a.follow_system_theme) !== Boolean(b.follow_system_theme)) return false;
   const keys: Array<keyof GuiSettings> = [
     "night_mode",
     "card_size",

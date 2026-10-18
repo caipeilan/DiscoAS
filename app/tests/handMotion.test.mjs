@@ -134,3 +134,22 @@ test("an interrupted animation starts the handoff from its current position", ()
     assert.equal(f.element.attributes.has("data-hand-motion"), false);
   } finally { f.restore(); }
 });
+
+test("layout transitions release held positions only after native presentation and reject superseded snapshots", async () => {
+  const current = await motionHarness();
+  try {
+    current.context.layoutPrepared = { current: generation => current.calls.push(["prepared", generation]) };
+    assert.equal(current.calls.some(call => Array.isArray(call) && call[0] === "prepared"), false);
+    current.regions.resolve(); await settle();
+    assert.ok(current.calls.findIndex(call => Array.isArray(call) && call[0] === "prepared") > current.calls.indexOf("present_hand"));
+    assert.deepEqual(current.calls.find(call => Array.isArray(call) && call[0] === "prepared"), ["prepared", 7]);
+  } finally { current.restore(); }
+  const old = await motionHarness();
+  try {
+    old.context.layoutPrepared = { current: generation => old.calls.push(["prepared", generation]) };
+    old.context.accepted.current++;
+    old.regions.resolve(); await settle();
+    assert.equal(old.calls.includes("present_hand"), false);
+    assert.equal(old.calls.some(call => Array.isArray(call) && call[0] === "prepared"), false);
+  } finally { old.restore(); }
+});

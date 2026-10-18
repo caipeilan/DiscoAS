@@ -8,9 +8,12 @@ import { handLayout } from "./handLayout";
 import { HandDock } from "./HandDock";
 import "../../App.css";
 import "./hand.css";
+import { useAppearance } from "../settings/useAppearance";
+import { defaultGuiSettings } from "../../types";
 
 export function HandDockWindow() {
   const [snapshot, setSnapshot] = useState<HandDockSnapshot | null>(null);
+  useAppearance(snapshot?.gui ?? defaultGuiSettings);
   const [surface, setSurface] = useState<HandSurface | null>(null);
   const [hidden, setHidden] = useState(true);
   const [moving, setMoving] = useState(false);

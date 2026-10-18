@@ -17,6 +17,12 @@ async function controller(entries) {
   let succeeds = false;
   let drop;
   const react = {
+    useMemo(callback, dependencies) {
+      const index = cursor++;
+      if (!slots[index] || dependencies.some((value, i) => value !== slots[index].dependencies[i]))
+        slots[index] = { dependencies, value: callback() };
+      return slots[index].value;
+    },
     useState(initial) {
       const index = cursor++;
       if (!(index in slots)) slots[index] = initial;
@@ -38,7 +44,7 @@ async function controller(entries) {
   };
   const app = {
     state: { playlists: entries }, busy: "", setBusy(value) { app.busy = value; },
-    applySnapshot(snapshot) { app.state = snapshot; },
+    applyLibraryPatch(patch) { app.state = { ...app.state, settings: patch.settings, playlists: model.mergeLibraryEntries(app.state.playlists, patch) }; },
     async action(key, command, args) {
       requests.push({ key, command, args });
       if (!succeeds) return false;
@@ -50,7 +56,8 @@ async function controller(entries) {
   const environment = {
     react,
     bridge: { desktop: false,
-      call: async (command, args) => { requests.push({ command, args }); return app.state; },
+      call: async (command, args) => { requests.push({ command, args }); return { settings: { playlist_albums: app.state.playlists.map(entry => ({ name: entry.platform, typename: entry.kind,
+        playlist_album_id: entry.id, playlist_album_name: entry.title, playlist_album_remark: entry.remark, update_time: entry.updatedAt, enabled: entry.enabled })) }, updatedPlaylists: [], startupRefreshError: null }; },
       listenFileDrop: async (handler) => { drop = handler; return () => { drop = undefined; }; },
       onDesktopEvent: async () => () => {} },
     ...model, t: (value) => value, currentLocale: () => "en-US", errorText: String, isCancelledError: () => false,
@@ -150,4 +157,17 @@ test("single-row deletion shares the batch confirmation and empty selection open
   assert.equal(harness.requests.length, 1);
   assert.equal(harness.app.state.playlists.length, 0);
   assert.equal(harness.render().remove, null);
+});
+
+test("unrelated renders and selection changes reuse the filtered library", async () => {
+  const entry = { platform: "Spotify", kind: "playlist", id: "source", title: "Playlist", remark: "" };
+  const harness = await controller([entry]);
+  const first = harness.render().filtered;
+  harness.render().toggleSelected(entry);
+  assert.equal(harness.render().filtered, first);
+  harness.app.busy = "update";
+  assert.equal(harness.render().filtered, first);
+  harness.app.state = { playlists: [{ ...entry, title: "Updated" }] };
+  assert.notEqual(harness.render().filtered, first);
+  assert.equal(harness.render().filtered[0].title, "Updated");
 });

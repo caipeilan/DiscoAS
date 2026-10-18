@@ -7,7 +7,15 @@ const source = fs.readFileSync(new URL("../src/features/library/sourceInput.ts",
 const compiled = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { identifySource, sourceKinds } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { identifySource, sourceKinds, extractSourceLink } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+
+test("share text extracts one usable link while preserving IDs and URL query fields", () => {
+  assert.equal(extractSourceLink('分享歌单：https://music.163.com/#/playlist?id=123。来听听'), 'https://music.163.com/#/playlist?id=123');
+  assert.equal(extractSourceLink('Try this (https://www.youtube.com/watch?v=abc&list=PL1).'), 'https://www.youtube.com/watch?v=abc&list=PL1');
+  assert.equal(extractSourceLink('Spotify spotify:album:example\n听听看'), 'spotify:album:example');
+  assert.equal(extractSourceLink('  BV1xx411c7mD_p2  '), 'BV1xx411c7mD_p2');
+  assert.deepEqual(identifySource('https://i.y.qq.com/n2/m/share/details/album.html?albummid=abc'), { platform: 'QQMusic', kind: 'album' });
+});
 
 test("new platform controls expose only the source kinds the backend supports", () => {
   assert.deepEqual(sourceKinds("LocalMusic"), ["playlist"]);

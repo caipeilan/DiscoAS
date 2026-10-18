@@ -10,5 +10,9 @@ export function useAppearance(gui: GuiSettings) {
   }, [gui.language]);
   useEffect(() => {
     applyAppearance(gui);
+    const system = window.matchMedia("(prefers-color-scheme: dark)");
+    const changed = () => { if (gui.follow_system_theme) applyAppearance(gui); };
+    system.addEventListener("change", changed);
+    return () => system.removeEventListener("change", changed);
   }, [gui]);
 }

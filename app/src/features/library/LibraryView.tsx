@@ -8,8 +8,11 @@ import { sourceKey } from "./libraryModel";
 import type { LibrarySort } from "./libraryModel";
 import { OperationProgress } from "./OperationProgress";
 import { Select } from "../../components/Select";
+import { useRef } from "react";
+import { useListMotion } from "../../hooks/useListMotion";
+import { Reveal } from "../../components/Motion";
 
-export function LibraryView({ state, busy, startup, query, setQuery, filter, setFilter, sort, setSort, filtered, selected, toggleSelected, selectVisible, updateSelected, removeSelected, editRemark, progress, cancelling, cancelOperation, operationSummary, importDialogOpen, openImport, confirmRemove, migrate, enablePlaylist, updatePlaylist, importSample }: {
+export function LibraryView({ state, busy, startup, query, setQuery, filter, setFilter, sort, setSort, filtered, selected, toggleSelected, selectVisible, updateSelected, removeSelected, editRemark, progress, cancelling, cancelOperation, operationSummary, importDialogOpen, openImport, confirmRemove, migrate, enablePlaylist, updatePlaylist, importSample, discover }: {
   state: AppState;
   busy: string;
   startup: boolean;
@@ -37,7 +40,10 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
   enablePlaylist: (entry: LibraryEntry) => Promise<unknown>;
   updatePlaylist: (entry: LibraryEntry) => Promise<unknown>;
   importSample: () => Promise<unknown>;
+  discover?: () => void;
 }) {
+  const list = useRef<HTMLDivElement>(null);
+  useListMotion(list, filtered, `${query}\n${filter}`);
   const enabled = state.playlists.find((p) => p.enabled);
   const normalCount = state.settings.number_of_discovered_songs;
   const mysteryCount = state.settings.have_mystery_song ? state.settings.num_of_mystery_song : 0;
@@ -53,8 +59,8 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
           <h1>{t("歌单")}</h1>
         </div>
         <button
-          className="button primary"
-          disabled={!!busy}
+          className="button secondary"
+          disabled={!!busy || startup}
           onClick={() => openImport()}
         >
           <Icon name="plus" />
@@ -104,6 +110,11 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
               </span>
             </div>
           </div>
+          <button type="button" className="discover-launch" aria-label={t("开始发现")}
+            title={t("开始发现 · {p0}", { p0: state.settings.shortcut_key || t("发现一首歌") })}
+            disabled={!!busy || startup} onClick={() => discover?.()}>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5.6a1.1 1.1 0 0 1 1.65-.95l10.1 6.4a1.12 1.12 0 0 1 0 1.9l-10.1 6.4A1.1 1.1 0 0 1 6 18.4Z" /></svg>
+          </button>
         </section>
       )}
       <div className="library-toolbar">
@@ -129,19 +140,99 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
         ]} />
         <span className="library-total">
           {filtered.length}
-          {t("个来源")}
+          {t("个卡池")}
         </span>
       </div>
       {state.playlists.length > 0 && <div className="library-selection">
         <label><input type="checkbox" disabled={!!busy || !filtered.length} checked={filtered.length > 0 && filtered.every((entry) => selected.has(sourceKey(entry)))} onChange={selectVisible} />{t("选择当前列表")}</label>
-        <span>{t("已选择 {p0} 个来源", { p0: selected.size })}</span>
+        <span>{t("已选择 {p0} 个卡池", { p0: selected.size })}</span>
         <div className="library-batch-actions">
           <button className="button compact secondary" disabled={!!busy || !selected.size} onClick={updateSelected}><Icon name="refresh" size={15} />{t("更新")}</button>
           <button className="button compact secondary delete-action" disabled={!!busy || !selected.size} onClick={removeSelected}><Icon name="remove" size={15} />{t("删除")}</button>
         </div>
       </div>}
       {progress && !importDialogOpen && <OperationProgress progress={progress} cancelling={cancelling} cancel={cancelOperation} summary={operationSummary} />}
-      {startup ? (
+        <div className="library-list" ref={list} data-empty={startup || !filtered.length || undefined}>
+          {!startup && filtered.map((p) => (
+            <article
+              className={`playlist-row ${p.enabled ? "enabled-row" : ""}`}
+              data-selected={selected.has(sourceKey(p)) || undefined}
+              key={sourceKey(p)}
+              data-motion-key={sourceKey(p)}
+            >
+              <input className="source-checkbox" type="checkbox" aria-label={t("选择 {p0}", { p0: p.title })} checked={selected.has(sourceKey(p))} disabled={!!busy} onChange={() => toggleSelected(p)} />
+              <Cover
+                url={p.coverUrl}
+                data={p.coverDataUri}
+                prepared
+                label={p.title}
+              />
+              <div className="playlist-details">
+                <h3>
+                  {p.title}
+                  {p.enabled && (
+                    <span className="enabled-badge">{t("已启用")}</span>
+                  )}
+                </h3>
+                <div className="row-meta">
+                  <PlatformTag id={p.platform} />
+                  <span>{sourceKind(p.kind)}</span>
+                  <span>
+                    {p.songCount.toLocaleString()}
+                    {itemCountUnit(p.platform)}
+                  </span>
+                  {p.updatedAt && <span>{formatDate(p.updatedAt)}</span>}
+                </div>
+                {p.remark && (
+                  <p className="playlist-remark">{p.remark}</p>
+                )}
+                {p.cacheError && (
+                  <p className="inline-error">
+                    {errorText(p.cacheError)}
+                  </p>
+                )}
+                {!!p.missingCount && <p className="inline-error" role="status">{t("{p0} 首音频文件已丢失；更新卡池可重新检查。", { p0: p.missingCount })}</p>}
+              </div>
+              <div className="row-actions">
+                <button
+                  className="button compact secondary"
+                  disabled={!!busy || p.enabled}
+                  onClick={() =>
+                    enablePlaylist(p)
+                  }
+                >
+                  {p.enabled && <Icon name="check" size={15} />}
+                  {p.enabled ? t("使用中") : t("启用")}
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label={t("更新 {p0}", { p0: p.title })}
+                  title={t("更新歌单")}
+                  disabled={!!busy}
+                  onClick={() =>
+                    updatePlaylist(p)
+                  }
+                >
+                  <Icon
+                    name="refresh"
+                    className={busy === sourceKey(p) ? "spin" : ""}
+                  />
+                </button>
+                <button className="icon-button" title={t("编辑备注")} aria-label={t("编辑 {p0} 的备注", { p0: p.title })} disabled={!!busy} onClick={() => editRemark(p)}><Icon name="edit" size={17} /></button>
+                <button
+                  className="icon-button delete-action"
+                  aria-label={t("删除 {p0}", { p0: p.title })}
+                  title={t("删除歌单")}
+                  disabled={!!busy}
+                  onClick={() => confirmRemove(p)}
+                >
+                  <Icon name="remove" size={17} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      <Reveal open={startup || filtered.length === 0}>{startup ? (
         <div className="empty-state">
           <Icon name="refresh" className="spin" />
           <p>{t("正在读取本地歌单…")}</p>
@@ -192,87 +283,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
             {t("清除筛选")}
           </button>
         </div>
-      ) : (
-        <div className="library-list">
-          {filtered.map((p) => (
-            <article
-              className={`playlist-row ${p.enabled ? "enabled-row" : ""}`}
-              data-selected={selected.has(sourceKey(p)) || undefined}
-              key={sourceKey(p)}
-            >
-              <input className="source-checkbox" type="checkbox" aria-label={t("选择 {p0}", { p0: p.title })} checked={selected.has(sourceKey(p))} disabled={!!busy} onChange={() => toggleSelected(p)} />
-              <Cover
-                url={p.coverUrl}
-                data={p.coverDataUri}
-                prepared
-                label={p.title}
-              />
-              <div className="playlist-details">
-                <h3>
-                  {p.title}
-                  {p.enabled && (
-                    <span className="enabled-badge">{t("已启用")}</span>
-                  )}
-                </h3>
-                <div className="row-meta">
-                  <PlatformTag id={p.platform} />
-                  <span>{sourceKind(p.kind)}</span>
-                  <span>
-                    {p.songCount.toLocaleString()}
-                    {itemCountUnit(p.platform)}
-                  </span>
-                  {p.updatedAt && <span>{formatDate(p.updatedAt)}</span>}
-                </div>
-                {p.remark && (
-                  <p className="playlist-remark">{p.remark}</p>
-                )}
-                {p.cacheError && (
-                  <p className="inline-error">
-                    {errorText(p.cacheError)}
-                  </p>
-                )}
-                {!!p.missingCount && <p className="inline-error" role="status">{t("{p0} 首音频文件已丢失；更新来源可重新检查。", { p0: p.missingCount })}</p>}
-              </div>
-              <div className="row-actions">
-                <button
-                  className="button compact secondary"
-                  disabled={!!busy || p.enabled}
-                  onClick={() =>
-                    enablePlaylist(p)
-                  }
-                >
-                  {p.enabled && <Icon name="check" size={15} />}
-                  {p.enabled ? t("使用中") : t("启用")}
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label={t("更新 {p0}", { p0: p.title })}
-                  title={t("更新歌单")}
-                  disabled={!!busy}
-                  onClick={() =>
-                    updatePlaylist(p)
-                  }
-                >
-                  <Icon
-                    name="refresh"
-                    className={busy === sourceKey(p) ? "spin" : ""}
-                  />
-                </button>
-                <button className="icon-button" title={t("编辑备注")} aria-label={t("编辑 {p0} 的备注", { p0: p.title })} disabled={!!busy} onClick={() => editRemark(p)}><Icon name="edit" size={17} /></button>
-                <button
-                  className="icon-button delete-action"
-                  aria-label={t("删除 {p0}", { p0: p.title })}
-                  title={t("删除歌单")}
-                  disabled={!!busy}
-                  onClick={() => confirmRemove(p)}
-                >
-                  <Icon name="remove" size={17} />
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
+      ) : null}</Reveal>
       <div className="library-footnote">
         <Icon name="info" size={15} />
         <span>

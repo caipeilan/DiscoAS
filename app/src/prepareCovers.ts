@@ -1,9 +1,20 @@
-import type { Song } from "./types";
+import type { Song, HistoryCover } from "./types";
 const decodeImage = async (src: string) => {
   const image = new Image();
   image.src = src;
   await image.decode();
 };
+
+/** History keeps its placeholder until decoding succeeds, sharing repeated artwork within a page. */
+export async function prepareHistoryCovers(covers: HistoryCover[], decode = decodeImage): Promise<HistoryCover[]> {
+  const requests = new Map<string, Promise<boolean>>();
+  return Promise.all(covers.map(async cover => {
+    const src = cover.coverDataUri;
+    if (!src) return cover;
+    if (!requests.has(src)) requests.set(src, decode(src).then(() => true, () => false));
+    return await requests.get(src)! ? cover : { ...cover, coverDataUri: null };
+  }));
+}
 export async function prepareCovers(
   songs: Song[],
   fallback: string,

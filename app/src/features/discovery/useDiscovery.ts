@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { DiscoveryState, DiscoveryStatus, GuiSettings, Song, HandSettings, CollectedHandCard } from "../../types";
-import { call, desktop, discoverBatch, getDiscoveryState, replaceDiscoverySong, endDiscoveryPreview, listenDiscoveryState, listenDiscoveryStatus, listenPreviewPointer, listenPreviewKey, listenPreviewAppearance, listenPreviewClosed, onDesktopEvent, hideCurrentWindow, showCurrentWindow, isCurrentWindowVisible } from "../../services/desktop";
+import { call, desktop, discoverBatch, getDiscoveryState, replaceDiscoverySong, endDiscoveryPreview, listenDiscoveryState, listenDiscoveryStatus, listenPreviewPointer, listenPreviewKey, listenPreviewAppearance, listenPreviewClosed, onDesktopEvent, hideCurrentWindow, showCurrentWindow, isCurrentWindowVisible, openPlaybackSettings } from "../../services/desktop";
 import type { DesktopEvents } from "../../services/desktop";
 import { OverlayMotion } from "../../overlayMotion";
 import type { OverlayPhase } from "../../overlayMotion";
@@ -82,7 +82,6 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
   const cancellingRef = useRef(false);
   const cancelSequence = useRef(0);
   const [batchRevision, setBatchRevision] = useState(0);
-  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [overlayPhase, setOverlayPhase] = useState<OverlayPhase>("closed");
   const motion = useRef<OverlayMotion | null>(null);
   if (!motion.current)
@@ -181,11 +180,6 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
     cancelPromise.current = task;
     return task;
   }, [notice, invalidateBatch, commitSongs, floating]);
-  useEffect(() => {
-    const resize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, []);
   useEffect(() => {
     if (!desktop) return;
     let active = true;
@@ -367,11 +361,13 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
       if (request === discoveryRequest.current) commitSongs([]);
       if (!floating)
         notice(
-          hand?.enabled ? t("已加入手牌") : t("已唤起 {p0}。", { p0: t(platformInfo(song.platform).label) }),
+          hand?.enabled ? t("已加入手牌") : t("已在 {p0} 中打开。", { p0: t(platformInfo(song.platform).label) }),
         );
     } catch (e) {
       if (collected && request === discoveryRequest.current) commitState(collected);
-      notice(errorText(e), true);
+      notice(errorText(e), true, hand?.enabled ? undefined : { label: t("检查播放连接"), run: () => {
+        void openPlaybackSettings().catch(error => notice(errorText(error), true));
+      } });
     } finally {
       setCollecting("");
       playingRef.current = "";
@@ -379,5 +375,5 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
     }
   };
   return { songs, status, replacing, slotRevision, previewGui, previewPointer, previewKey, loading, songError, playing, collecting, cancelling,
-    batchRevision, viewportWidth, overlayPhase, discover, cancel, play, replace };
+    batchRevision, overlayPhase, discover, cancel, play, replace };
 }

@@ -84,6 +84,7 @@ export interface UpdateInfo {
 export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 
 export interface DesktopEvents {
+  "open-settings-requested": { category: "playback" };
   "hand-dock-state-changed": HandDockSnapshot;
   "hand-dock-moved": { generation: number; point: HandPoint; surface: HandSurface };
   "hand-dock-hide": number;
@@ -189,6 +190,11 @@ export const requestHandClear = () => emitTo("hand", "hand-clear-requested");
 export const notifyHandClear = (error: string | null) => emitTo("hand-dock", "hand-clear-finished", error);
 export const notifyHandBusy = (busy: boolean) => emitTo("hand-dock", "hand-busy-changed", busy);
 export const requestHandDiscoveryRefresh = () => emitTo("hand", "hand-discovery-refresh-requested");
+export async function openPlaybackSettings() {
+  if (!desktop) return;
+  await emitTo("main", "open-settings-requested", { category: "playback" });
+  await call("show_main");
+}
 
 export function call<T>(name: DesktopCommand, args?: Record<string, unknown>): Promise<T> {
   return desktop

@@ -14,7 +14,7 @@ const row = (songId, name = `Song ${songId}`) => ({ platform: "Spotify", songId,
   name, artistNames: ["Artist"], discoveredAt: 1000, selectedAt: null, coverUrl: "", coverKey: songId });
 
 async function controller(initial = [row("a")]) {
-  const slots = [], events = new Map(), calls = [], reads = [], mutations = [], covers = [];
+  const slots = [], events = new Map(), calls = [], reads = [], mutations = [], covers = [], decodes = [];
   let records = initial, cursor = 0, effects = [], mutationSource;
   const React = {
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial;
@@ -41,9 +41,9 @@ async function controller(initial = [row("a")]) {
     },
   };
   const repair = deferred();
-  const environment = { React, bridge, model, types: { platforms: [{ id: "Spotify", label: "Spotify" }] },
+  const environment = { React, bridge, model, covers: { prepareHistoryCovers: async results => { if (decodes.length) await decodes.shift().promise; return results; } }, types: { platforms: [{ id: "Spotify", label: "Spotify" }] },
     i18n: { currentLocale: () => "zh-CN", t: (text) => text, errorText: String } };
-  const imports = { react: "React", "../../types": "types", "../../services/desktop": "bridge", "../../i18n": "i18n", "./historyModel": "model" };
+  const imports = { react: "React", "../../types": "types", "../../services/desktop": "bridge", "../../i18n": "i18n", "./historyModel": "model", "../../prepareCovers": "covers" };
   const source = hookSource.replace(/import\s+\{([^}]+)\}\s+from\s+"([^"]+)";/g, (_, names, path) => {
     assert.ok(imports[path], `unexpected dependency: ${path}`); return `const {${names}} = globalThis.__historyTest.${imports[path]};`;
   });
@@ -56,6 +56,7 @@ async function controller(initial = [row("a")]) {
     nextRead: () => { const task = deferred(); reads.push(task); return task; },
     nextMutation: () => { const task = deferred(); mutations.push(task); return task; },
     nextCovers: () => { const task = deferred(); covers.push(task); return task; },
+    nextDecode: () => { const task = deferred(); decodes.push(task); return task; },
     unmount: () => slots.forEach((slot) => slot?.cleanup?.()) };
 }
 
@@ -93,6 +94,19 @@ test("events during deletion are coalesced until mutation finishes, then read th
   assert.deepEqual(harness.render().entries.map((entry) => entry.songId), ["b"]);
   assert.equal(harness.render().mutating, false);
   assert.equal(harness.calls.filter((name) => name === "get_discovery_history").length, before + 1);
+  harness.unmount();
+});
+
+test("a burst of history events joins the current read and reads the latest snapshot once", async () => {
+  const harness = await controller();
+  const before = harness.calls.filter(name => name === "get_discovery_history").length;
+  const first = harness.nextRead(); harness.emit();
+  for (let index = 0; index < 20; index++) harness.emit();
+  assert.equal(harness.calls.filter(name => name === "get_discovery_history").length, before + 1);
+  harness.setRecords([row("latest")]);
+  first.resolve([row("old")]); await settle();
+  assert.equal(harness.calls.filter(name => name === "get_discovery_history").length, before + 2);
+  assert.deepEqual(harness.render().entries.map(entry => entry.songId), ["latest"]);
   harness.unmount();
 });
 
@@ -135,4 +149,18 @@ test("unmount unsubscribes and rejects a pending refresh response", async () => 
   pending.resolve([row("b")]); await settle();
   assert.equal(harness.events.has("discovery-history-changed"), false);
   assert.deepEqual(harness.render().entries.map((entry) => entry.songId), ["a"]);
+});
+
+test("deleting a record while its cover is decoding cannot restore the image", async () => {
+  const harness = await controller();
+  const request = harness.nextCovers(), decoded = harness.nextDecode();
+  harness.render();
+  request.resolve([{ platform: "Spotify", songId: "a", coverDataUri: "cover" }]); await settle();
+  assert.equal(harness.render().covers.size, 0);
+  harness.setRecords([]);
+  await harness.render().mutate([{ platform: "Spotify", songId: "a" }], "delete");
+  decoded.resolve(); await settle();
+  assert.equal(harness.render().covers.size, 0);
+  assert.equal(harness.render().entries.length, 0);
+  harness.unmount();
 });

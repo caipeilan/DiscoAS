@@ -26,6 +26,7 @@ export function t(
   source: string,
   values: Record<string, string | number> = {},
 ): string {
+  source = normalizeTerms(source);
   const translated =
     language === "zh_CN"
       ? source
@@ -35,7 +36,7 @@ export function t(
   );
 }
 export function errorText(error: unknown): string {
-  const raw = String(error).replace(/^Error:\s*/, "");
+  const raw = normalizeTerms(String(error).replace(/^Error:\s*/, ""));
   const concise: [RegExp, string][] = [
     [/切歌失败|playback failed|track switch failed/i, "错误：切歌失败"],
     [/timed?\s*out|timeout|连接超时|请求超时/i, "错误：网络连接超时"],
@@ -64,7 +65,7 @@ export function errorText(error: unknown): string {
     ],
     [
       /类型.*不一致|链接.*(不支持|无效)|ID.*(无效|非法)/,
-      "来源链接或类型不匹配，请检查平台和歌单类型。",
+      "卡池链接或类型不匹配，请检查平台和歌单类型。",
     ],
     [
       /网络|请求|HTTP|timeout|error sending request|平台.*(错误|失败|限制)/i,
@@ -75,6 +76,9 @@ export function errorText(error: unknown): string {
   return /[\u3400-\u9fff]/.test(raw)
     ? t("操作未完成，请检查设置或稍后重试。")
     : raw;
+}
+function normalizeTerms(value: string) {
+  return value.replace(/更新来源无效/g, "更新地址无效").replace(/来源|來源/g, "卡池").replace(/秘密歌曲/g, "神秘歌曲");
 }
 export function isCancelledError(error: unknown): boolean {
   return /操作已取消|操作取消|operation cancelled|operation canceled/i.test(String(error));

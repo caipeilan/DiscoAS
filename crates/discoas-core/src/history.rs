@@ -178,15 +178,17 @@ impl HistoryStore {
 
     pub(crate) fn repair_cover_metadata(
         &self,
+        snapshot: &mut HistorySnapshot,
         repairs: &[(HistoryEntry, crate::platforms::SongDetail)],
     ) -> AppResult<usize> {
-        let current: HashSet<_> = self.entries(MAX_HISTORY_LIMIT)?.into_iter().collect();
+        if repairs.is_empty() {
+            return Ok(0);
+        }
+        // The caller has rechecked these original rows under its operation lock.
         let repairs: HashMap<_, _> = repairs
             .iter()
-            .filter(|(row, _)| current.contains(row))
             .map(|(row, detail)| ((row.platform.as_str(), row.song_id.as_str()), detail))
             .collect();
-        let mut snapshot = self.load()?;
         let mut changed = 0;
         for row in snapshot.discovered.iter_mut().chain(&mut snapshot.selected) {
             let platform = row.platform.clone();
@@ -207,7 +209,7 @@ impl HistoryStore {
             }
         }
         if changed > 0 {
-            self.save(&mut snapshot)?;
+            self.save(snapshot)?;
         }
         Ok(changed)
     }
@@ -275,9 +277,74 @@ impl HistoryStore {
     }
     /// One recent display list with both timestamps; source metadata comes from the latest event.
     pub fn entries(&self, limit: u32) -> AppResult<Vec<HistoryEntry>> {
-        let snapshot = self.load()?;
+        Ok(self.load()?.into_entries(limit))
+    }
+
+    /// Validate the full selection before changing either history category.
+    pub fn mutate(&self, mutation: &HistoryMutationDto) -> AppResult<()> {
+        let mut snapshot = self.load()?;
+        let mut weighting = std::mem::take(&mut snapshot.weighting);
+        let mut rows = snapshot.into_entries(MAX_HISTORY_LIMIT);
+        let existing: HashSet<_> = rows.iter().map(HistoryEntry::identity).collect();
+        let requested: HashSet<_> = mutation
+            .identities
+            .iter()
+            .map(|id| (id.platform.clone(), id.song_id.clone()))
+            .collect();
+        if requested.is_empty()
+            || requested.len() != mutation.identities.len()
+            || requested.iter().any(|id| {
+                id.0.is_empty() || id.1.is_empty()
+                    || !existing.contains(&(id.0.as_str(), id.1.as_str()))
+            })
+        {
+            return Err(crate::AppError::Platform(
+                "发现记录已改变，请刷新后重试".into(),
+            ));
+        }
+        if mutation.action != HistoryMutationAction::Delete && mutation.value.is_none() {
+            return Err(crate::AppError::Platform("发现记录修改无效".into()));
+        }
+        let timestamp = now();
+        for row in &mut rows {
+            if !requested.contains(&(row.platform.clone(), row.song_id.clone())) {
+                continue;
+            }
+            match mutation.action {
+                HistoryMutationAction::Delete => {
+                    row.discovered_at = None;
+                    row.selected_at = None;
+                }
+                HistoryMutationAction::Discovered => {
+                    row.discovered_at = if mutation.value == Some(true) {
+                        row.discovered_at.or(Some(timestamp))
+                    } else { None };
+                }
+                HistoryMutationAction::Selected => {
+                    row.selected_at = if mutation.value == Some(true) {
+                        row.selected_at.or(Some(timestamp))
+                    } else { None };
+                }
+            }
+        }
+        weighting.mutate(mutation);
+        self.save(&mut HistorySnapshot {
+            discovered: rows.iter().filter(|row| row.discovered_at.is_some()).cloned().collect(),
+            selected: rows.into_iter().filter(|row| row.selected_at.is_some()).collect(),
+            weighting,
+        })
+    }
+}
+
+impl HistorySnapshot {
+    pub(crate) fn entries(&self, limit: u32) -> Vec<HistoryEntry> {
+        Self { discovered: self.discovered.clone(), selected: self.selected.clone(), weighting: Default::default() }
+            .into_entries(limit)
+    }
+
+    pub(crate) fn into_entries(self, limit: u32) -> Vec<HistoryEntry> {
         let mut merged: HashMap<(String, String), HistoryEntry> = HashMap::new();
-        for entry in snapshot.discovered.into_iter().chain(snapshot.selected) {
+        for entry in self.discovered.into_iter().chain(self.selected) {
             let key = (entry.platform.clone(), entry.song_id.clone());
             if let Some(old) = merged.get_mut(&key) {
                 let discovered = old.discovered_at.max(entry.discovered_at);
@@ -313,75 +380,7 @@ impl HistoryStore {
         }
         let mut merged: Vec<_> = merged.into_values().collect();
         normalize(&mut merged, limit);
-        Ok(merged)
-    }
-
-    /// Validate the full selection before changing either history category.
-    pub fn mutate(&self, mutation: &HistoryMutationDto) -> AppResult<()> {
-        let mut rows = self.entries(MAX_HISTORY_LIMIT)?;
-        let requested: HashSet<_> = mutation
-            .identities
-            .iter()
-            .map(|id| (id.platform.clone(), id.song_id.clone()))
-            .collect();
-        if requested.is_empty()
-            || requested.len() != mutation.identities.len()
-            || requested
-                .iter()
-                .any(|id| id.0.is_empty() || id.1.is_empty())
-            || requested.iter().any(|id| {
-                !rows
-                    .iter()
-                    .any(|row| row.platform == id.0 && row.song_id == id.1)
-            })
-        {
-            return Err(crate::AppError::Platform(
-                "发现记录已改变，请刷新后重试".into(),
-            ));
-        }
-        if mutation.action != HistoryMutationAction::Delete && mutation.value.is_none() {
-            return Err(crate::AppError::Platform("发现记录修改无效".into()));
-        }
-        let timestamp = now();
-        for row in &mut rows {
-            if !requested.contains(&(row.platform.clone(), row.song_id.clone())) {
-                continue;
-            }
-            match mutation.action {
-                HistoryMutationAction::Delete => {
-                    row.discovered_at = None;
-                    row.selected_at = None;
-                }
-                HistoryMutationAction::Discovered => {
-                    row.discovered_at = if mutation.value == Some(true) {
-                        row.discovered_at.or(Some(timestamp))
-                    } else {
-                        None
-                    }
-                }
-                HistoryMutationAction::Selected => {
-                    row.selected_at = if mutation.value == Some(true) {
-                        row.selected_at.or(Some(timestamp))
-                    } else {
-                        None
-                    }
-                }
-            }
-        }
-        let mut weighting = self.load()?.weighting;
-        weighting.mutate(mutation);
-        self.save(&mut HistorySnapshot {
-            discovered: rows
-                .iter()
-                .filter(|row| row.discovered_at.is_some())
-                .cloned()
-                .collect(),
-            selected: rows
-                .into_iter()
-                .filter(|row| row.selected_at.is_some())
-                .collect(),
-            weighting,
-        })
+        merged
     }
 }
 
@@ -722,6 +721,29 @@ mod tests {
         let raw: serde_json::Value =
             serde_json::from_slice(&std::fs::read(store.path()).unwrap()).unwrap();
         assert!(raw["weighting"]["songs"].as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn batch_mutation_handles_the_retention_limit_and_rejects_a_missing_identity_atomically() {
+        use crate::model::{HistoryIdentity, HistoryMutationAction as Action};
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let mut snapshot = HistorySnapshot::default();
+        snapshot.discovered = (0..MAX_HISTORY_LIMIT).map(|index| {
+            let mut entry = HistoryEntry::from_song(&song(&index.to_string(), "source", "Spotify"));
+            entry.discovered_at = Some(index as u64 + 1); entry
+        }).collect();
+        store.save(&mut snapshot).unwrap();
+        let mut mutation = HistoryMutationDto { identities: snapshot.discovered.iter().map(|row| HistoryIdentity { platform: row.platform.clone(), song_id: row.song_id.clone() }).collect(), action: Action::Selected, value: Some(true) };
+        let start = std::time::Instant::now();
+        store.mutate(&mutation).unwrap();
+        eprintln!("10,000 history selections: {:?}", start.elapsed());
+        assert!(store.entries(MAX_HISTORY_LIMIT).unwrap().iter().all(|row| row.discovered_at.is_some() && row.selected_at.is_some()));
+        let before = std::fs::read(store.path()).unwrap();
+        mutation.identities.last_mut().unwrap().song_id = "missing".into();
+        mutation.action = Action::Delete;
+        assert!(store.mutate(&mutation).is_err());
+        assert_eq!(std::fs::read(store.path()).unwrap(), before);
     }
 
     #[test]

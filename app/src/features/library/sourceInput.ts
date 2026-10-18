@@ -3,8 +3,15 @@ export const sourceKinds = (platform: string): string[] =>
   platform === "YouTube" ? ["playlist", "video"] :
     platform === "Bilibili" ? ["video", "favorites", "collection", "series"] : ["playlist", "album"];
 
+/** Share sheets often append a title and instructions around the actual URL. */
+export function extractSourceLink(value: string): string {
+  const trimmed = value.trim();
+  const link = trimmed.match(/(?:https?:\/\/|spotify:)[^\s<>"“”‘’，。；！]+/i)?.[0];
+  return link ? link.replace(/[)\]}、,;.!?]+$/, "").replace(/&amp;/g, "&") : trimmed;
+}
+
 export function identifySource(value: string): { platform: string; kind: string } | null {
-  const source = value.trim();
+  const source = extractSourceLink(value);
   if (/^BV[A-Za-z0-9]{10}(?:_p[1-9]\d*)?$/.test(source)) return { platform: "Bilibili", kind: "video" };
   if (source.startsWith("spotify:")) return { platform: "Spotify", kind: source.includes(":album:") ? "album" : "playlist" };
   let url: URL;
@@ -23,7 +30,7 @@ export function identifySource(value: string): { platform: string; kind: string 
     return { platform: "Bilibili", kind };
   }
   const platform = host === "open.spotify.com" ? "Spotify" : host === "music.163.com" ? "NeteaseCloudMusic" :
-    host === "y.qq.com" ? "QQMusic" : host === "kugou.com" || host.endsWith(".kugou.com") ? "KugouMusic" : "";
+    host === "y.qq.com" || host === "i.y.qq.com" ? "QQMusic" : host === "kugou.com" || host.endsWith(".kugou.com") ? "KugouMusic" : "";
   if (!platform) return null;
   return { platform, kind: /\/album(?:Detail)?[/?]|:album:|albumid=|albummid=/.test(source) ? "album" : "playlist" };
 }

@@ -11,6 +11,7 @@ interface MotionContext extends HandMotionRefs {
   busy: string; flying: Flying | null; poses: CardPose[]; posesRef: Ref<CardPose[]>; stage: Ref<HTMLDivElement | null>;
   setCardsMounted: Setter<boolean>; setPhase: Setter<string>; setError: Setter<string>;
   commitRegions: Ref<() => Promise<unknown>>; scheduleRegions: Ref<() => void>;
+  layoutPrepared?: Ref<(generation: number) => void>;
 }
 /** The original card-game motion and source-frame handoff remain a single animation responsibility. */
 export function useHandMotion(context: MotionContext) {
@@ -40,6 +41,7 @@ export function useHandMotion(context: MotionContext) {
     })();
     void present.then(async () => {
       if (cancelled || snapshot.generation !== accepted.current) return;
+      context.layoutPrepared?.current(snapshot.generation);
       if (!snapshot.expanded || !showCardWindow) return;
       const arrival = arrivalMotion.current;
       if (arrival?.generation === snapshot.generation) {
@@ -68,6 +70,7 @@ export function useHandMotion(context: MotionContext) {
       // Commit the closed pose before transitioning to the live CSS target.
       frame = requestAnimationFrame(() => { if (!cancelled) { unfolding.current = false; setPhase("open"); } });
     }).catch((e) => {
+      if (!cancelled && snapshot.generation === accepted.current) context.layoutPrepared?.current(snapshot.generation);
       setError(errorText(e));
       if (snapshot.arrival && desktop) void call("hand_arrival_ready", { generation: snapshot.generation, error: errorText(e) });
     });

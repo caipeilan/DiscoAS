@@ -6,7 +6,24 @@ const source = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { LatestRegionUpdate, HandBoundsCache } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const boundsSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handDrawingBounds.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
+}).outputText;
+const { handLayoutTransitionBounds, handPoseBounds } = await import(`data:text/javascript;base64,${Buffer.from(boundsSource).toString("base64")}`);
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+
+test("layout drawing bounds cover the existing spring and rotation across screen edges", () => {
+  const from = { x: 1200, y: 800, width: 156, height: 220, angle: -12, scale: 1.12 };
+  const to = { x: -100, y: 200, width: 156, height: 220, angle: 12, scale: 1 };
+  const bounds = handLayoutTransitionBounds([from, to]);
+  for (let step = 0; step <= 100; step++) {
+    const t = step / 100, progress = 3 * .85 * t * (1 - t) ** 2 + 3 * 1.15 * t * t * (1 - t) + t ** 3;
+    const pose = Object.fromEntries(Object.keys(from).map(key => [key, from[key] + (to[key] - from[key]) * progress]));
+    const card = handPoseBounds(pose, 0);
+    assert.ok(card.left >= bounds.left && card.top >= bounds.top);
+    assert.ok(card.left + card.width <= bounds.left + bounds.width && card.top + card.height <= bounds.top + bounds.height);
+  }
+});
 
 test("region bursts serialize native updates and flush the latest drag position", async () => {
   const gate = deferred(), measurements = []; let position = 1, inFlight = 0, maximum = 0;

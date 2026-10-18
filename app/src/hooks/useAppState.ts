@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AppState, Preferences, GuiSettings, DesktopPreferences, PreferencePatch } from "../types";
+import type { AppState, Preferences, GuiSettings, DesktopPreferences, PreferencePatch, LibraryPatch } from "../types";
 import { emptyState } from "../types";
 import { call, desktop, onDesktopEvent, isCurrentWindowVisible } from "../services/desktop";
 import type { DesktopCommand, DesktopEvents } from "../services/desktop";
 import { samePreferences, sameGuiPreferences } from "../features/settings/preferences";
+import { mergeLibraryEntries } from "../features/library/libraryModel";
 import { t, errorText } from "../i18n";
 import type { Notice } from "./useNotice";
 
@@ -20,6 +21,7 @@ export function useAppState(floating: boolean, notice: Notice) {
   const savedDesktop = useRef(emptyState.desktopSettings);
   const savedGui = useRef(emptyState.guiSettings);
   const savedSettings = useRef(emptyState.settings);
+  const savedLibrary = useRef(emptyState.playlists);
   const snapshotVersion = useRef(0);
   const applySnapshot = useCallback((next: AppState) => {
     ++snapshotVersion.current;
@@ -42,6 +44,7 @@ export function useAppState(floating: boolean, notice: Notice) {
         : current,
     );
     savedDesktop.current = next.desktopSettings;
+    savedLibrary.current = next.playlists;
     setState(next);
   }, []);
   const applyPatch = useCallback((patch: PreferencePatch) => {
@@ -67,6 +70,19 @@ export function useAppState(floating: boolean, notice: Notice) {
     }));
   }, []);
   const [startup, setStartup] = useState(desktop);
+  const applyLibraryPatch = useCallback(async (patch: LibraryPatch) => {
+    const version = ++snapshotVersion.current;
+    const playlists = mergeLibraryEntries(savedLibrary.current, patch);
+    applyPatch({ settings: patch.settings });
+    // A source added before the first snapshot cannot be reconstructed from labels alone.
+    if (!playlists) {
+      const snapshot = await call<AppState>("get_app_state");
+      if (snapshotVersion.current === version) applySnapshot(snapshot);
+      return;
+    }
+    savedLibrary.current = playlists;
+    setState(current => ({ ...current, playlists, startupRefreshError: patch.startupRefreshError }));
+  }, [applyPatch, applySnapshot]);
   const [busy, setBusy] = useState("");
   useEffect(() => {
     if (!floating && state.desktopSettingsError) notice(errorText(state.desktopSettingsError), true);
@@ -126,11 +142,11 @@ export function useAppState(floating: boolean, notice: Notice) {
     args?: Record<string, unknown>,
     success?: string,
   ) => {
-    if (busy) return;
+    if (busy || startup) return;
     setBusy(key);
     try {
-      const next = await call<AppState>(command, args);
-      applySnapshot(next);
+      const next = await call<LibraryPatch>(command, args);
+      await applyLibraryPatch(next);
       if (success) notice(success);
       return true;
     } catch (e) {
@@ -142,7 +158,7 @@ export function useAppState(floating: boolean, notice: Notice) {
   };
   return {
     state, draft, setDraft, guiDraft, setGuiDraft, desktopDraft, setDesktopDraft,
-    applySnapshot, applyPatch, reload, startup, busy, setBusy, action
+    applySnapshot, applyPatch, applyLibraryPatch, reload, startup, busy, setBusy, action
   };
 }
 

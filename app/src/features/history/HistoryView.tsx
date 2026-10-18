@@ -1,6 +1,9 @@
 import { Icon } from "../../Icon";
 import { PlatformTag } from "../../components/PlatformTag";
 import { Select } from "../../components/Select";
+import { useLayoutEffect, useRef } from "react";
+import { Reveal } from "../../components/Motion";
+import { useListMotion } from "../../hooks/useListMotion";
 import { currentLocale, t } from "../../i18n";
 import { historyCoverKey, historyIdentity, historyKey } from "./historyModel";
 import { useHistory, type BatchAction } from "./useHistory";
@@ -11,19 +14,31 @@ export function HistoryView() {
   const history = useHistory();
   const { entries, filter, query, selected, loading, repairing, mutating, confirming, error, rows, covers,
     allVisibleSelected, selectedCount, visible, pageCount, currentPage } = history;
+  const list = useRef<HTMLOListElement>(null);
+  const topbar = useRef<HTMLElement>(null);
+  const previousPage = useRef(currentPage);
+  useListMotion(list, rows, `${query}\n${filter}\n${currentPage}`);
+  useLayoutEffect(() => {
+    if (previousPage.current !== currentPage && list.current && rows.length) {
+      list.current.style.scrollMarginTop = `${(topbar.current?.getBoundingClientRect().height ?? 0) + 16}px`;
+      list.current.scrollIntoView({ block: "start", behavior: "instant" });
+      list.current.focus({ preventScroll: true });
+    }
+    previousPage.current = currentPage;
+  }, [currentPage, rows.length]);
   return <>
-    <header className="page-header history-topbar">
+    <header ref={topbar} className="page-header history-topbar">
       <div className="history-heading">
         <h1 id="history-title">{t("发现记录")}</h1>
         {!loading && <span className="history-total">{t("{p0} 条记录", { p0: entries.length.toLocaleString(currentLocale()) })}</span>}
       </div>
       <button className="button secondary compact delete-action" disabled={loading || mutating || !entries.length || !!confirming}
         onClick={() => history.setConfirming({ kind: "clear" })}><Icon name="remove" size={15} />{t("清空记录")}</button>
-      {confirming && <div className="history-confirmation" role="alert">
+      <Reveal open={!!confirming}>{confirming && <div className="history-confirmation" role="alert">
         <span>{confirming.kind === "clear" ? t("确认清空全部记录？") : t("确认删除 {p0} 条记录？", { p0: confirming.identities.length })}</span>
         <div><button className="button secondary compact" disabled={mutating} onClick={() => history.setConfirming(null)}>{t("取消")}</button>
           <button className="button danger compact" disabled={mutating} onClick={history.confirmMutation}>{confirming.kind === "clear" ? t("清空") : t("删除")}</button></div>
-      </div>}
+      </div>}</Reveal>
     </header>
     <section className="history-page" aria-labelledby="history-title" aria-busy={loading || mutating}>
       <fieldset className="history-controls" disabled={mutating || loading || !!confirming}>
@@ -54,15 +69,12 @@ export function HistoryView() {
       </fieldset>
       {error && <p className="form-error history-message" role="alert">{error}</p>}
       {repairing && <p className="history-message" role="status"><Icon name="refresh" size={14} className="spin" />{t("正在补全旧记录的信息")}</p>}
-      {loading || !visible.length ? <div className="history-empty" role="status">
-        <Icon name={loading ? "refresh" : query ? "search" : "history"} size={28} className={loading ? "spin" : ""} />
-        <p>{loading ? t("正在读取记录") : entries.length ? t("没有匹配的记录") : t("暂无记录")}</p>
-      </div> : <ol className="history-records">{rows.map((entry) => {
+      <ol className="history-records" ref={list} tabIndex={-1} aria-label={t("发现记录")} data-empty={loading || !rows.length || undefined}>{!loading && rows.map((entry) => {
         const identity = historyIdentity(entry);
         const key = historyKey(entry);
         const cover = covers.get(historyCoverKey(entry));
         const date = entry.selectedAt ?? entry.discoveredAt;
-        return <li key={key} data-selected={selected.has(key) || undefined}>
+        return <li key={key} data-motion-key={key} data-selected={selected.has(key) || undefined}>
           <input type="checkbox" aria-label={t("选择记录 {p0}", { p0: entry.name || entry.songId })} checked={selected.has(key)} disabled={mutating || !!confirming}
             onChange={(event) => history.toggleSelected(entry, event.target.checked)} />
           <div className="history-cover">{cover ? <img src={cover} alt="" draggable={false} onError={() => history.failCover(entry)} /> : <Icon name="music" size={22} />}</div>
@@ -81,7 +93,11 @@ export function HistoryView() {
           <button className="icon-button delete-action history-delete" aria-label={t("删除记录 {p0}", { p0: entry.name || entry.songId })} disabled={mutating || !!confirming}
             onClick={() => history.setConfirming({ kind: "delete", identities: [identity] })}><Icon name="remove" size={16} /></button>
         </li>;
-      })}</ol>}
+      })}</ol>
+      <Reveal open={loading || !visible.length}><div className="history-empty" role="status">
+        <Icon name={loading ? "refresh" : query ? "search" : "history"} size={28} className={loading ? "spin" : ""} />
+        <p>{loading ? t("正在读取记录") : entries.length ? t("没有匹配的记录") : t("暂无记录")}</p>
+      </div></Reveal>
       {visible.length > 0 && <footer className="history-pagination">
         <span>{t("第 {p0} / {p1} 页", { p0: currentPage + 1, p1: pageCount })}</span>
         <div><button className="button compact secondary" disabled={mutating || !!confirming || currentPage === 0} onClick={() => history.setPage(currentPage - 1)}>{t("上一页")}</button>

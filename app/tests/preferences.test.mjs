@@ -21,7 +21,6 @@ const libraryModule = ts.transpileModule(fs.readFileSync(
 const { filterLibrary } = await import(
   `data:text/javascript;base64,${Buffer.from(libraryModule).toString("base64")}`,
 );
-
 function* sourceFiles(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const path = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
@@ -149,6 +148,17 @@ test("network and playback errors stay concise and do not mistake server errors 
   assert.equal(errorText("错误：无法连接服务器"), "Error: Cannot connect to server");
   assert.equal(isCancelledError("操作已取消"), true);
   assert.equal(isCancelledError("错误：网络连接超时"), false);
+  setLanguage("zh_CN");
+});
+
+test("legacy pool messages use consistent terms without rewriting interpolated titles", () => {
+  setLanguage("zh_CN");
+  assert.equal(t("个来源"), "个卡池");
+  assert.equal(errorText("错误：来源为空或无法读取歌曲"), "错误：卡池为空或无法读取歌曲");
+  assert.equal(errorText("错误：更新来源无效"), "错误：更新地址无效");
+  assert.equal(t("删除 {p0} 个卡池？", { p0: "来源标题" }), "删除 来源标题 个卡池？");
+  setLanguage("en_US");
+  assert.equal(t("个来源"), " pools");
   setLanguage("zh_CN");
 });
 test("source search and sorting preserve the original list and include remarks", () => {

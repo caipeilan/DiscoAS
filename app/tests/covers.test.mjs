@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareCovers } from "./.compiled/prepareCovers.js";
+import { prepareCovers, prepareHistoryCovers } from "./.compiled/prepareCovers.js";
 const song = (id, cover, mystery = false) => ({
   songId: id,
   coverDataUri: cover,
@@ -45,4 +45,17 @@ test("a broken cover becomes a placeholder without blocking the rest or mutating
   assert.equal(original.coverDataUri, "broken");
   assert.equal(result[1].coverDataUri, "good");
   assert.ok(prepared.includes("default"));
+});
+
+test("history artwork is decoded once per page and failed images retain the placeholder", async () => {
+  const pending = [], covers = ["same", "same", "broken", null].map((coverDataUri, index) => ({ platform: "Spotify", songId: String(index), coverDataUri }));
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let settled = false;
+  const task = prepareHistoryCovers(covers, async src => { pending.push(src); if (src === "same") await gate; else throw Error("invalid image"); }).then(result => { settled = true; return result; });
+  await Promise.resolve(); assert.equal(settled, false);
+  release(); const result = await task;
+  assert.deepEqual(pending, ["same", "broken"]);
+  assert.equal(result[0], covers[0]); assert.equal(result[1], covers[1]);
+  assert.equal(result[2].coverDataUri, null); assert.equal(covers[2].coverDataUri, "broken");
 });

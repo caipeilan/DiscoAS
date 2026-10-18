@@ -5,33 +5,57 @@ import { SettingRow } from "../../components/SettingsControls";
 import { Select } from "../../components/Select";
 import { t, errorText } from "../../i18n";
 import { CopyableInstruction, InstallationGuide } from "./InstallationGuide";
+import { Reveal } from "../../components/Motion";
+import { Icon } from "../../Icon";
+import { ConnectionSteps } from "./ConnectionSteps";
+import { InlineFeedback } from "../../components/InlineFeedback";
 
 export function BrowserSettings({ settings, setSettings }: {
   settings: DesktopPreferences;
   setSettings: React.Dispatch<React.SetStateAction<DesktopPreferences>>;
 }) {
   const [status, setStatus] = useState<BrowserBridgeStatus | null>(null);
-  const [working, setWorking] = useState(false);
+  const [operation, setOperation] = useState<"" | "prepare" | "check">("");
+  const lastPrepared = useRef(false);
+  const working = operation !== "";
   const [error, setError] = useState("");
   const [guideOpen, setGuideOpen] = useState(false);
   const [preparedPath, setPreparedPath] = useState("");
   const [browser, setBrowser] = useState<"chromium" | "firefox">("chromium");
   const browserChosen = useRef(false);
+  const section = useRef<HTMLElement>(null);
+  const [inView, setInView] = useState(false);
+  const [statusError, setStatusError] = useState("");
   const extensionPath = preparedPath || status?.extensionPaths?.[browser]
     || (browser === "chromium" ? status?.extensionPath : null);
   const connected = Boolean(status?.connected &&
     (status.connectedBrowser ? status.connectedBrowser === browser : browser === "chromium"));
   useEffect(() => {
-    let active = true;
-    if (desktop) call<BrowserBridgeStatus>("get_browser_bridge_status").then((next) => {
-      if (!active) return;
-      setStatus(next);
-      if (!browserChosen.current && next.connected && next.connectedBrowser) setBrowser(next.connectedBrowser);
-    }).catch((failure) => { if (active) setError(errorText(failure)); });
-    return () => { active = false; };
+    const observer = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting));
+    if (section.current) observer.observe(section.current);
+    return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    if (!desktop || settings.browser_playback_mode !== "extension" || !inView || working) return;
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const refresh = () => call<BrowserBridgeStatus>("get_browser_bridge_status").then((next) => {
+      if (!active) return;
+      setStatus(next); setStatusError("");
+      if (!browserChosen.current && next.connected && next.connectedBrowser) setBrowser(next.connectedBrowser);
+    }).catch((failure) => { if (active) setStatusError(errorText(failure)); });
+    const visibility = () => {
+      clearInterval(timer);
+      if (document.hidden) return;
+      void refresh(); timer = setInterval(refresh, 4000);
+    };
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
+    return () => { active = false; clearInterval(timer); document.removeEventListener("visibilitychange", visibility); };
+  }, [inView, working, settings.browser_playback_mode]);
   const action = async (prepare: boolean) => {
-    setWorking(true); setError("");
+    lastPrepared.current = prepare;
+    setOperation(prepare ? "prepare" : "check"); setError("");
     try {
       if (prepare) {
         setGuideOpen(true);
@@ -39,39 +63,47 @@ export function BrowserSettings({ settings, setSettings }: {
         await call("open_browser_extension_folder", { browser });
       }
       setStatus(await call<BrowserBridgeStatus>("get_browser_bridge_status"));
+      setStatusError("");
     } catch (failure) { setError(errorText(failure)); }
-    finally { setWorking(false); }
+    finally { setOperation(""); }
   };
-  return <section className="settings-section">
+  return <section ref={section} className="settings-section">
     <h2>{t("YouTube / Bilibili")}</h2>
-    <SettingRow title={t("浏览器播放方式")} description={t("启用复用播放页时，会为本程序单独启用页面")}>
+    <SettingRow title={t("播放方式")} description={t("连接后会重复使用同一个播放标签页。请保持浏览器和 DiscoAS 运行。") }>
       <Select
         label={t("浏览器播放方式")}
         value={settings.browser_playback_mode}
         onChange={(value) => setSettings((current) => ({ ...current, browser_playback_mode: value as DesktopPreferences["browser_playback_mode"] }))}
         options={[
-          { value: "extension", label: t("浏览器扩展（复用播放页）") },
-          { value: "direct", label: t("直接打开链接（新页面）") },
+          { value: "extension", label: t("连接浏览器播放器") },
+          { value: "direct", label: t("在新标签页中打开") },
         ]}
       />
     </SettingRow>
-    {settings.browser_playback_mode === "extension" && <SettingRow title={t("浏览器")}>
+    <Reveal open={settings.browser_playback_mode === "extension"}><SettingRow title={t("浏览器")}>
       <Select label={t("浏览器")} value={browser} disabled={working}
         onChange={(value) => { browserChosen.current = true; setBrowser(value as "chromium" | "firefox"); setPreparedPath(""); }}
         options={[{ value: "chromium", label: "Chrome / Edge" }, { value: "firefox", label: "Firefox" }]} />
-    </SettingRow>}
-    <div className="extension-settings">
-      {settings.browser_playback_mode === "extension" ? <>
-        <div className="extension-actions"><button className="button secondary" disabled={working} onClick={() => action(true)}>{t("准备浏览器扩展")}</button>
-          <button className="button secondary" disabled={working} onClick={() => action(false)}>{t("检查连接")}</button></div>
-        {status && <p role="status">{connected ? t("扩展已连接") : t("扩展未连接")}</p>}
+    </SettingRow>
+    <div className="extension-settings" aria-busy={working}>
+        <div className="connection-status" role="status" data-connected={connected}>
+          <Icon name={connected ? "check" : "info"} size={21} /><div>
+            <strong>{connected ? t("浏览器已连接") : preparedPath ? t("在浏览器中加载扩展") : t("连接浏览器播放器")}</strong>
+            <p>{connected ? t("选择视频后，将在连接的浏览器中播放。") : preparedPath ? t("按照下方说明加载扩展，再刷新视频页面。连接状态会自动更新。") : t("先准备扩展文件，再到浏览器中完成加载。")}</p>
+          </div>
+        </div>
+        <ConnectionSteps steps={["准备文件", "在浏览器中加载", "确认连接"]} current={preparedPath ? 1 : 0} complete={connected} />
+        <div className="extension-actions"><button type="button" className="button primary" disabled={working} onClick={() => action(!preparedPath && !connected)}><Icon name={working ? "refresh" : preparedPath || connected ? "refresh" : "folder"} className={working ? "spin" : ""} />{operation === "prepare" ? t("正在准备扩展…") : operation === "check" ? t("正在检查连接…") : preparedPath || connected ? t("检查连接") : t("准备扩展文件")}</button>
+          {(preparedPath || connected) && <button type="button" className="button secondary" disabled={working} onClick={() => action(true)}>{t("打开扩展文件夹")}</button>}
+          {!preparedPath && !connected && <button type="button" className="text-button" disabled={working} onClick={() => action(false)}>{t("检查连接")}</button>}</div>
+        <InlineFeedback message={error || statusError} retry={() => { void action(Boolean(error) && lastPrepared.current); }} busy={working} dismiss={() => { setError(""); setStatusError(""); }} />
         {status?.connected && status.connectedBrowser && status.connectedBrowser !== browser &&
           <p role="status">{t("{p0} 扩展已连接，切换前请先停用它", {
             p0: status.connectedBrowser === "firefox" ? "Firefox" : "Chrome / Edge",
           })}</p>}
-        <InstallationGuide title={t("浏览器扩展安装教程")} open={guideOpen} onOpenChange={setGuideOpen}>
+        <InstallationGuide title={t("加载扩展与故障排查")} open={guideOpen} onOpenChange={setGuideOpen}>
           <ol>
-            <li>{t("点击“准备浏览器扩展”。打开的文件夹就是稍后要选择的扩展文件夹，不需要运行里面的文件。")}
+            <li>{t("点击“准备扩展文件”，在稍后的浏览器设置中选择打开的文件夹。")}
               {extensionPath && <CopyableInstruction label={t("复制路径")}
                 value={extensionPath} onError={setError} />}
             </li>
@@ -95,8 +127,6 @@ export function BrowserSettings({ settings, setSettings }: {
           <p>{t("应用更新后，在浏览器扩展页重新加载 DiscoAS 扩展，再刷新视频页面。")}</p>
           {!connected && <p>{t("仍未连接时，确认扩展已启用；切换浏览器前，先在原浏览器停用此扩展。")}</p>}
         </InstallationGuide>
-      </> : null}
-      {error && <p className="inline-error" role="alert">{error}</p>}
-    </div>
+    </div></Reveal>
   </section>;
 }

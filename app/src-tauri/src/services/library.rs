@@ -7,7 +7,6 @@ use std::{
 
 use crate::{
     core::playlist::TypeName,
-    platforms,
     settings::{
         gui_setting::GuiSetting,
         music_setting::{MusicSetting, PlaylistAlbum},
@@ -171,18 +170,6 @@ impl LibraryRepository {
             .map_err(|e| e.to_string())
     }
 
-    /// Fetch completely before saving, so a platform failure leaves the old cache intact.
-    pub async fn refresh_source(
-        &self,
-        platform: &str,
-        id: &str,
-        kind: TypeName,
-    ) -> Result<(String, usize), String> {
-        let fetcher = platforms::fetcher_for(platform).map_err(|e| e.to_string())?;
-        let data = fetcher.fetch(id, kind).await.map_err(|e| e.to_string())?;
-        self.save_source(platform, id, kind, &data)
-    }
-
     pub fn save_source(
         &self,
         platform: &str,
@@ -212,22 +199,6 @@ impl LibraryRepository {
         } else {
             incoming.enabled = settings.playlist_albums.iter().all(|entry| !entry.enabled);
             settings.playlist_albums.push(incoming);
-        }
-        self.save_settings(&settings)
-    }
-
-    pub fn update_enabled_metadata(
-        &self,
-        mut settings: MusicSetting,
-        title: String,
-    ) -> Result<(), String> {
-        if let Some(entry) = settings
-            .playlist_albums
-            .iter_mut()
-            .find(|entry| entry.enabled)
-        {
-            entry.playlist_album_name = title;
-            entry.update_time = timestamp();
         }
         self.save_settings(&settings)
     }

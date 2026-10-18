@@ -20,9 +20,10 @@ export function RemoveDialog({ remove, busy, close, confirm }: {
         role="dialog"
         aria-modal="true"
         aria-labelledby="remove-title"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="remove-title">{t("删除 {p0} 个来源？", { p0: remove.length })}</h2>
+        <h2 id="remove-title">{t("删除 {p0} 个卡池？", { p0: remove.length })}</h2>
         <ul className="remove-source-list">
           {remove.map((entry) => <li key={sourceKey(entry)}>
             <strong>{entry.title}</strong>
@@ -34,6 +35,7 @@ export function RemoveDialog({ remove, busy, close, confirm }: {
         <div className="dialog-actions">
           <button
             className="button secondary"
+            data-autofocus
             disabled={!!busy}
             onClick={() => close()}
           >

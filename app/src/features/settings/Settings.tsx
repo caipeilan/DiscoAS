@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { AppState, Preferences, GuiSettings, DesktopPreferences } from "../../types";
 import { Icon } from "../../Icon";
 import { ShortcutRecorder } from "../../ShortcutRecorder";
@@ -12,8 +13,19 @@ import { BrowserSettings } from "./BrowserSettings";
 import { KeyboardSettings } from "./KeyboardSettings";
 import { HandSettings } from "./HandSettings";
 import { RenderingSettings } from "./RenderingSettings";
+import { Reveal } from "../../components/Motion";
 import { useDiscoveryPreview } from "./useDiscoveryPreview";
 import "./settingsDiscovery.css";
+import "./settingsLayout.css";
+import { InlineFeedback } from "../../components/InlineFeedback";
+import { settingsSections } from "./settingsNavigation";
+import type { SettingsCategory, SettingsSectionId } from "./settingsNavigation";
+
+function SettingsPanel({ id, category, children }: {
+  id: SettingsSectionId; category: SettingsCategory; children: ReactNode;
+}) {
+  return <div className="settings-panel" id={`settings-${id}`} hidden={settingsSections[id] !== category}>{children}</div>;
+}
 
 export function Settings({
   state,
@@ -28,7 +40,7 @@ export function Settings({
   migrate,
   chooseMysteryCover,
   openDataFolder,
-  openLogFolder,
+  openLogFolder, discard, saveError = "", clearSaveError, category, selectCategory,
 }: {
   state: AppState;
   draft: Preferences;
@@ -47,14 +59,21 @@ export function Settings({
   chooseMysteryCover: () => Promise<void>;
   openDataFolder: () => void;
   openLogFolder: () => void;
+  discard: () => void;
+  saveError?: string;
+  clearSaveError?: () => void;
+  category: SettingsCategory;
+  selectCategory: (category: SettingsCategory) => void;
 }) {
   const preview = useDiscoveryPreview(draft, guiDraft);
+  const panel = (id: SettingsSectionId, children: ReactNode) => <SettingsPanel id={id} category={category}>{children}</SettingsPanel>;
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((previous) => ({ ...previous, [key]: value }));
   const dirty =
     !samePreferences(draft, state.settings) ||
     !sameGuiPreferences(guiDraft, state.guiSettings) ||
     JSON.stringify(desktopDraft) !== JSON.stringify(state.desktopSettings);
+  const appearanceDirty = !sameGuiPreferences(guiDraft, state.guiSettings);
   const enabledSource = state.playlists.find((entry) => entry.enabled);
   const total =
     draft.number_of_discovered_songs +
@@ -65,29 +84,38 @@ export function Settings({
       <header className="page-header settings-topbar">
         <div>
           <h1>{t("设置")}</h1>
+          <p className="settings-save-status" role="status">{dirty ? t("有未保存的更改") : t("所有更改已保存")}</p>
         </div>
-        <button
-          className="button primary"
-          disabled={!!busy || !dirty || invalidCount}
-          onClick={() => save(draft, guiDraft, desktopDraft)}
-        >
-          <Icon
-            name={busy === "settings" ? "refresh" : "check"}
-            className={busy === "settings" ? "spin" : ""}
-          />
-          {busy === "settings" ? t("保存中") : t("保存设置")}
-        </button>
+        <div className="settings-save-actions">
+          {dirty && <button type="button" className="button secondary" disabled={!!busy} onClick={discard}>{t("放弃更改")}</button>}
+          <button
+            className="button primary"
+            disabled={!!busy || !dirty || invalidCount}
+            onClick={() => save(draft, guiDraft, desktopDraft)}
+          >
+            <Icon name={busy === "settings" ? "refresh" : "check"} className={busy === "settings" ? "spin" : ""} />
+            {busy === "settings" ? t("保存中") : t("保存设置")}
+          </button>
+        </div>
       </header>
-      <fieldset className="settings-fields" disabled={!!busy}>
+      <InlineFeedback message={saveError} retry={() => { void save(draft, guiDraft, desktopDraft); }} busy={!!busy || invalidCount} dismiss={clearSaveError} />
+      {invalidCount && <div className="settings-validation" role="alert"><span>{t("普通与神秘歌曲合计不能超过 15 首，请调整数量。")}</span><button type="button" className="text-button" onClick={() => selectCategory("discovery")}>{t("查看发现设置")}</button></div>}
+      <div className="settings-content">
+        <fieldset className="settings-fields" disabled={!!busy}>
+        {panel("appearance", <>
         <AppearanceSettings gui={guiDraft} setGui={setGuiDraft} previewActive={preview.active}
           onPreviewChange={preview.change} previewBusy={preview.pending} />
         {preview.error && <p className="inline-error padded-error" role="alert">{preview.error}</p>}
+        </>)}
+        {panel("rendering", <>
         <RenderingSettings value={desktopDraft.rendering_mode} onChange={rendering_mode => setDesktopDraft(current => ({ ...current, rendering_mode }))} />
+        </>)}
+        {panel("discovery", <>
         <section className="settings-section">
           <h2>{t("发现偏好")}</h2>
           <SettingRow
             title={t("普通歌曲数量")}
-            description={t("普通歌曲与秘密歌曲数量合计最多15首")}
+            description={t("普通歌曲与神秘歌曲数量合计最多15首")}
           >
             <NumberField
               label={t("普通歌曲数量")}
@@ -107,7 +135,7 @@ export function Settings({
               onChange={(v) => set("have_mystery_song", v)}
             />
           </SettingRow>
-          {draft.have_mystery_song && (
+          <Reveal open={draft.have_mystery_song}>
             <SettingRow
               title={t("神秘歌曲数量")}
             >
@@ -119,7 +147,7 @@ export function Settings({
                 onChange={(v) => set("num_of_mystery_song", v)}
               />
             </SettingRow>
-          )}
+          </Reveal>
           {invalidCount && (
             <p className="inline-error padded-error">
               {t("普通与神秘歌曲合计不能超过 15 首，请调整数量。")}
@@ -172,48 +200,13 @@ export function Settings({
               suffix={t("次")} onChange={(value) => set("replacement_limit", value)} />
           </SettingRow>
         </section>
+        </>)}
+        {panel("weighting", <>
         <WeightingSettings value={draft.discovery_weighting} onChange={(value) => set("discovery_weighting", value)}
           songCount={enabledSource?.songCount || 0} sourceIdentity={enabledSource ? JSON.stringify([enabledSource.platform, enabledSource.kind, enabledSource.id]) : ""}
           drawCount={total} />
-        <HandSettings settings={draft} gui={guiDraft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("hand_discovery", value)} />
-        <section className="settings-section">
-          <h2>{t("窗口与播放")}</h2>
-          <SettingRow title={t("发现界面显示器")}>
-            <Select
-              label={t("发现界面显示器")}
-              value={desktopDraft.overlay_monitor}
-              onChange={(value) => setDesktopDraft((current) => ({ ...current, overlay_monitor: value as DesktopPreferences["overlay_monitor"] }))}
-              options={[
-                { value: "current", label: t("当前显示器") },
-                { value: "primary", label: t("主显示器") },
-              ]}
-            />
-          </SettingRow>
-          <SettingRow title={t("播放后最小化客户端")}>
-            <Toggle label={t("播放后最小化客户端")} value={desktopDraft.minimize_after_playback} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_after_playback: value }))} />
-          </SettingRow>
-          {desktopDraft.minimize_after_playback && <SettingRow title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>
-            <NumberField decimal label={t("最小化等待时间")} value={desktopDraft.minimize_delay_seconds} min={0} max={30} suffix={t("秒")} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_delay_seconds: value }))} />
-          </SettingRow>}
-        </section>
-        <SpotifySettings settings={desktopDraft} setSettings={setDesktopDraft} />
-        <BrowserSettings settings={desktopDraft} setSettings={setDesktopDraft} />
-        <section className="settings-section">
-          <h2>{t("快捷键与封面")}</h2>
-          <SettingRow
-            title={t("全局快捷键")}
-            description={t("在其他应用中也能唤出发现窗口，留空可关闭。")}
-          >
-            <ShortcutRecorder
-              value={draft.shortcut_key}
-              onChange={(value) => set("shortcut_key", value)}
-            />
-          </SettingRow>
-          {state.shortcutError && (
-            <p className="inline-error padded-error">
-              {errorText(state.shortcutError)}
-            </p>
-          )}
+        </>)}
+        {panel("cover", <section className="settings-section"><h2>{t("神秘歌曲封面")}</h2>
           <SettingRow title={t("神秘歌曲封面")} description={t("留空使用默认问号")}>
             <div className="cover-setting">
               <input
@@ -231,8 +224,59 @@ export function Settings({
             </button>
             </div>
           </SettingRow>
+        </section>)}
+        {panel("hand", <>
+        <HandSettings settings={draft} gui={guiDraft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("hand_discovery", value)} />
+        </>)}
+        {panel("window", <>
+        <section className="settings-section">
+          <h2>{t("窗口与播放")}</h2>
+          <SettingRow title={t("发现界面显示器")}>
+            <Select
+              label={t("发现界面显示器")}
+              value={desktopDraft.overlay_monitor}
+              onChange={(value) => setDesktopDraft((current) => ({ ...current, overlay_monitor: value as DesktopPreferences["overlay_monitor"] }))}
+              options={[
+                { value: "current", label: t("当前显示器") },
+                { value: "primary", label: t("主显示器") },
+              ]}
+            />
+          </SettingRow>
+          <SettingRow title={t("播放后最小化客户端")}>
+            <Toggle label={t("播放后最小化客户端")} value={desktopDraft.minimize_after_playback} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_after_playback: value }))} />
+          </SettingRow>
+          <Reveal open={desktopDraft.minimize_after_playback}><SettingRow title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>
+            <NumberField decimal label={t("最小化等待时间")} value={desktopDraft.minimize_delay_seconds} min={0} max={30} suffix={t("秒")} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_delay_seconds: value }))} />
+          </SettingRow></Reveal>
+        </section>
+        </>)}
+        {panel("spotify", <>
+        <SpotifySettings settings={desktopDraft} setSettings={setDesktopDraft} />
+        </>)}
+        {panel("browser", <>
+        <BrowserSettings settings={desktopDraft} setSettings={setDesktopDraft} />
+        </>)}
+        {panel("keyboard", <>
+        <section className="settings-section">
+          <h2>{t("全局快捷键")}</h2>
+          <SettingRow
+            title={t("全局快捷键")}
+            description={t("在其他应用中也能唤出发现窗口，留空可关闭。")}
+          >
+            <ShortcutRecorder
+              value={draft.shortcut_key}
+              onChange={(value) => set("shortcut_key", value)}
+            />
+          </SettingRow>
+          {state.shortcutError && (
+            <p className="inline-error padded-error">
+              {errorText(state.shortcutError)}
+            </p>
+          )}
         </section>
         <KeyboardSettings value={draft.discovery_keybindings} globalShortcut={draft.shortcut_key} onChange={(value) => set("discovery_keybindings", value)} disabled={!!busy} />
+        </>)}
+        {panel("startup", <>
         <section className="settings-section">
           <h2>{t("启动与后台运行")}</h2>
           <SettingRow
@@ -269,6 +313,8 @@ export function Settings({
             />
           </SettingRow>
         </section>
+        </>)}
+        {panel("data", <>
         <section className="settings-section">
           <h2>{t("本地数据")}</h2>
           <SettingRow
@@ -306,10 +352,12 @@ export function Settings({
             </button>
           </SettingRow>
         </section>
-      </fieldset>
+        </>)}
+        </fieldset>
+      </div>
       {dirty && (
         <p className="unsaved-note">
-          {t("有尚未保存的设置，外观已在当前窗口预览。")}
+          {appearanceDirty ? t("外观更改已应用于当前窗口。保存后同步到其他窗口。") : t("更改尚未保存。点击“保存设置”后生效。")}
         </p>
       )}
     </>

@@ -434,6 +434,7 @@ async fn open(
             })
             .collect();
     }
+    let mut projected = Vec::new();
     let mut discovery = if music.hand_discovery.enabled {
         if is_preview {
             let cache = super::hand_discovery::cache(app);
@@ -453,26 +454,22 @@ async fn open(
                 ..Default::default()
             })
         } else {
-            Some(super::hand_discovery::service(app)?.get_state().await?)
+            let (status, cards) = super::hand_discovery::current_cards(app).await?;
+            projected = cards;
+            Some(status)
         }
     } else {
         None
     };
-    if let Some(discovery) = &discovery {
-        let mut discover = super::hand_discovery::project(discovery);
-        for card in &mut discover {
-            if let Some(old) = previous.as_ref().and_then(|s| {
-                s.cards
-                    .iter()
-                    .find(|c| c.id == card.id && c.song == card.song)
-            }) {
-                *card = old.clone();
-            }
-        }
-        discover.extend(held);
-        held = discover;
+    if let Some(discovery) = discovery.as_ref().filter(|_| is_preview) {
+        projected = super::hand_discovery::project(
+            discovery,
+            previous.as_ref().map_or(&[], |snapshot| snapshot.cards.as_slice()),
+        );
     }
-    let needs_discovery = !is_preview && discovery.as_ref().is_some_and(|s| s.songs.is_empty());
+    let needs_discovery = !is_preview && music.hand_discovery.enabled && projected.is_empty();
+    projected.extend(held);
+    held = projected;
     if let Some(state) = &mut discovery {
         state.songs.clear();
     }

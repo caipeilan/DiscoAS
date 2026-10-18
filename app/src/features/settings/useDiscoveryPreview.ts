@@ -14,6 +14,7 @@ export function useDiscoveryPreview(settings: Preferences, gui: GuiSettings) {
   const current = useRef({ settings, gui });
   current.current = { settings, gui };
   const chain = useRef<Promise<void>>(Promise.resolve());
+  const updateQueued = useRef(false);
   const enqueue = useCallback((operation: () => Promise<void>) => {
     chain.current = chain.current.catch(() => {}).then(operation);
     return chain.current;
@@ -65,7 +66,10 @@ export function useDiscoveryPreview(settings: Preferences, gui: GuiSettings) {
     if (!active || pending) return;
     const stamp = session.current;
     const timer = window.setTimeout(() => {
+      if (updateQueued.current) return;
+      updateQueued.current = true;
       enqueue(async () => {
+        updateQueued.current = false;
         if (!mounted.current || !desired.current || session.current !== stamp) return;
         await updateDiscoveryPreview(current.current.settings, current.current.gui);
       }).catch((failure) => {
@@ -73,6 +77,6 @@ export function useDiscoveryPreview(settings: Preferences, gui: GuiSettings) {
       });
     }, 100);
     return () => window.clearTimeout(timer);
-  }, [settings, gui, active, pending, enqueue]);
+  }, [settings.discovery_keybindings, gui, active, pending, enqueue]);
   return { active, pending, error, change };
 }

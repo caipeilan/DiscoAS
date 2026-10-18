@@ -61,6 +61,7 @@ MD FOR AGENT/
 # Local UI verification screenshots (public screenshots can live in docs/screenshots/)
 /docs/*.jpg
 /docs/*-preview.png
+/docs/previews/
 
 # Release packages are published as release assets
 /release/

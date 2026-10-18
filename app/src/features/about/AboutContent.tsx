@@ -23,5 +23,9 @@ export function AboutContent() {
       <span>{t("许可协议")}</span>
       <ExternalLink url={licenseUrl}>{t("GPLv3 协议")}</ExternalLink>
     </div>
+    <div className="about-link-row">
+      <span>{t("平台图标")}</span>
+      <span><ExternalLink url="https://github.com/Arcticons-Team/Arcticons">Arcticons</ExternalLink> (<ExternalLink url="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</ExternalLink>) · <ExternalLink url="https://www.iconfont.cn/">iconfont</ExternalLink></span>
+    </div>
   </section>;
 }

@@ -72,6 +72,12 @@
 .hand-dock .hand-refresh { width: calc(28px * var(--font-scale)); height: calc(28px * var(--font-scale)); border-radius: 50%; flex-shrink: 0; }
 .hand-dock .hand-refresh:disabled { opacity: .4; cursor: default; }
 .hand-card.hand-refill { pointer-events: none; animation: hand-refill 420ms cubic-bezier(.2,.8,.25,1) both; }
+.hand-card.hand-entering { animation: hand-refill 300ms cubic-bezier(.2,.8,.25,1) both; }
+.hand-card.hand-leaving { pointer-events: none; transition: none; animation: hand-leave 220ms ease both; }
+@keyframes hand-leave {
+  from { transform: translate(-50%,-50%) translate(var(--hand-x),var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
+  to { transform: translate(-50%,-50%) translate(calc(var(--hand-x) + var(--refill-x)),calc(var(--hand-y) + var(--refill-y))) rotate(var(--hand-angle)) scale(.85); opacity: 0; }
+}
 @keyframes hand-refill {
   from { transform: translate(-50%,-50%) translate(calc(var(--hand-x) + var(--refill-x)), calc(var(--hand-y) + var(--refill-y))) rotate(var(--hand-angle)) scale(.82); opacity: 0; }
   75% { transform: translate(-50%,-50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(1.025); opacity: 1; }

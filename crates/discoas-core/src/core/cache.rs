@@ -239,7 +239,8 @@ impl Cache {
     }
 
     pub async fn update_current_batch_metadata(&self, songs: Vec<SongCardDto>) {
-        *self.current_batch.lock().await = Some(songs);
+        let mut current = self.current_batch.lock().await;
+        *current = Some(songs);
         self.batch_metadata_revision.fetch_add(1, Ordering::SeqCst);
     }
 

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { AppState, LibraryEntry, LibraryProgress } from "../../types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { LibraryPatch, LibraryEntry, LibraryProgress } from "../../types";
 import type { AppStateController } from "../../hooks/useAppState";
 import type { Notice } from "../../hooks/useNotice";
 import { call, desktop, onDesktopEvent, listenFileDrop } from "../../services/desktop";
@@ -9,7 +9,7 @@ import type { LibrarySort } from "./libraryModel";
 
 /** Owns source editing and cancellable network operations, independently of discovery. */
 export function useLibrary(app: AppStateController, notice: Notice) {
-  const { state, busy, setBusy, applySnapshot, action } = app;
+  const { state, busy, setBusy, applyLibraryPatch, action } = app;
   const [importing, setImporting] = useState(false);
   const [droppedPaths, setDroppedPaths] = useState<string[]>([]);
   const dropHandler = useRef<(paths: string[]) => void>(() => {});
@@ -34,7 +34,9 @@ export function useLibrary(app: AppStateController, notice: Notice) {
   const [cancelling, setCancelling] = useState(false);
   const [operationSummary, setOperationSummary] = useState("");
   const operation = useRef<{ requestId: string; stopped: boolean } | null>(null);
-  const filtered = filterLibrary(state.playlists, query, filter, sort, currentLocale());
+  const retryUpdate = useRef<(entries: LibraryEntry[]) => void>(() => {});
+  const locale = currentLocale();
+  const filtered = useMemo(() => filterLibrary(state.playlists, query, filter, sort, locale), [state.playlists, query, filter, sort, locale]);
   useEffect(() => {
     const present = new Set(state.playlists.map(sourceKey));
     setSelected((current) => new Set([...current].filter((key) => present.has(key))));
@@ -50,7 +52,7 @@ export function useLibrary(app: AppStateController, notice: Notice) {
     return () => { active = false; removeListener?.(); };
   }, [notice]);
   const startOperation = (key: string) => {
-    if (busy || operation.current) return null;
+    if (busy || app.startup || operation.current) return null;
     const task = { requestId: crypto.randomUUID(), stopped: false };
     operation.current = task;
     setBusy(key);
@@ -87,7 +89,7 @@ export function useLibrary(app: AppStateController, notice: Notice) {
     const task = startOperation("import");
     if (!task) return;
     try {
-      applySnapshot(await call<AppState>(data.platform === "LocalMusic" ? "import_local_audio" : "import_playlist", { ...data, requestId: task.requestId }));
+      await applyLibraryPatch(await call<LibraryPatch>(data.platform === "LocalMusic" ? "import_local_audio" : "import_playlist", { ...data, requestId: task.requestId }));
       setImporting(false);
       setDroppedPaths([]);
       notice(t("歌单已导入。"));
@@ -104,6 +106,7 @@ export function useLibrary(app: AppStateController, notice: Notice) {
     let completed = 0;
     let failed = 0;
     let lastError: unknown;
+    const failedEntries: LibraryEntry[] = [];
     try {
       for (const entry of entries) {
         if (task.stopped) break;
@@ -112,7 +115,7 @@ export function useLibrary(app: AppStateController, notice: Notice) {
         setProgress({ requestId: task.requestId, phase: "fetching", completed: 0, total: null });
         setOperationSummary(entries.length > 1 ? t("更新 {p0} / {p1}", { p0: completed + failed + 1, p1: entries.length }) : "");
         try {
-          applySnapshot(await call<AppState>("import_playlist", {
+          await applyLibraryPatch(await call<LibraryPatch>("import_playlist", {
             platform: entry.platform, typename: entry.kind, source: entry.id,
             remark: entry.remark, requestId: task.requestId,
           }));
@@ -120,24 +123,31 @@ export function useLibrary(app: AppStateController, notice: Notice) {
         } catch (error) {
           if (isCancelledError(error)) { task.stopped = true; break; }
           failed++;
+          failedEntries.push(entry);
           lastError = error;
         }
       }
-      if (task.stopped) notice(t("已取消，已完成 {p0} 个来源", { p0: completed }));
-      else if (entries.length === 1) notice(failed ? errorText(lastError) : t("歌单已更新。"), failed > 0);
-      else notice(`${t("更新完成：{p0} 个成功，{p1} 个失败", { p0: completed, p1: failed })}${failed ? ` · ${errorText(lastError)}` : ""}`, failed > 0);
+      if (task.stopped) notice(t("已取消，已完成 {p0} 个卡池", { p0: completed }));
+      else if (entries.length === 1) notice(failed ? errorText(lastError) : t("歌单已更新。"), failed > 0,
+        failed ? { label: t("重试"), run: () => retryUpdate.current(failedEntries) } : undefined);
+      else notice(`${t("更新完成：{p0} 个成功，{p1} 个失败", { p0: completed, p1: failed })}${failed ? ` · ${errorText(lastError)}` : ""}`, failed > 0,
+        failed ? { label: t("重试失败项"), run: () => retryUpdate.current(failedEntries) } : undefined);
     } finally { finishOperation(); }
+  };
+  retryUpdate.current = entries => {
+    const keys = new Set(entries.map(sourceKey));
+    void updateEntries(state.playlists.filter(entry => keys.has(sourceKey(entry))), "bulk-update");
   };
   const enablePlaylist = (entry: LibraryEntry) => action(sourceKey(entry), "enable_playlist", {
     platform: entry.platform, id: entry.id, kind: entry.kind,
-  }, t("已切换发现来源。"));
+  }, t("已切换发现卡池。"));
   const updatePlaylist = (entry: LibraryEntry) => updateEntries([entry], sourceKey(entry));
   const updateSelected = () => updateEntries(state.playlists.filter((entry) => selected.has(sourceKey(entry))), "bulk-update");
   const importSample = async () => {
     const task = startOperation("sample");
     if (!task) return;
     try {
-      applySnapshot(await call<AppState>("import_playlist", {
+      await applyLibraryPatch(await call<LibraryPatch>("import_playlist", {
         platform: "NeteaseCloudMusic", typename: "playlist", source: "8285082830", remark: "", requestId: task.requestId,
       }));
       notice(t("示例歌单已导入。"));
@@ -149,7 +159,7 @@ export function useLibrary(app: AppStateController, notice: Notice) {
     const removedKeys = new Set(remove.map(sourceKey));
     const success = await action("remove", "remove_playlists", {
       sources: remove.map(({ platform, id, kind }) => ({ platform, id, kind })),
-    }, t("已删除 {p0} 个来源。", { p0: remove.length }));
+    }, t("已删除 {p0} 个卡池。", { p0: remove.length }));
     if (success) {
       setSelected((current) => new Set([...current].filter((key) => !removedKeys.has(key))));
       setRemove(null);
@@ -164,7 +174,7 @@ export function useLibrary(app: AppStateController, notice: Notice) {
     if (!editing || busy) return;
     setBusy("remark");
     try {
-      applySnapshot(await call<AppState>("edit_playlist_remark", {
+      await applyLibraryPatch(await call<LibraryPatch>("edit_playlist_remark", {
         platform: editing.platform, id: editing.id, kind: editing.kind, remark,
       }));
       setEditing(null);

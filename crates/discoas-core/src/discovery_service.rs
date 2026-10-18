@@ -57,6 +57,13 @@ struct SamplingInputs {
     excluded: HashSet<String>,
     weights: HashMap<String, f64>,
 }
+
+struct PreparedHistoryCover {
+    row: HistoryEntry,
+    detail: Option<crate::platforms::SongDetail>,
+    bytes: Option<Arc<[u8]>>,
+    data: Option<String>,
+}
 impl SamplingInputs {
     fn remaining(&self) -> u32 {
         self.snapshot
@@ -1052,6 +1059,7 @@ impl DiscoveryService {
         if identities.len() > 64 || wanted.len() != identities.len() {
             return Err("发现记录请求无效".into());
         }
+        if identities.is_empty() { return Ok(Vec::new()); }
         let rows = self
             .history
             .entries(MAX_HISTORY_LIMIT)
@@ -1067,6 +1075,7 @@ impl DiscoveryService {
         let mut requested = identities.iter();
         let mut prepared = Vec::new();
         let mut prepared_bytes = 0usize;
+        let mut prepared_characters = 0usize;
         loop {
             let group = [
                 requested.next(),
@@ -1090,27 +1099,30 @@ impl DiscoveryService {
             let Ok((a, b, c, d)) = result else {
                 break;
             };
-            for (row, detail, bytes) in [a, b, c, d].into_iter().flatten() {
-                let bytes = bytes.filter(|bytes| {
+            for mut cover in [a, b, c, d].into_iter().flatten() {
+                cover.bytes = cover.bytes.filter(|bytes| {
                     prepared_bytes = prepared_bytes.saturating_add(bytes.len());
                     prepared_bytes <= 8 * 1024 * 1024
                 });
-                prepared.push((row, detail, bytes));
+                cover.data = cover.data.filter(|data| {
+                    prepared_characters = prepared_characters.saturating_add(data.len());
+                    prepared_characters <= 8 * 1024 * 1024
+                });
+                prepared.push(cover);
             }
         }
         let _guard = self.cache.operation.lock().await;
-        let originals: HashSet<_> = self
-            .history
-            .entries(MAX_HISTORY_LIMIT)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .collect();
+        let mut current = self.history.load().map_err(|e| e.to_string())?;
+        let originals: HashSet<_> = current.entries(MAX_HISTORY_LIMIT).into_iter().collect();
+        let existing: HashSet<_> = originals.iter().map(|row| (row.platform.clone(), row.song_id.clone())).collect();
         let mut repairs = Vec::new();
         let mut covers = Vec::new();
-        for (row, detail, bytes) in prepared {
+        let mut prepared_data = HashMap::new();
+        for PreparedHistoryCover { row, detail, bytes, data } in prepared {
             if !originals.contains(&row) {
                 continue;
             }
+            prepared_data.insert((row.platform.clone(), row.song_id.clone()), data);
             if let Some(bytes) = bytes {
                 covers.push((library_key(&row.platform, "song", &row.song_id), bytes));
             }
@@ -1120,24 +1132,18 @@ impl DiscoveryService {
         }
         save_library_covers(&self.store.root().join("history/covers"), &covers)?;
         self.history
-            .repair_cover_metadata(&repairs)
+            .repair_cover_metadata(&mut current, &repairs)
             .map_err(|e| e.to_string())?;
-        let existing: HashSet<_> = self
-            .history
-            .entries(MAX_HISTORY_LIMIT)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|row| (row.platform, row.song_id))
-            .collect();
         let mut bytes = 0usize;
         Ok(identities
             .iter()
             .map(|id| {
-                let data = if existing.contains(&(id.platform.clone(), id.song_id.clone())) {
-                    read_library_cover(
+                let key = (id.platform.clone(), id.song_id.clone());
+                let data = if existing.contains(&key) {
+                    prepared_data.remove(&key).unwrap_or_else(|| read_library_cover(
                         &self.store.root().join("history/covers"),
                         &library_key(&id.platform, "song", &id.song_id),
-                    )
+                    ))
                 } else {
                     None
                 };
@@ -1158,18 +1164,14 @@ impl DiscoveryService {
         &self,
         identity: Option<&HistoryIdentity>,
         rows: &HashMap<(String, String), HistoryEntry>,
-    ) -> Option<(
-        HistoryEntry,
-        Option<crate::platforms::SongDetail>,
-        Option<Arc<[u8]>>,
-    )> {
+    ) -> Option<PreparedHistoryCover> {
         let identity = identity?;
         let row = rows
             .get(&(identity.platform.clone(), identity.song_id.clone()))?
             .clone();
         let key = library_key(&row.platform, "song", &row.song_id);
-        if read_library_cover(&self.store.root().join("history/covers"), &key).is_some() {
-            return Some((row, None, None));
+        if let Some(data) = read_library_cover(&self.store.root().join("history/covers"), &key) {
+            return Some(PreparedHistoryCover { row, detail: None, bytes: None, data: Some(data) });
         }
         tokio::time::timeout(Duration::from_secs(8), async {
             let detail = if row.cover_url.is_empty() || row.has_hidden_metadata() {
@@ -1195,9 +1197,9 @@ impl DiscoveryService {
             let url = detail.as_ref().map_or(row.cover_url.as_str(), |detail| {
                 detail.album_pic_url.as_str()
             });
-            let _ = prepare_song_cover(&self.cache, url).await;
+            let data = prepare_song_cover(&self.cache, url).await.ok().flatten();
             let bytes = self.cache.get_image(url).await;
-            Some((row, detail, bytes))
+            Some(PreparedHistoryCover { row, detail, bytes, data })
         })
         .await
         .ok()
@@ -2778,5 +2780,27 @@ mod tests {
             .history_covers(&vec![ids[0].clone(); 65])
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn cached_history_covers_do_not_rewrite_history_or_restore_rows_cleared_during_preparation() {
+        use std::{future::Future, task::Poll};
+        let fixture = Fixture::new(); fixture.settings(false); fixture.source();
+        let cache = Cache::new(); let service = fixture.service(cache.clone());
+        let batch = service.discover(false).await.unwrap();
+        service.record_discovery_displayed(&identities(&batch.songs)).await.unwrap();
+        let ids: Vec<_> = service.history().unwrap().iter().map(|row| HistoryIdentity { platform: row.platform.clone(), song_id: row.song_id.clone() }).collect();
+        let first = service.history_covers(&ids).await.unwrap();
+        let before = std::fs::read(service.history.path()).unwrap();
+        let warm = service.history_covers(&ids).await.unwrap();
+        assert_eq!(serde_json::to_value(first).unwrap(), serde_json::to_value(&warm).unwrap());
+        assert_eq!(std::fs::read(service.history.path()).unwrap(), before);
+        let guard = cache.operation.lock().await;
+        let mut pending = Box::pin(service.history_covers(&ids));
+        std::future::poll_fn(|cx| { assert!(matches!(pending.as_mut().poll(cx), Poll::Pending)); Poll::Ready(()) }).await;
+        service.history.clear().unwrap(); drop(guard);
+        let removed = pending.await.unwrap();
+        assert!(removed.iter().all(|cover| cover.cover_data_uri.is_none()));
+        assert!(service.history().unwrap().is_empty());
     }
 }

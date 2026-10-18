@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { copyText } from "../../services/desktop";
 import { errorText, t } from "../../i18n";
+import { AnimatedDetails } from "../../components/Motion";
 
 /** The instructions stay in the settings page so users can follow each step. */
 export function InstallationGuide({
@@ -14,11 +15,9 @@ export function InstallationGuide({
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
 }) {
-  return <details className="installation-guide" open={open}
-    onToggle={(event) => onOpenChange(event.currentTarget.open)}>
-    <summary>{title}</summary>
+  return <AnimatedDetails className="installation-guide" open={open} onOpenChange={onOpenChange} summary={title}>
     <div className="installation-guide-content">{children}</div>
-  </details>;
+  </AnimatedDetails>;
 }
 
 export function CopyableInstruction({

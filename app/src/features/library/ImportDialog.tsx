@@ -5,9 +5,10 @@ import { platformInfo } from "../../platforms";
 import { t, errorText, sourceKind } from "../../i18n";
 import type { LibraryProgress } from "../../types";
 import { OperationProgress } from "./OperationProgress";
-import { identifySource, sourceKinds } from "./sourceInput";
-import { Select } from "../../components/Select";
+import { extractSourceLink, identifySource, sourceKinds } from "./sourceInput";
+import { PlatformIcon } from "../../components/PlatformIcon";
 import { call } from "../../services/desktop";
+import { Reveal } from "../../components/Motion";
 
 export function ImportDialog({
   busy,
@@ -39,19 +40,23 @@ export function ImportDialog({
     inputRef.current?.focus();
   }, []);
   const onSource = (value: string) => {
-    setSource(value);
+    const extracted = extractSourceLink(value);
+    setSource(extracted);
     setError("");
-    const identified = identifySource(value);
+    const identified = identifySource(extracted);
     if (identified) {
       setPlatform(identified.platform);
       setType(identified.kind);
     }
   };
+  const recognized = identifySource(source);
+  const automaticallyDetected = recognized?.platform === platform && recognized.kind === typename;
   return (
     <div className="modal-backdrop" onClick={() => !busy && close()}>
       <form
-        className="dialog"
+        className="dialog import-dialog"
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby="import-title"
         onClick={(e) => e.stopPropagation()}
@@ -79,19 +84,28 @@ export function ImportDialog({
             <Icon name="close" />
           </button>
         </div>
-        <label className="field-label">
-          {t("音乐平台")}
-          <Select label={t("音乐平台")}
-            value={platform}
-            onChange={(value) => {
-              setPlatform(value);
-              if (!sourceKinds(value).includes(typename)) setType(sourceKinds(value)[0]);
-            }}
-            disabled={busy}
-            options={platforms.map((p) => ({ value: p.id, label: t(p.label) }))}
-          />
+        <fieldset className="motion-fields" disabled={busy || platform === "LocalMusic"}>
+        <Reveal open={platform !== "LocalMusic"}>
+        <label className="field-label import-link-field">
+          {t("分享链接或 ID")}
+          <input ref={inputRef} required value={source} onChange={(e) => onSource(e.target.value)}
+            placeholder={t("粘贴分享链接，自动识别平台")}
+            aria-describedby="import-link-hint" disabled={busy} autoComplete="off" />
         </label>
-        {platform !== "LocalMusic" && <div className="segmented">
+        <p className="import-recognition" id="import-link-hint" role="status">
+          {automaticallyDetected ? <><Icon name="check" size={15} />{t("已识别：{p0} · {p1}", { p0: t(platformInfo(platform).label), p1: sourceKind(typename) })}</> : t("也可输入 ID，再选择对应平台与类型。")}
+        </p>
+        </Reveal></fieldset>
+        <fieldset className="import-platform-field" disabled={busy}>
+          <legend className="field-label">{t("音乐平台")}</legend>
+          <div className="import-platforms">{platforms.map(p => <button type="button" key={p.id}
+            aria-pressed={platform === p.id} className={platform === p.id ? "selected" : ""}
+            onClick={() => { setPlatform(p.id); setError(""); if (!sourceKinds(p.id).includes(typename)) setType(sourceKinds(p.id)[0]); }}>
+            <PlatformIcon id={p.id} /><span>{t(p.label)}</span>{platform === p.id && <Icon name="check" size={13} />}
+          </button>)}</div>
+        </fieldset>
+        <fieldset className="motion-fields" disabled={busy || platform === "LocalMusic"}>
+        <Reveal open={platform !== "LocalMusic"}><div className="segmented import-kinds" role="group" aria-label={t("内容类型")}>
           {sourceKinds(platform).map((kind) => <button key={kind}
             type="button"
             disabled={busy}
@@ -101,8 +115,10 @@ export function ImportDialog({
           >
             {sourceKind(kind)}
           </button>)}
-        </div>}
-        {platform === "LocalMusic" ? <div className="local-audio-input">
+        </div>
+        </Reveal></fieldset>
+        <fieldset className="motion-fields" disabled={busy || platform !== "LocalMusic"}>
+        <Reveal open={platform === "LocalMusic"}><div className="local-audio-input">
           <div className="local-audio-choices">{(["files", "folder", "playlist"] as const).map((kind) => <button key={kind} type="button" className="button secondary" disabled={busy || picking} onClick={async () => {
             setPicking(true); setError("");
             try { const selected = await call<string[]>("choose_local_audio", { kind }); if (selected.length) setPaths(selected); }
@@ -110,17 +126,7 @@ export function ImportDialog({
             finally { setPicking(false); }
           }}>{t({ files: "选择音频文件", folder: "选择文件夹", playlist: "选择 M3U 歌单" }[kind])}</button>)}</div>
           <div className="local-audio-paths" role="status">{paths.length ? <><strong>{t("已选择 {p0} 个路径", { p0: paths.length })}</strong><ul>{paths.slice(0, 8).map((path) => <li key={path} title={path}>{path}</li>)}</ul>{paths.length > 8 && <span>{t("另有 {p0} 个路径", { p0: paths.length - 8 })}</span>}</> : <span>{t("也可将音频文件、文件夹或 M3U 歌单拖入窗口。")}</span>}</div>
-        </div> : <label className="field-label">
-          {t("分享链接或 ID")}
-          <input
-            ref={inputRef}
-            required
-            value={source}
-            onChange={(e) => onSource(e.target.value)}
-            placeholder={t(platformInfo(platform).hint)}
-            disabled={busy}
-          />
-        </label>}
+        </div></Reveal></fieldset>
         <label className="field-label">
           {t("备注")}
           <span className="optional">{t("可选")}</span>
@@ -134,7 +140,7 @@ export function ImportDialog({
         </label>
         <p className="form-hint">
           <Icon name="info" size={15} />
-          {platform === "LocalMusic" ? t("支持 MP3、FLAC、WAV、M4A、OGG；文件夹包含子目录。播放使用系统默认播放器。") : t("支持公开来源。私有、已删除或受限内容可能无法读取。")}
+          {platform === "LocalMusic" ? t("支持 MP3、FLAC、WAV、M4A、OGG；文件夹包含子目录。播放使用系统默认播放器。") : t("支持公开卡池。私有、已删除或受限内容可能无法读取。")}
           {platform === "Bilibili" && t("多 P 视频按分 P 分别发现。")}
         </p>
         {error && (
@@ -164,7 +170,7 @@ export function ImportDialog({
               name={busy ? "refresh" : "import"}
               className={busy ? "spin" : ""}
             />
-            {busy ? t("导入中") : t("导入")}
+            {busy ? t("添加中") : t("添加歌单")}
           </button>
         </div>
       </form>

@@ -38,22 +38,25 @@ export function AppearanceSettings({
         />
       </SettingRow>
       <SettingRow
-        title={t("日夜模式")}
+        title={t("外观")}
       >
         <div className="segmented theme-picker">
+          <button type="button" className={gui.follow_system_theme ? "selected" : ""}
+            aria-pressed={gui.follow_system_theme}
+            onClick={() => set("follow_system_theme", true)}>{t("跟随系统")}</button>
           <button
             type="button"
-            className={!gui.night_mode ? "selected" : ""}
-            aria-pressed={!gui.night_mode}
-            onClick={() => set("night_mode", false)}
+            className={!gui.follow_system_theme && !gui.night_mode ? "selected" : ""}
+            aria-pressed={!gui.follow_system_theme && !gui.night_mode}
+            onClick={() => setGui((previous) => ({ ...previous, follow_system_theme: false, night_mode: false }))}
           >
             {t("日间")}
           </button>
           <button
             type="button"
-            className={gui.night_mode ? "selected" : ""}
-            aria-pressed={gui.night_mode}
-            onClick={() => set("night_mode", true)}
+            className={!gui.follow_system_theme && gui.night_mode ? "selected" : ""}
+            aria-pressed={!gui.follow_system_theme && gui.night_mode}
+            onClick={() => setGui((previous) => ({ ...previous, follow_system_theme: false, night_mode: true }))}
           >
             {t("夜间")}
           </button>
@@ -135,7 +138,7 @@ export function AppearanceSettings({
             })
           }
         >
-          {t("恢复默认设置")}
+          {t("还原外观")}
         </button>
       </div>
     </section>

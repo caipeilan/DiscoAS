@@ -65,7 +65,7 @@ pub fn play_position(app: &tauri::AppHandle, index: usize) {
                 let discovery_count = discovery.as_ref().map_or(0, |s| s.songs.len());
                 if index < discovery_count {
                     let state = discovery.unwrap();
-                    let card = super::hand_discovery::project(&state)[index].clone();
+                    let card = super::hand_discovery::project(&state, &[])[index].clone();
                     (None, Some((card, state.batch_epoch)))
                 } else {
                     (

@@ -17,5 +17,6 @@ export function RenderingSettings({ value, onChange }: {
         { value: "cpu", label: t("CPU 软件渲染") },
       ]} onChange={selected => onChange(selected as DesktopPreferences["rendering_mode"])} />
     </SettingRow>
+    <p className="setting-explanation">{t("保存后重启 DiscoAS，新的渲染方式才会生效。")}</p>
   </section>;
 }

@@ -7,11 +7,11 @@ const legacyPalettes: Record<string, ColorGroup> = {
   cancel_night: { background: "#400601", background_hover: "#bd0316", border: "#fc6044", font_color: "#ffffff" },
 };
 
-const themePalettes: Record<string, ColorGroup> = {
-  card: { background: "#ffffff", background_hover: "#f8f9fa", border: "#168ca3", font_color: "#24262a" },
-  card_night: { background: "#292b2f", background_hover: "#303237", border: "#61c4d7", font_color: "#f0f1f3" },
-  cancel: { background: "#ffffff", background_hover: "#fff0f1", border: "#edc0c5", font_color: "#bf333e" },
-  cancel_night: { background: "#292b2f", background_hover: "#462c32", border: "#79414a", font_color: "#ff9da5" },
+export const themePalettes: Record<string, ColorGroup> = {
+  card: { background: "#FFFFFF", background_hover: "#F8F9FA", border: "#0A84FF", font_color: "#24262A" },
+  card_night: { background: "#292B2F", background_hover: "#303237", border: "#5ACFF0", font_color: "#F0F1F3" },
+  cancel: { background: "#FFFFFF", background_hover: "#FFF1F0", border: "#FFD1CC", font_color: "#D70015" },
+  cancel_night: { background: "#292B2F", background_hover: "#3A1512", border: "#6E2A24", font_color: "#FF453A" },
 };
 
 /** Render old default colors with the current theme without rewriting saved or custom palettes. */

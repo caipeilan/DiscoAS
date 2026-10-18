@@ -18,6 +18,17 @@ export function handPoseBounds(pose: CardPose, padding = 20): HandRect {
     width: width + padding * 2, height: height + padding * 2 };
 }
 
+/** Cover rotation and the existing spring's overshoot between two layouts. */
+export function handLayoutTransitionBounds(poses: CardPose[]): HandRect | null {
+  const bounds = combineHandBounds(poses.map(pose => {
+    const radius = Math.hypot(pose.width, pose.height) * pose.scale / 2 + 20;
+    return { left: pose.x - radius, top: pose.y - radius, width: radius * 2, height: radius * 2 };
+  }));
+  if (!bounds) return null;
+  const margin = Math.max(bounds.width, bounds.height) * .05;
+  return { left: bounds.left - margin, top: bounds.top - margin, width: bounds.width + margin * 2, height: bounds.height + margin * 2 };
+}
+
 export function arrivalDrawingBounds(origin: HandRect, pose: CardPose): HandRect {
   const x = origin.left + origin.width / 2, y = origin.top + origin.height / 2;
   const source = { ...pose, x, y, angle: 0, scale: origin.width / pose.width };

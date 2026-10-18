@@ -1,0 +1,24 @@
+.presence-shell { display: contents; }
+.presence-shell > .modal-backdrop { opacity: 0; transition: opacity 180ms ease; }
+.presence-shell > .modal-backdrop > .dialog { opacity: 0; transform: translateY(8px) scale(.985); transition: opacity 180ms ease, transform 180ms var(--ease-out); }
+.presence-shell[data-open="true"] > .modal-backdrop, .presence-shell[data-open="true"] > .modal-backdrop > .dialog { opacity: 1; transform: none; }
+.presence-shell > .toast { opacity: 0; transform: translate(-50%, 8px); transition: opacity 180ms ease, transform 180ms var(--ease-out); }
+.presence-shell[data-open="true"] > .toast { opacity: 1; transform: translate(-50%, 0); }
+.presence-shell[inert] > * { pointer-events: none; }
+.control-popover { opacity: 0; translate: 0 var(--popover-offset, -4px); transition: opacity 140ms ease, translate 140ms var(--ease-out); }
+.control-popover[data-open="true"] { opacity: 1; translate: 0 0; }
+.motion-reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 220ms var(--ease-out), opacity 160ms ease; }
+.motion-reveal[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+.motion-reveal-inner { min-height: 0; overflow: hidden; }
+.page-body { animation: content-enter 160ms ease both; }
+.page-body:has(.settings-topbar), .page-body:has(.history-topbar) { animation: none; }
+.page-body:has(.settings-topbar) > .settings-fields, .page-body:has(.history-topbar) > .history-page { animation: content-enter 160ms ease both; }
+.content-arriving { animation: content-enter 160ms ease both; }
+.library-list, .history-records { position: relative; }
+.library-list[data-empty], .history-records[data-empty] { border: 0; margin: 0; padding: 0; }
+.motion-fields { display: contents; border: 0; padding: 0; margin: 0; }
+.inline-error, .form-error, .import-progress, .history-empty, .empty-state, .overlay-message, .discovery-empty, .update-section [role="status"] > * { animation: content-enter 160ms ease; }
+@keyframes content-enter { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .motion-reveal, .control-popover, .presence-shell > .modal-backdrop, .presence-shell > .modal-backdrop > .dialog, .presence-shell > .toast { transition: none; }
+}

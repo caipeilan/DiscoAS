@@ -12,7 +12,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
 };
 use tauri::{Emitter, Manager};
@@ -21,6 +21,31 @@ use tauri::{Emitter, Manager};
 pub struct HandDiscoveryState {
     cache: OnceLock<Arc<Cache>>,
     initializing: AtomicBool,
+    projected: Mutex<ProjectedBatch>,
+}
+
+#[derive(Default)]
+struct ProjectedBatch {
+    revision: Option<(u64, u64)>,
+    cards: Vec<Arc<HandCard>>,
+}
+impl ProjectedBatch {
+    fn cards(&mut self, revision: (u64, u64), songs: &[discoas_core::model::SongCardDto]) -> Vec<Arc<HandCard>> {
+        if self.revision != Some(revision) {
+            self.cards = project_songs(songs, &self.cards);
+            self.revision = Some(revision);
+        }
+        self.cards.clone()
+    }
+}
+
+pub(super) async fn current_cards(app: &tauri::AppHandle) -> Result<(DiscoveryStateDto, Vec<Arc<HandCard>>), String> {
+    let cache = cache(app);
+    let status = service(app)?.get_status().await?;
+    let batch = cache.current_batch.lock().await;
+    let cards = app.state::<HandDiscoveryState>().projected.lock().unwrap()
+        .cards(cache.current_batch_revision(), batch.as_deref().unwrap_or_default());
+    Ok((status.with_songs(Vec::new()), cards))
 }
 pub(super) fn cache(app: &tauri::AppHandle) -> Arc<Cache> {
     app.state::<HandDiscoveryState>()
@@ -47,9 +72,11 @@ fn allowed(app: &tauri::AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
-pub(super) fn project(state: &DiscoveryStateDto) -> Vec<Arc<HandCard>> {
-    state
-        .songs
+pub(super) fn project(state: &DiscoveryStateDto, previous: &[Arc<HandCard>]) -> Vec<Arc<HandCard>> {
+    project_songs(&state.songs, previous)
+}
+fn project_songs(songs: &[discoas_core::model::SongCardDto], previous: &[Arc<HandCard>]) -> Vec<Arc<HandCard>> {
+    songs
         .iter()
         .map(|song| {
             let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -60,8 +87,12 @@ pub(super) fn project(state: &DiscoveryStateDto) -> Vec<Arc<HandCard>> {
                 &song.typename,
             )
                 .hash(&mut hash);
+            let id = format!("hand-discovery-{:x}", hash.finish());
+            if let Some(old) = previous.iter().find(|card| card.id == id && card.song == *song) {
+                return old.clone();
+            }
             Arc::new(HandCard {
-                id: format!("hand-discovery-{:x}", hash.finish()),
+                id,
                 song: song.clone(),
                 collected_at: 0,
                 mystery_revealed: false,
@@ -72,6 +103,46 @@ pub(super) fn project(state: &DiscoveryStateDto) -> Vec<Arc<HandCard>> {
 }
 pub(super) async fn invalidate(app: &tauri::AppHandle) {
     cache(app).invalidate().await;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projection_reuses_unchanged_artwork_but_accepts_metadata_repairs() {
+        let mut state = DiscoveryStateDto {
+            songs: (0..3).map(|index| discoas_core::model::SongCardDto {
+                song_id: index.to_string(),
+                cover_data_uri: Some("artwork".repeat(1024)),
+                ..Default::default()
+            }).collect(),
+            ..Default::default()
+        };
+        let previous = project(&state, &[]);
+        let unchanged = project(&state, &previous);
+        assert!(previous.iter().zip(&unchanged).all(|(old, next)| Arc::ptr_eq(old, next)));
+        state.songs[1].cover_data_uri = Some("repaired artwork".into());
+        let repaired = project(&state, &previous);
+        assert!(Arc::ptr_eq(&previous[0], &repaired[0]));
+        assert!(!Arc::ptr_eq(&previous[1], &repaired[1]));
+        assert_eq!(repaired[1].id, previous[1].id);
+        assert_eq!(repaired[1].song.cover_data_uri.as_deref(), Some("repaired artwork"));
+        assert!(Arc::ptr_eq(&previous[2], &repaired[2]));
+    }
+
+    #[test]
+    fn layout_refresh_reuses_the_projected_batch_and_metadata_revision_rebuilds_changed_cards() {
+        let mut batch = vec![discoas_core::model::SongCardDto { song_id: "a".into(), cover_data_uri: Some("cover".repeat(200_000)), ..Default::default() }];
+        let mut projected = ProjectedBatch::default();
+        let original = projected.cards((1, 0), &batch);
+        let same = projected.cards((1, 0), &[]);
+        assert!(Arc::ptr_eq(&original[0], &same[0]));
+        batch[0].name = "Repaired".into();
+        let repaired = projected.cards((1, 1), &batch);
+        assert!(!Arc::ptr_eq(&original[0], &repaired[0]));
+        assert_eq!(repaired[0].song.name, "Repaired");
+        assert!(projected.cards((2, 1), &[]).is_empty());
+    }
 }
 pub(super) fn ensure(app: &tauri::AppHandle) {
     if app
@@ -104,16 +175,15 @@ pub(super) fn ensure(app: &tauri::AppHandle) {
     });
 }
 #[tauri::command]
-pub async fn refresh_hand_discovery(app: tauri::AppHandle) -> Result<DiscoveryStateDto, String> {
+pub async fn refresh_hand_discovery(app: tauri::AppHandle) -> Result<(), String> {
     let cache = cache(&app);
     let guard = cache.operation.lock().await;
     allowed(&app)?;
-    let state = service(&app)?
+    service(&app)?
         .discover_in_operation(true, &guard)
-        .await?
-        .state;
+        .await?;
     super::hand::refresh(&app).await?;
-    Ok(state)
+    Ok(())
 }
 #[tauri::command]
 pub async fn hand_discovery_displayed(
@@ -139,7 +209,7 @@ pub async fn replace_hand_discovery_card(
     app: tauri::AppHandle,
     args: PlaySongArgs,
     batch_epoch: u64,
-) -> Result<DiscoveryStateDto, String> {
+) -> Result<(), String> {
     let cache = cache(&app);
     let service = service(&app)?;
     let ticket = {
@@ -152,11 +222,11 @@ pub async fn replace_hand_discovery_card(
     let prepared = service.prepare_replacement(ticket).await?;
     let guard = cache.operation.lock().await;
     allowed(&app)?;
-    let state = service
+    service
         .commit_replacement_in_operation(prepared, &guard)
         .await?;
     super::hand::refresh(&app).await?;
-    Ok(state)
+    Ok(())
 }
 #[tauri::command]
 pub async fn collect_hand_discovery_card(
@@ -259,7 +329,7 @@ pub async fn reorder_hand_discovery(
     if state.batch_epoch != batch_epoch {
         return Err("错误：迷你发现卡已改变".into());
     }
-    let projected = project(&state);
+    let projected = project(&state, &[]);
     if ids.len() != projected.len()
         || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
     {

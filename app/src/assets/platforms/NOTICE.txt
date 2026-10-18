@@ -1,0 +1,14 @@
+Platform SVGs: Arcticons, by the Arcticons contributors.
+
+Source: https://github.com/Arcticons-Team/Arcticons
+Distribution: https://github.com/iconify/icon-sets/blob/master/json/arcticons.json
+License: Creative Commons Attribution-ShareAlike 4.0 International
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The SVG viewport is normalized to 48 x 48. Stroke width is set to 3.4 to match
+the application's folder glyph. Paths are unchanged and use one color.
+Brand names and marks belong to their respective owners.
+
+Kugou, Kuwo and Qishui SVGs were supplied by the maintainer from iconfont.
+Their fills use the interface color. The Qishui foreground mark is retained
+with a cropped viewport; the export's background is omitted.

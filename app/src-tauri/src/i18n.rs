@@ -18,22 +18,6 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("en_US", "English"),
 ];
 
-/// 默认语言。对应旧版 `DEFAULT_LANGUAGE`。
-pub const DEFAULT_LANGUAGE: &str = "zh_CN";
-
-/// 加载指定语言的全部翻译键值对。
-///
-/// 对应旧版 `load_translations(lang_code)`。
-/// 从 `user_data/i18n/<lang>.json` 读取。
-pub fn load_translations(
-    app: &tauri::AppHandle,
-    lang_code: &str,
-) -> crate::error::AppResult<HashMap<String, String>> {
-    let i18n_dir = crate::paths::user_data_dir(app)?.join("i18n");
-    let path = i18n_dir.join(format!("{lang_code}.json"));
-    load_from_path(&path)
-}
-
 /// 纯函数版加载（测试用）。
 pub fn load_from_path(path: &std::path::Path) -> crate::error::AppResult<HashMap<String, String>> {
     if !path.exists() {

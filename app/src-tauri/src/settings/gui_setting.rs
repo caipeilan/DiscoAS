@@ -43,6 +43,9 @@ pub struct GuiSetting {
     pub user_configured: bool,
     #[serde(default)]
     pub night_mode: bool,
+    /// Missing in old files: preserve the user's explicit light/dark choice.
+    #[serde(default)]
+    pub follow_system_theme: bool,
     #[serde(default = "default_one")]
     pub card_size: f64,
     #[serde(default = "default_one")]
@@ -84,13 +87,14 @@ fn default_language() -> String {
 }
 
 impl Default for GuiSetting {
-    /// 对应旧版 `create_default_setting()` 的配色值。
+    /// Apple 系统色系：蓝色主操作，红色取消/危险操作。
     fn default() -> Self {
         Self {
             font_family: String::new(),
             font_size: default_font_size(),
             user_configured: false,
             night_mode: false,
+            follow_system_theme: true,
             card_size: 1.0,
             cancel_button_size: 1.0,
             replacement_button_size: 1.0,
@@ -99,39 +103,39 @@ impl Default for GuiSetting {
             language: "zh_CN".to_string(),
             card: ColorGroup {
                 background: "#FFFFFF".into(),
-                background_hover: "#e3f3f6".into(),
-                border: "#76d2fd".into(),
-                font_color: "#000000".into(),
+                background_hover: "#F8F9FA".into(),
+                border: "#0A84FF".into(),
+                font_color: "#24262A".into(),
             },
             cancel_button: ColorGroup {
-                background: "#fecbc1".into(),
-                background_hover: "#fd8b76".into(),
-                border: "#fc6044".into(),
-                font_color: "#000000".into(),
+                background: "#FFFFFF".into(),
+                background_hover: "#FFF1F0".into(),
+                border: "#FFD1CC".into(),
+                font_color: "#D70015".into(),
             },
             setting: ColorGroup {
                 background: "#FFFFFF".into(),
-                background_hover: "#d0ebf0".into(),
-                border: "#76e8fd".into(),
+                background_hover: "#F2F7FF".into(),
+                border: "#B3D4FF".into(),
                 font_color: "#000000".into(),
             },
             card_night_mode: ColorGroup {
-                background: "#565656".into(),
-                background_hover: "#3d75bf".into(),
-                border: "#76d2fd".into(),
-                font_color: "#ffffff".into(),
+                background: "#292B2F".into(),
+                background_hover: "#303237".into(),
+                border: "#5ACFF0".into(),
+                font_color: "#F0F1F3".into(),
             },
             cancel_button_night_mode: ColorGroup {
-                background: "#400601".into(),
-                background_hover: "#bd0316".into(),
-                border: "#fc6044".into(),
-                font_color: "#ffffff".into(),
+                background: "#292B2F".into(),
+                background_hover: "#3A1512".into(),
+                border: "#6E2A24".into(),
+                font_color: "#FF453A".into(),
             },
             setting_night_mode: ColorGroup {
-                background: "#565656".into(),
-                background_hover: "#3dabbf".into(),
-                border: "#76c6fd".into(),
-                font_color: "#ffffff".into(),
+                background: "#292B2F".into(),
+                background_hover: "#102A43".into(),
+                border: "#1D4E89".into(),
+                font_color: "#FFFFFF".into(),
             },
         }
     }
@@ -168,12 +172,6 @@ impl GuiSetting {
     pub fn load(app: &tauri::AppHandle) -> AppResult<Self> {
         let path = paths::gui_setting_path(app)?;
         Self::load_from_path(&path)
-    }
-
-    /// 保存到文件。对照旧版 `save()`。
-    pub fn save(&self, app: &tauri::AppHandle) -> AppResult<()> {
-        let path = paths::gui_setting_path(app)?;
-        self.save_to_path(&path)
     }
 
     /// 纯函数版加载（测试用）。
@@ -261,6 +259,20 @@ mod tests {
         assert_eq!(s.setting.border, "");
         // setting_night_mode 多了 size 字段 → serde 默认忽略未知字段
         assert_eq!(s.setting_night_mode.background, "#565656");
+    }
+
+    /// 旧配置保留手动主题，新安装默认跟随系统。
+    #[test]
+    fn system_theme_is_opt_in_for_existing_files() {
+        assert!(GuiSetting::default().follow_system_theme);
+        for night in [false, true] {
+            let mut old = serde_json::to_value(GuiSetting::default()).unwrap();
+            old.as_object_mut().unwrap().remove("follow_system_theme");
+            old["night_mode"] = night.into();
+            let restored: GuiSetting = serde_json::from_value(old).unwrap();
+            assert!(!restored.follow_system_theme);
+            assert_eq!(restored.night_mode, night);
+        }
     }
 
     /// 往返：save → load 数据一致。

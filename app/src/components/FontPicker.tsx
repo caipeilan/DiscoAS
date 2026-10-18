@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { currentLocale, errorText, t } from "../i18n";
 import { call } from "../services/desktop";
 import { Select } from "./Select";
@@ -36,6 +36,8 @@ export function FontPicker({
     });
     return () => { active = false; };
   }, [retry]);
+  const locale = currentLocale();
+  const options = useMemo(() => fontOptions(fonts, value, t("系统字体"), locale), [fonts, value, locale]);
 
   return (
     <div className="font-picker">
@@ -44,7 +46,7 @@ export function FontPicker({
         className="font-select"
         value={value}
         onChange={onChange}
-        options={fontOptions(fonts, value, t("系统字体"), currentLocale())}
+        options={options}
         searchable
         searchLabel={t("搜索字体")}
         emptyMessage={t("没有匹配的字体")}

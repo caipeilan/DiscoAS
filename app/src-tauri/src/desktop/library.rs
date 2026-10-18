@@ -48,6 +48,39 @@ pub struct LibraryEntry {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LibraryPatch {
+    settings: MusicSetting,
+    updated_playlists: Vec<LibraryEntry>,
+    startup_refresh_error: Option<String>,
+}
+
+fn library_entry(app: &tauri::AppHandle, repository: &LibraryRepository, p: &PlaylistAlbum) -> LibraryEntry {
+    let (count, cover, missing, error) = match repository.cache_summary_with_missing(p) {
+        Ok((c, u, m)) => (c, u, m, None),
+        Err(e) => (0, String::new(), 0, Some(e)),
+    };
+    LibraryEntry {
+        platform: p.name.clone(), id: p.playlist_album_id.clone(), kind: p.typename.clone(),
+        title: if p.playlist_album_name.is_empty() { p.playlist_album_id.clone() } else { p.playlist_album_name.clone() },
+        remark: p.playlist_album_remark.clone(), enabled: p.enabled,
+        song_count: count, missing_count: missing,
+        cover_data_uri: crate::image_cache::read_library_cover(app,
+            &crate::image_cache::library_key(&p.name, &p.typename, &p.playlist_album_id)),
+        cover_url: cover, updated_at: p.update_time.clone(), cache_error: error,
+    }
+}
+
+fn library_patch(app: &tauri::AppHandle, repository: &LibraryRepository, updated: Option<&SourceIdentity>) -> Result<LibraryPatch, String> {
+    let settings = repository.load_settings()?;
+    let updated_playlists = settings.playlist_albums.iter()
+        .filter(|p| updated.is_some_and(|id| id.platform == p.name && id.kind == p.typename && id.id == p.playlist_album_id))
+        .map(|p| library_entry(app, repository, p)).collect();
+    Ok(LibraryPatch { settings, updated_playlists,
+        startup_refresh_error: app.state::<DesktopStatus>().startup_refresh_error.lock().unwrap().clone() })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     settings: MusicSetting,
     gui_settings: GuiSetting,
@@ -67,33 +100,7 @@ pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
     let playlists = settings
         .playlist_albums
         .iter()
-        .map(|p| {
-            let (count, cover, missing, error) = match repository.cache_summary_with_missing(p) {
-                Ok((c, u, m)) => (c, u, m, None),
-                Err(e) => (0, String::new(), 0, Some(e)),
-            };
-            LibraryEntry {
-                platform: p.name.clone(),
-                id: p.playlist_album_id.clone(),
-                kind: p.typename.clone(),
-                title: if p.playlist_album_name.is_empty() {
-                    p.playlist_album_id.clone()
-                } else {
-                    p.playlist_album_name.clone()
-                },
-                remark: p.playlist_album_remark.clone(),
-                enabled: p.enabled,
-                song_count: count,
-                missing_count: missing,
-                cover_data_uri: crate::image_cache::read_library_cover(
-                    &app,
-                    &crate::image_cache::library_key(&p.name, &p.typename, &p.playlist_album_id),
-                ),
-                cover_url: cover,
-                updated_at: p.update_time.clone(),
-                cache_error: error,
-            }
-        })
+        .map(|p| library_entry(&app, &repository, p))
         .collect();
     let (desktop_settings, desktop_settings_error) =
         crate::desktop_preferences::DesktopPreferences::snapshot(&app)?;
@@ -200,7 +207,7 @@ async fn refresh_source_job(
     request_id: Option<String>,
     require_existing: bool,
     local_source: Option<discoas_core::platforms::local::LocalSource>,
-) -> Result<(), String> {
+) -> Result<LibraryPatch, String> {
     use crate::services::{library_jobs::LibraryJobs, request_errors};
     use std::time::Duration;
     let repository = repository(app)?;
@@ -351,7 +358,7 @@ async fn refresh_source_job(
     }
     changed_with_invalidation(app, cache, invalidated).await;
     progress(app, &job, "done", count, Some(count));
-    Ok(())
+    library_patch(app, &repository, Some(&SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename)))
 }
 
 pub fn refresh_enabled_on_startup(app: tauri::AppHandle) {
@@ -373,7 +380,7 @@ pub fn refresh_enabled_on_startup(app: tauri::AppHandle) {
                 return Ok::<_, String>(());
             };
             let cache = app.state::<Arc<Cache>>().inner().clone();
-            refresh_source_job(&app, &cache, source, None, true, None).await
+            refresh_source_job(&app, &cache, source, None, true, None).await.map(|_| ())
         }
         .await;
         if let Err(error) = result {
@@ -398,7 +405,7 @@ pub async fn import_playlist(
     source: String,
     remark: String,
     request_id: Option<String>,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     let kind = TypeName::parse(&typename)
         .map_err(|e| crate::services::request_errors::short_error(&e.to_string()))?;
     let id = normalize_source(&platform, kind, &source)
@@ -423,8 +430,7 @@ pub async fn import_playlist(
         None,
     )
     .await
-    .map_err(|e| crate::services::request_errors::short_error(&e))?;
-    get_app_state(app)
+    .map_err(|e| crate::services::request_errors::short_error(&e))
 }
 
 pub async fn import_local_audio(
@@ -433,7 +439,7 @@ pub async fn import_local_audio(
     paths: Vec<std::path::PathBuf>,
     remark: String,
     request_id: Option<String>,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     if remark.chars().count() > 500 {
         return Err("错误：备注不能超过 500 字".into());
     }
@@ -455,8 +461,7 @@ pub async fn import_local_audio(
         false,
         Some(local),
     )
-    .await?;
-    get_app_state(app)
+    .await
 }
 
 pub fn cancel_library_operation(app: tauri::AppHandle, request_id: String) -> bool {
@@ -471,11 +476,12 @@ pub async fn edit_playlist_remark(
     id: String,
     kind: String,
     remark: String,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     let _guard = cache.operation.lock().await;
-    repository(&app)?.edit_remark(&platform, &id, &kind, &remark)?;
+    let repository = repository(&app)?;
+    repository.edit_remark(&platform, &id, &kind, &remark)?;
     publish_library_changed(&app, false);
-    get_app_state(app)
+    library_patch(&app, &repository, None)
 }
 
 pub async fn enable_playlist(
@@ -484,11 +490,12 @@ pub async fn enable_playlist(
     platform: String,
     id: String,
     kind: String,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     let _guard = cache.operation.lock().await;
-    repository(&app)?.enable_source(&platform, &id, &kind)?;
+    let repository = repository(&app)?;
+    repository.enable_source(&platform, &id, &kind)?;
     changed(&app, cache.inner()).await;
-    get_app_state(app)
+    library_patch(&app, &repository, None)
 }
 
 pub async fn remove_playlist(
@@ -497,7 +504,7 @@ pub async fn remove_playlist(
     platform: String,
     id: String,
     kind: String,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     remove_playlists(app, cache, vec![SourceIdentity::new(&platform, &id, &kind)]).await
 }
 
@@ -505,7 +512,7 @@ pub async fn remove_playlists(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     sources: Vec<SourceIdentity>,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     let _guard = cache.operation.lock().await;
     let repository = repository(&app)?;
     let enabled_before = enabled_source(&repository.load_settings()?);
@@ -522,7 +529,7 @@ pub async fn remove_playlists(
             .is_some_and(|enabled| sources.contains(enabled)),
     )
     .await;
-    get_app_state(app)
+    library_patch(&app, &repository, None)
 }
 
 pub async fn import_legacy(

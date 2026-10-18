@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { t } from "../i18n";
 import { Popover } from "./Popover";
+import { usePresence } from "./Motion";
 import { commitNumberInput, parseNumberInput, stepNumberInput } from "./numberInput";
 
 export function HelpHint({
@@ -16,6 +17,7 @@ export function HelpHint({
   const closing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const ignoreRestoredFocus = useRef(false);
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open, 140);
   const [pinned, setPinned] = useState(false);
   const cancelClose = useCallback(() => { clearTimeout(closing.current); }, []);
   const close = useCallback(() => {
@@ -67,7 +69,7 @@ export function HelpHint({
           <circle cx="12" cy="16" r=".9" fill="currentColor" />
         </svg>
       </button>
-      {open && trigger.current && <Popover anchor={trigger.current} onClose={close}
+      {presence.mounted && trigger.current && <Popover anchor={trigger.current} onClose={close} open={presence.visible} interactive={open}
         matchWidth={false} className="help-hint-popover" id={id} role="tooltip">
         <span className="help-hint-content" onPointerEnter={cancelClose} onPointerLeave={leave}>{children}</span>
       </Popover>}

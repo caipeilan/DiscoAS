@@ -6,7 +6,7 @@ import { call } from "../../services/desktop";
 import { t, errorText } from "../../i18n";
 
 /** Settings mutations remain separate from the settings form and window appearance. */
-export function useSettings(app: AppStateController, notice: Notice) {
+export function useSettings(app: AppStateController, notice: Notice, reportSaveError?: (message: string) => void) {
   const { state, draft, guiDraft, desktopDraft, busy, setBusy, applySnapshot, applyPatch, setDraft, setGuiDraft, setDesktopDraft } = app;
   const migrate = async () => {
     if (busy) return;
@@ -37,6 +37,7 @@ export function useSettings(app: AppStateController, notice: Notice) {
     preferences: DesktopPreferences,
   ) => {
     if (busy) return;
+    reportSaveError?.("");
     setBusy("settings");
     try {
       await call("set_shortcut_recording", { recording: false });
@@ -63,10 +64,18 @@ export function useSettings(app: AppStateController, notice: Notice) {
       }
       notice(t("设置已保存。"));
     } catch (e) {
-      notice(errorText(e), true);
+      if (reportSaveError) reportSaveError(errorText(e));
+      else notice(errorText(e), true);
     } finally {
       setBusy("");
     }
+  };
+  const discardSettings = () => {
+    if (busy) return;
+    setDraft(state.settings);
+    setGuiDraft(state.guiSettings);
+    setDesktopDraft(state.desktopSettings);
+    reportSaveError?.("");
   };
   const chooseMysteryCover = async () => {
     try {
@@ -82,5 +91,5 @@ export function useSettings(app: AppStateController, notice: Notice) {
   const openLogFolder = () => {
     call("open_log_folder").catch((e) => notice(errorText(e), true));
   };
-  return { migrate, saveSettings, chooseMysteryCover, openDataFolder, openLogFolder };
+  return { migrate, saveSettings, discardSettings, chooseMysteryCover, openDataFolder, openLogFolder };
 }

@@ -1,4 +1,5 @@
 @import "./styles/tokens.css";
+@import "./styles/motion.css";
 :root {
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
@@ -156,7 +157,7 @@ a {
 .nav-count {
   margin-left: auto;
   border-radius: 5px;
-  font-size: calc(10px * var(--font-scale, 1));
+  font-size: calc(11px * var(--font-scale, 1));
   min-width: 18px;
   text-align: center;
   padding: 1px 4px;
@@ -371,6 +372,21 @@ a {
   font-size: calc(11px * var(--font-scale, 1));
   padding: 8px 12px;
 }
+.discover-launch { display: grid; place-items: center; flex-shrink: 0; width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; color: var(--on-accent); background: var(--accent); box-shadow: var(--shadow-small); }
+.discover-launch:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.04); }
+.discover-launch > svg { display: block; width: 24px; height: 24px; }
+.platform-logo { display: inline-block; flex-shrink: 0; background: currentColor; mask: var(--platform-logo) center / contain no-repeat; }
+.import-platform-field { padding: 0; margin: 16px 0; border: 0; min-width: 0; }
+.import-platform-field legend { padding: 0; margin-bottom: 8px; }
+.import-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.import-platforms button { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); }
+.import-platforms button:hover:not(:disabled) { background: var(--surface-subtle); border-color: var(--control-border); }
+.import-platforms button.selected { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-soft); }
+.import-platforms button > span:not(.platform-logo) { flex: 1; min-width: 0; text-align: left; }
+.import-recognition { display: flex; align-items: center; gap: 6px; min-height: 20px; margin: -2px 0 4px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
+.import-recognition > svg { color: var(--accent-text); }
+.import-kinds { margin-bottom: 16px; }
+.import-link-field input { font-size: calc(13px * var(--font-scale, 1)); padding: 10px 12px; }
 .library-toolbar {
   display: flex;
   align-items: center;
@@ -592,7 +608,7 @@ a {
   font-weight: 500;
 }
 .setting-row p {
-  font-size: calc(10px * var(--font-scale, 1));
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-secondary);
   margin-top: 4px;
   overflow-wrap: anywhere;
@@ -673,16 +689,6 @@ a {
   height: 36px;
   font-size: calc(11px * var(--font-scale, 1));
 }
-.settings-note {
-  display: flex;
-  gap: 9px;
-  color: var(--text-secondary);
-  background: var(--surface-subtle);
-  border-radius: 0 0 11px 11px;
-  padding: 14px 20px;
-  font-size: calc(10px * var(--font-scale, 1));
-  align-items: center;
-}
 .unsaved-note {
   color: var(--text-secondary);
   font-size: calc(10px * var(--font-scale, 1));
@@ -723,40 +729,8 @@ a {
   justify-content: space-between;
   gap: 20px;
 }
-.discovery-heading h1 {
-  font-size: calc(27px * var(--font-scale, 1));
-  letter-spacing: -0.8px;
-}
-.discovery-heading p {
-  color: var(--text-secondary);
-  font-size: calc(11px * var(--font-scale, 1));
-  margin-top: 9px;
-  overflow-wrap: anywhere;
-}
-.discovery-heading .eyebrow {
-  font-size: calc(10px * var(--font-scale, 1));
-  color: var(--text-secondary);
-}
-.discovery-heading > .button {
-  margin-top: 20px;
-  font-size: calc(10px * var(--font-scale, 1));
-}
 .discovery-heading > .icon-button {
   margin: -7px -7px 0 0;
-}
-.discovery-meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: -8px;
-}
-.small-chip {
-  font-size: calc(10px * var(--font-scale, 1));
-  padding: 4px 9px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-subtle);
-  color: var(--text-secondary);
 }
 .song-grid {
   display: grid;
@@ -791,13 +765,6 @@ a {
   background: var(--surface-subtle);
   color: var(--text-secondary);
 }
-.song-kind {
-  font-size: calc(8px * var(--font-scale, 1));
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
 .song-card strong {
   font-size: calc(12px * var(--font-scale, 1));
   font-weight: 600;
@@ -824,28 +791,6 @@ a {
   background: var(--surface-subtle) !important;
   color: var(--text-secondary) !important;
 }
-.detail-warning {
-  font-size: calc(8px * var(--font-scale, 1));
-  color: var(--text-secondary);
-  margin-top: 4px;
-}
-.discovery-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-.discovery-footer > span {
-  color: var(--text-secondary);
-  font-size: calc(10px * var(--font-scale, 1));
-}
-.discovery-footer > .button {
-  font-size: calc(11px * var(--font-scale, 1));
-  padding: 6px 11px;
-}
 .discovery-empty {
   flex: 1;
   min-height: 245px;
@@ -868,32 +813,6 @@ a {
   font-size: calc(11px * var(--font-scale, 1));
   line-height: 1.8;
   overflow-wrap: anywhere;
-}
-.song-skeleton {
-  padding: 11px;
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  align-self: center;
-  display: grid;
-  gap: 13px;
-}
-.song-skeleton > div {
-  aspect-ratio: 1;
-  background: var(--surface-subtle);
-  border-radius: 7px;
-  animation: pulse 1.5s infinite;
-}
-.song-skeleton > span {
-  height: 9px;
-  border-radius: 5px;
-  background: var(--surface-subtle);
-  width: 70%;
-}
-.song-skeleton > span:last-child {
-  width: 45%;
-  height: 7px;
-  margin-bottom: 9px;
 }
 .modal-backdrop {
   position: fixed;
@@ -1058,6 +977,8 @@ a {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+.toast-action { flex-shrink: 0; border: 0; border-radius: 5px; padding: 6px 8px; color: var(--accent-text); background: var(--surface); font-size: inherit; }
+.toast-action:hover { background: var(--surface-hover); }
 .toast > .icon-button {
   flex-shrink: 0;
   margin-left: 5px;
@@ -1122,9 +1043,6 @@ a {
   }
   .page-header p {
     font-size: calc(11px * var(--font-scale, 1));
-  }
-  .discovery-heading h1 {
-    font-size: calc(25px * var(--font-scale, 1));
   }
 }
 @media (max-width: 680px) {
@@ -1217,17 +1135,8 @@ a {
   .floating-content .discovery-body {
     padding: 22px;
   }
-  .discovery-heading h1 {
-    font-size: calc(24px * var(--font-scale, 1));
-  }
-  .discovery-meta {
-    gap: 8px;
-  }
   .song-grid {
     grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
-  }
-  .discovery-footer > span {
-    max-width: 210px;
   }
   .migration-banner {
     flex-wrap: wrap;
@@ -1267,38 +1176,37 @@ html.floating-window #root {
   top: 0;
   right: 0;
   z-index: 10;
-  min-height: 50px;
+  min-height: calc(50px * var(--cancel-scale, 1));
   justify-content: flex-end;
   margin-bottom: 0;
 }
-.floating-content .discovery-heading > div,
-.floating-content .discovery-meta,
-.floating-content .discovery-footer {
-  display: none;
-}
 .floating-content .discovery-heading > .icon-button {
   margin: 0;
-  width: 50px;
-  height: 50px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
+  width: calc(50px * var(--cancel-scale, 1));
+  height: calc(50px * var(--cancel-scale, 1));
+  border: 1px solid transparent;
   border-radius: 50%;
-  color: var(--text-secondary);
+  color: var(--cancel-font-color, #D70015);
+  background: var(--cancel-background, #FFFFFF);
+  box-shadow: var(--shadow-floating);
+}
+.floating-content .discovery-heading > .icon-button svg {
+  width: calc(22px * var(--cancel-scale, 1));
+  height: calc(22px * var(--cancel-scale, 1));
 }
 .floating-content .discovery-heading > .icon-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: var(--border);
-  color: var(--text-secondary);
+  background: var(--cancel-background-hover, #FFF1F0);
+  color: var(--cancel-font-color, #D70015);
+  border-color: var(--cancel-border, #FFD1CC);
 }
 .floating-content .song-grid {
-  grid-template-columns: repeat(var(--overlay-columns, 5), 200px);
-  gap: 45px;
+  gap: calc(45px * var(--card-scale, 1));
   justify-content: safe center;
   align-content: safe center;
   min-height: 0;
   overflow: auto;
   overflow-x: hidden;
-  padding: 22px 0;
+  padding: calc(22px * var(--card-scale, 1)) 0;
   margin: 0;
 }
 .floating-content .song-card {
@@ -1334,10 +1242,6 @@ html.floating-window #root {
   width: 100%;
   font-size: calc(11px * var(--font-scale, 1));
 }
-.floating-content .song-kind,
-.floating-content .detail-warning {
-  display: none;
-}
 .floating-content .mystery-card {
   background: var(--surface-subtle);
 }
@@ -1372,10 +1276,6 @@ html.floating-window #root {
   .floating-shell {
     padding: 35px;
   }
-  .floating-content .song-grid {
-    grid-template-columns: repeat(var(--overlay-columns, 5), minmax(0, 200px));
-    gap: 25px;
-  }
   .floating-content .song-card {
     width: 100%;
     max-width: 200px;
@@ -1391,15 +1291,11 @@ html.floating-window #root {
     padding: 10px 10px 20px;
   }
 }
-.floating-content .discovery-heading > div {
-  pointer-events: none;
-}
 .page-header p,
 .empty-state p,
 .setting-row p,
 .form-hint,
-.library-footnote,
-.discovery-footer > span {
+.library-footnote {
   color: var(--text-secondary);
 }
 .eyebrow,
@@ -1413,11 +1309,7 @@ html.floating-window #root {
 .setting-row p,
 .library-footnote,
 .form-hint {
-  font-size: calc(11px * var(--font-scale, 1));
-}
-.settings-note {
-  font-size: calc(11px * var(--font-scale, 1));
-  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
 }
 .app-shell {
   zoom: var(--setting-scale, 1);
@@ -1442,9 +1334,6 @@ html.floating-window #root {
   margin: 0;
   width: 180px;
 }
-.font-input {
-  width: 200px;
-}
 .scale-field {
   display: flex;
   align-items: center;
@@ -1465,14 +1354,6 @@ html.floating-window #root {
   flex-wrap: wrap;
   padding: 12px 18px;
 }
-.floating-content .song-grid {
-  grid-template-columns: repeat(
-    var(--overlay-columns, 5),
-    calc(200px * var(--card-scale, 1))
-  );
-  gap: calc(45px * var(--card-scale, 1));
-  padding: calc(22px * var(--card-scale, 1)) 0;
-}
 .floating-content .song-card {
   width: calc(200px * var(--card-scale, 1));
   height: calc(280px * var(--card-scale, 1));
@@ -1481,9 +1362,9 @@ html.floating-window #root {
   padding: calc(10px * var(--card-scale, 1));
   gap: calc(8px * var(--card-scale, 1));
   border-radius: calc(15px * var(--card-scale, 1));
-  color: var(--card-font-color, #292b36);
-  background: var(--card-background, #fff);
-  border-color: var(--card-border, #e5deed);
+  color: var(--card-font-color, #24262A);
+  background: var(--card-background, #FFFFFF);
+  border-color: var(--card-border, #0A84FF);
   transition:
     transform 200ms cubic-bezier(0.32, 0, 0.67, 0),
     background 180ms,
@@ -1503,26 +1384,6 @@ html.floating-window #root {
   font-size: calc(11px * var(--font-scale, 1) * var(--card-scale, 1));
   color: inherit;
   opacity: 0.72;
-}
-.floating-content .discovery-heading {
-  min-height: calc(50px * var(--cancel-scale, 1));
-}
-.floating-content .discovery-heading > .icon-button {
-  width: calc(50px * var(--cancel-scale, 1));
-  height: calc(50px * var(--cancel-scale, 1));
-  color: var(--cancel-font-color, #000);
-  background: var(--cancel-background, #fecbc1);
-  box-shadow: var(--shadow-floating);
-  border-color: transparent;
-}
-.floating-content .discovery-heading > .icon-button svg {
-  width: calc(22px * var(--cancel-scale, 1));
-  height: calc(22px * var(--cancel-scale, 1));
-}
-.floating-content .discovery-heading > .icon-button:hover:not(:disabled) {
-  background: var(--cancel-background-hover, #fd8b76);
-  color: var(--cancel-font-color, #000);
-  border-color: var(--cancel-border, #fc6044);
 }
 .overlay-closed {
   opacity: 0;
@@ -1546,7 +1407,7 @@ html.floating-window #root {
     transform 220ms cubic-bezier(0.32, 0, 0.67, 0),
     opacity 220ms cubic-bezier(0.32, 0, 0.67, 0);
 }
-.main-content > .page-header {
+.main-content > .page-header, .page-body > .page-header {
   animation: page-enter 180ms ease-out;
 }
 @keyframes page-enter {
@@ -1582,42 +1443,6 @@ html.floating-window #root {
 .shortcut-recorder .button {
   white-space: normal;
 }
-.help-section {
-  max-width: 880px;
-  line-height: 1.8;
-}
-.help-section h2:not(:first-child) {
-  margin-top: 26px;
-}
-.help-section p {
-  margin: 10px 0 18px;
-  color: var(--text-secondary);
-}
-.help-section details {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.help-section summary {
-  cursor: pointer;
-  font-weight: 500;
-}
-.help-section .button {
-  margin-top: 20px;
-}
-.help-section {
-  padding: 22px;
-  background: transparent;
-  border: 0;
-}
-.help-section h2 {
-  padding: 0;
-  border-bottom: 0;
-  margin: 0 0 12px;
-  font-size: calc(15px * var(--font-scale, 1));
-  background: transparent;
-  color: var(--text);
-  border-radius: 0;
-}
 
 .library-toolbar { flex-wrap: wrap; }
 .library-selection {
@@ -1642,7 +1467,7 @@ html.floating-window #root {
 .import-progress > span { flex: 1; }
 .import-progress small { font: inherit; }
 .setting-control select { max-width: 250px; }
-.extension-settings { font-size: calc(11px * var(--font-scale, 1)); line-height: 1.8; color: var(--text-secondary); padding: 12px 18px 16px; }
+.extension-settings { font-size: calc(12px * var(--font-scale, 1)); line-height: 1.75; color: var(--text-secondary); padding: 14px 18px 18px; }
 .extension-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
 .extension-path { overflow-wrap: anywhere; user-select: text; }
 @media (max-width: 680px) {
@@ -1662,7 +1487,7 @@ html.floating-window #root {
 .page-header {
   margin-bottom: 22px;
   gap: 16px; }
-.main-content > .page-header {
+.main-content > .page-header, .page-body > .page-header {
   flex-wrap: wrap;
   min-height: 68px;
   animation: none;
@@ -1671,7 +1496,7 @@ html.floating-window #root {
   padding: 12px var(--content-padding-x);
   margin: calc(-1 * var(--content-padding-top)) calc(-1 * var(--content-padding-x)) 20px;
 }
-.main-content > :is(.settings-topbar, .history-topbar) {
+.main-content > :is(.settings-topbar, .history-topbar), .page-body > :is(.settings-topbar, .history-topbar) {
   position: sticky;
   top: calc(-1 * var(--content-padding-top));
   z-index: 5;
@@ -1722,8 +1547,9 @@ html.floating-window #root {
 .select-empty { padding: 12px 8px; font: inherit; color: var(--text-secondary); }
 .help-hint { display: inline-flex; vertical-align: middle; flex-shrink: 0; }
 .help-hint-button {
-  border: 0; border-radius: 50%; padding: 0;
-  width: calc(14px * var(--font-scale, 1)); height: calc(14px * var(--font-scale, 1));
+  border: 0; border-radius: 50%; padding: calc(7px * var(--font-scale, 1));
+  width: calc(28px * var(--font-scale, 1)); height: calc(28px * var(--font-scale, 1));
+  margin: calc(-7px * var(--font-scale, 1));
   line-height: 1; background: transparent;
   font-size: calc(10px * var(--font-scale, 1)); font-weight: 400;
   display: inline-flex; align-items: center; justify-content: center; color: var(--text-tertiary);
@@ -1766,7 +1592,7 @@ html.floating-window #root {
   background: var(--surface-subtle); }
 .installation-guide-content {
   padding: 2px 14px 12px;
-  font-size: calc(11px * var(--font-scale, 1));
+  font-size: calc(12px * var(--font-scale, 1));
   line-height: 1.8;
 }
 .installation-guide-content ol { padding-left: 20px; margin: 10px 0; }

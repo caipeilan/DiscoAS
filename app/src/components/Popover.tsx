@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { placePopover } from "./popoverPlacement";
 
 /** Body portal avoids clipped controls at large interface scales and scroll edges. */
-export function Popover({ anchor, children, onClose, matchWidth = true, className = "", id, role }: {
+export function Popover({ anchor, children, onClose, matchWidth = true, className = "", id, role, open = true, interactive = true }: {
   anchor: HTMLElement;
   children: React.ReactNode;
   onClose: () => void;
@@ -11,10 +11,14 @@ export function Popover({ anchor, children, onClose, matchWidth = true, classNam
   className?: string;
   id?: string;
   role?: React.AriaRole;
+  open?: boolean;
+  interactive?: boolean;
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   useLayoutEffect(() => {
+    if (!interactive) return;
+    let frame = 0;
     const position = () => {
       const rect = anchor.getBoundingClientRect();
       if (!anchor.isConnected || rect.bottom < 0 || rect.top > window.innerHeight || anchor.matches(":disabled")) { onClose(); return; }
@@ -26,8 +30,10 @@ export function Popover({ anchor, children, onClose, matchWidth = true, classNam
         if (Number.isFinite(value) && value > 0) scale *= value;
       }
       const colors = Object.fromEntries(["--accent", "--accent-hover", "--accent-text", "--accent-soft", "--accent-selected", "--accent-border", "--accent-focus", "--accent-muted", "--accent-surface", "--accent-selected-surface", "--accent-shadow"].map((key) => [key, computed.getPropertyValue(key)]));
-      setStyle({ ...colors, ...placePopover(rect, { width: window.innerWidth, height: window.innerHeight }, matchWidth ? Math.max(rect.width, 130 * scale) : 270 * scale, scale), fontSize: `${parseFloat(computed.fontSize) * scale}px`, fontFamily: computed.fontFamily });
+      const placed = placePopover(rect, { width: window.innerWidth, height: window.innerHeight }, matchWidth ? Math.max(rect.width, 130 * scale) : 270 * scale, scale);
+      setStyle({ ...colors, ...placed, "--popover-offset": "bottom" in placed ? "4px" : "-4px", fontSize: `${parseFloat(computed.fontSize) * scale}px`, fontFamily: computed.fontFamily } as React.CSSProperties & { "--popover-offset": string });
     };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); };
     const outside = (event: Event) => {
       const target = event.target as Node | null;
       if (target && !anchor.contains(target) && !panel.current?.contains(target)) onClose();
@@ -36,26 +42,27 @@ export function Popover({ anchor, children, onClose, matchWidth = true, classNam
       if (event.key !== "Escape" || event.isComposing) return;
       event.preventDefault(); event.stopPropagation(); onClose(); anchor.focus();
     };
-    const scroll = (event: Event) => { if (!panel.current?.contains(event.target as Node)) position(); };
+    const scroll = (event: Event) => { if (!panel.current?.contains(event.target as Node)) schedule(); };
     position();
-    const observer = new ResizeObserver(position);
+    const observer = new ResizeObserver(schedule);
     observer.observe(anchor);
     const fieldset = anchor.closest("fieldset");
-    const changes = new MutationObserver(position);
+    const changes = new MutationObserver(schedule);
     if (fieldset) changes.observe(fieldset, { attributes: true, attributeFilter: ["disabled"] });
-    window.addEventListener("resize", position);
+    window.addEventListener("resize", schedule);
     window.addEventListener("scroll", scroll, true);
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("focusin", outside, true);
     window.addEventListener("keydown", escape, true);
     return () => {
       observer.disconnect(); changes.disconnect();
-      window.removeEventListener("resize", position);
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", scroll, true);
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("focusin", outside, true);
       window.removeEventListener("keydown", escape, true);
     };
-  }, [anchor, matchWidth, onClose]);
-  return createPortal(<div ref={panel} className={`control-popover ${className}`} style={style} id={id} role={role}>{children}</div>, document.body);
+  }, [anchor, matchWidth, onClose, interactive]);
+  return createPortal(<div ref={panel} className={`control-popover ${className}`} data-dialog-owner={anchor.closest('[role="dialog"]')?.getAttribute('aria-labelledby') ?? undefined} data-open={open} inert={!interactive} aria-hidden={!interactive || undefined} style={style} id={id} role={role}>{children}</div>, document.body);
 }

@@ -6,6 +6,7 @@ import { call, desktop, onDesktopEvent } from "../../services/desktop";
 import { defaultGuiSettings } from "../../types";
 import { nextMenuIndex, trayActions, type TrayAction, type TrayMenuSnapshot } from "./trayMenuModel";
 import "./trayMenu.css";
+import { useAppearance } from "../settings/useAppearance";
 
 const fallback: TrayMenuSnapshot = {
   generation: 0,
@@ -23,6 +24,7 @@ function TrayGlyph({ action }: { action: TrayAction }) {
 
 export function TrayMenu() {
   const [snapshot, setSnapshot] = useState(fallback);
+  useAppearance(snapshot.gui);
   const [busy, setBusy] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const items = useRef<Array<HTMLButtonElement | null>>([]);

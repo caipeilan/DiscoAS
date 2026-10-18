@@ -128,6 +128,11 @@ export interface AppState {
   shortcutError: string | null;
   startupRefreshError: string | null;
 }
+export interface LibraryPatch {
+  settings: Preferences;
+  updatedPlaylists: LibraryEntry[];
+  startupRefreshError: string | null;
+}
 export interface DesktopPreferences {
   launch_at_login: boolean;
   start_hidden: boolean;
@@ -190,6 +195,7 @@ export interface SystemFont {
 }
 export interface GuiSettings {
   night_mode: boolean;
+  follow_system_theme: boolean;
   card_size: number;
   cancel_button_size: number;
   replacement_button_size: number;
@@ -208,6 +214,7 @@ export interface GuiSettings {
 }
 export const defaultGuiSettings: GuiSettings = {
   night_mode: false,
+  follow_system_theme: true,
   card_size: 1,
   cancel_button_size: 1,
   replacement_button_size: 1,
@@ -219,39 +226,39 @@ export const defaultGuiSettings: GuiSettings = {
   user_configured: false,
   card: {
     background: "#FFFFFF",
-    background_hover: "#e3f3f6",
-    border: "#76d2fd",
-    font_color: "#000000",
+    background_hover: "#F8F9FA",
+    border: "#0A84FF",
+    font_color: "#24262A",
   },
   cancel_button: {
-    background: "#fecbc1",
-    background_hover: "#fd8b76",
-    border: "#fc6044",
-    font_color: "#000000",
+    background: "#FFFFFF",
+    background_hover: "#FFF1F0",
+    border: "#FFD1CC",
+    font_color: "#D70015",
   },
   setting: {
     background: "#FFFFFF",
-    background_hover: "#d0ebf0",
-    border: "#76e8fd",
+    background_hover: "#F2F7FF",
+    border: "#B3D4FF",
     font_color: "#000000",
   },
   card_night_mode: {
-    background: "#565656",
-    background_hover: "#3d75bf",
-    border: "#76d2fd",
-    font_color: "#ffffff",
+    background: "#292B2F",
+    background_hover: "#303237",
+    border: "#5ACFF0",
+    font_color: "#F0F1F3",
   },
   cancel_button_night_mode: {
-    background: "#400601",
-    background_hover: "#bd0316",
-    border: "#fc6044",
-    font_color: "#ffffff",
+    background: "#292B2F",
+    background_hover: "#3A1512",
+    border: "#6E2A24",
+    font_color: "#FF453A",
   },
   setting_night_mode: {
-    background: "#565656",
-    background_hover: "#3dabbf",
-    border: "#76c6fd",
-    font_color: "#ffffff",
+    background: "#292B2F",
+    background_hover: "#102A43",
+    border: "#1D4E89",
+    font_color: "#FFFFFF",
   },
 };
 export interface Song {

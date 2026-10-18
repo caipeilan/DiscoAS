@@ -12,7 +12,7 @@ export function RemarkDialog({ entry, busy, close, save }: {
   const [remark, setRemark] = useState(entry.remark);
   const [error, setError] = useState("");
   return <div className="modal-backdrop" onClick={() => !busy && close()}>
-    <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="remark-title" onClick={(event) => event.stopPropagation()}
+    <form className="dialog" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="remark-title" onClick={(event) => event.stopPropagation()}
       onSubmit={async (event) => {
         event.preventDefault();
         setError("");

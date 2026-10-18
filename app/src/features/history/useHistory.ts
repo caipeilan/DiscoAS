@@ -3,6 +3,7 @@ import type { HistoryEntry } from "../../types";
 import { platforms } from "../../types";
 import { call, getHistoryCovers, mutateDiscoveryHistory, onDesktopEvent } from "../../services/desktop";
 import { currentLocale, errorText, t } from "../../i18n";
+import { prepareHistoryCovers } from "../../prepareCovers";
 import { cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata,
   retainedHistorySelection, type HistoryFilter } from "./historyModel";
 
@@ -29,6 +30,7 @@ export function useHistory() {
   const mounted = useRef(true);
   const busy = useRef(false);
   const refreshPending = useRef(false);
+  const reading = useRef(0);
   const repairAttempted = useRef(false);
   const request = useRef(0);
   const changeSource = useRef(crypto.randomUUID());
@@ -54,12 +56,15 @@ export function useHistory() {
     if (!mounted.current) return;
     // An event from this page's own edit may arrive before its command response.
     // Read the latest snapshot only once that edit has finished committing.
-    if (busy.current) { refreshPending.current = true; return; }
+    if (busy.current || reading.current) { refreshPending.current = true; return; }
     const stamp = ++revision.current;
+    reading.current = stamp;
     request.current++;
     try {
       const records = await call<HistoryEntry[]>("get_discovery_history");
+      if (reading.current === stamp) reading.current = 0;
       if (!mounted.current || stamp !== revision.current) return;
+      if (refreshPending.current) { refreshPending.current = false; void refresh(); return; }
       applyRecords(records);
       setLoading(false);
       if (repairAttempted.current || !records.some(needsHistoryMetadata)) return;
@@ -76,6 +81,8 @@ export function useHistory() {
       if (mounted.current && stamp === revision.current) setError(errorText(failure));
     } finally {
       if (mounted.current && stamp === revision.current) setLoading(false);
+      if (reading.current === stamp) reading.current = 0;
+      if (mounted.current && !busy.current && !reading.current && refreshPending.current) { refreshPending.current = false; void refresh(); }
     }
   }, [applyRecords]);
 
@@ -114,7 +121,7 @@ export function useHistory() {
     const stamp = revision.current;
     const current = ++request.current;
     let active = true;
-    getHistoryCovers(uncached.map(historyIdentity)).then((results) => {
+    getHistoryCovers(uncached.map(historyIdentity)).then(prepareHistoryCovers).then((results) => {
       if (!active || !mounted.current || stamp !== revision.current || current !== request.current) return;
       const resolved = new Map(results.map((result) => [historyKey(result), result.coverDataUri]));
       setCovers((previous) => {

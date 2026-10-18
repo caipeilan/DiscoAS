@@ -164,13 +164,13 @@ async function historyController() {
       return result.promise.then((records) => { currentRecords = records; return records; });
     },
   };
-  const imports = { react: "react", "../../types": null, "../../services/desktop": "bridge", "../../i18n": null, "./historyModel": null };
+  const imports = { react: "react", "../../types": null, "../../services/desktop": "bridge", "../../i18n": null, "./historyModel": null, "../../prepareCovers": null };
   const source = hookSource.replace(/import\s+\{([^}]+)\}\s+from\s+"([^"]+)";/g, (_, names, module) => {
     assert.ok(Object.hasOwn(imports, module), `Unexpected dependency ${module}`);
     return `const {${names}} = globalThis.__historyTest${imports[module] ? `.${imports[module]}` : ""};`;
   });
   globalThis.__historyTest = { react, bridge, platforms: [{ id: "NeteaseCloudMusic", label: "网易云音乐" }],
-    currentLocale: () => "zh-CN", t: (message) => message, errorText: String,
+    currentLocale: () => "zh-CN", t: (message) => message, errorText: String, prepareHistoryCovers: async results => results,
     cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata, retainedHistorySelection };
   const { useHistory } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   return {

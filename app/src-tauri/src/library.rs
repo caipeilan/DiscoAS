@@ -1,5 +1,5 @@
 //! Stable Tauri command surface. Business rules live in services; native effects in desktop.
-pub use crate::desktop::library::{refresh_enabled_on_startup, DesktopStatus, Snapshot};
+pub use crate::desktop::library::{refresh_enabled_on_startup, DesktopStatus, Snapshot, LibraryPatch};
 pub use crate::desktop::shortcuts::ShortcutRecording;
 use crate::{
     core::cache::Cache,
@@ -30,7 +30,7 @@ pub async fn import_playlist(
     source: String,
     remark: String,
     request_id: Option<String>,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     crate::desktop::library::import_playlist(
         app, cache, platform, typename, source, remark, request_id,
     )
@@ -49,7 +49,7 @@ pub async fn import_local_audio(
     paths: Vec<std::path::PathBuf>,
     remark: String,
     request_id: Option<String>,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     crate::desktop::library::import_local_audio(app, cache, paths, remark, request_id).await
 }
 
@@ -61,7 +61,7 @@ pub async fn edit_playlist_remark(
     id: String,
     kind: String,
     remark: String,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     crate::desktop::library::edit_playlist_remark(app, cache, platform, id, kind, remark).await
 }
 
@@ -72,7 +72,7 @@ pub async fn enable_playlist(
     platform: String,
     id: String,
     kind: String,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     crate::desktop::library::enable_playlist(app, cache, platform, id, kind).await
 }
 
@@ -83,7 +83,7 @@ pub async fn remove_playlist(
     platform: String,
     id: String,
     kind: String,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     crate::desktop::library::remove_playlist(app, cache, platform, id, kind).await
 }
 
@@ -92,7 +92,7 @@ pub async fn remove_playlists(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     sources: Vec<crate::services::library::SourceIdentity>,
-) -> Result<Snapshot, String> {
+) -> Result<LibraryPatch, String> {
     crate::desktop::library::remove_playlists(app, cache, sources).await
 }
 
