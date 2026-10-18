@@ -1,6 +1,6 @@
 # DiscoAS - 发现一首歌！
 
-<img src="assets/演示.gif" width="70%">
+<img src="assets/演示.webp" width="70%">
 
 <img src="assets/DiscoAS.png" width="30%" alt="DiscoAS">
 
