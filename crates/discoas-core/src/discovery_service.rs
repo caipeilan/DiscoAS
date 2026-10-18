@@ -864,6 +864,17 @@ impl DiscoveryService {
         Ok(true)
     }
 
+    /// A host that presented the current batch natively acknowledges the same
+    /// cards without a webview round trip. A stale current batch or a repeated
+    /// presentation is ignored, so this can run on every window show.
+    pub async fn record_presented_batch(&self) -> Result<bool, String> {
+        let batch = self.cache.current_batch.lock().await.clone().unwrap_or_default();
+        if batch.is_empty() || self.cache.batch_was_displayed(&batch).await {
+            return Ok(false);
+        }
+        self.record_discovery_displayed(&play_args(&batch)).await
+    }
+
     async fn record_visible_cards(
         &self,
         batch: &[SongCardDto],
@@ -1230,6 +1241,20 @@ fn history_cards(batch: &[SongCardDto]) -> Vec<SongCardDto> {
             real_cover_url: song.real_cover_url.clone(),
             album_pic_url: song.album_pic_url.clone(),
             ..Default::default()
+        })
+        .collect()
+}
+
+/// Playback identities of a presented batch for the display acknowledgment.
+fn play_args(batch: &[SongCardDto]) -> Vec<PlaySongArgs> {
+    batch
+        .iter()
+        .map(|song| PlaySongArgs {
+            platform: song.platform.clone(),
+            song_id: song.song_id.clone(),
+            playlist_id: song.playlist_id.clone(),
+            typename: song.typename.clone(),
+            filename: song.filename.clone(),
         })
         .collect()
 }
@@ -2097,6 +2122,30 @@ mod tests {
         assert_eq!(next.songs.len(), 1);
         assert_ne!(next.songs[0].song_id, ids[0].song_id);
         assert_eq!(service.history.load().unwrap().selected.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn presented_batch_is_recorded_once_and_never_returns_in_the_next_draw() {
+        let fixture = Fixture::new();
+        fixture.settings(false);
+        fixture.source_many(8);
+        fixture.exclusion(HistoryExclusion::Discovered, 200);
+        let cache = Cache::new();
+        let service = fixture.service(cache.clone());
+        let batch = service.discover(false).await.unwrap();
+        assert_eq!(batch.songs.len(), 2);
+        assert!(service.record_presented_batch().await.unwrap());
+        assert_eq!(service.history().unwrap().len(), 2);
+        // Re-presenting the same cards is not a second discovery.
+        assert!(!service.record_presented_batch().await.unwrap());
+        assert_eq!(service.history().unwrap().len(), 2);
+        // Cards shown for the first time never return in the next draw.
+        let shown: HashSet<_> = batch.songs.iter().map(|song| song.song_id.clone()).collect();
+        let next = service.discover(true).await.unwrap();
+        assert!(next.songs.iter().all(|song| !shown.contains(&song.song_id)));
+        // A closed surface has no posted cards to acknowledge.
+        cache.release_current_batch().await;
+        assert!(!service.record_presented_batch().await.unwrap());
     }
 
     #[tokio::test]

@@ -204,6 +204,25 @@ pub async fn hand_discovery_displayed(
     }
     Ok(())
 }
+/// A host that presented the cards natively acknowledges the current batch
+/// directly. The webview callback can be skipped while the surface folds or a
+/// card is replaced; shown cards must still enter the exclusion history.
+pub(super) async fn record_presented(app: &tauri::AppHandle, batch_epoch: u64) -> Result<(), String> {
+    if !MusicSetting::load(app).map_err(|error| error.to_string())?.hand_discovery.enabled {
+        return Ok(());
+    }
+    let cache = cache(app);
+    let _guard = cache.operation.lock().await;
+    if cache.current_batch_epoch() != batch_epoch {
+        return Ok(());
+    }
+    if !service(app)?.record_presented_batch().await? {
+        return Ok(());
+    }
+    let _ = app.emit("discovery-history-changed", ());
+    crate::commands::publish_discovery_state(app, app.state::<Arc<Cache>>().inner()).await;
+    Ok(())
+}
 #[tauri::command]
 pub async fn replace_hand_discovery_card(
     app: tauri::AppHandle,

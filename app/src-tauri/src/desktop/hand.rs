@@ -749,6 +749,14 @@ pub async fn present_hand(
         .unwrap()
         .as_ref()
         .is_some_and(|s| !s.cards.is_empty());
+    let displayed_epoch = state
+        .session
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|snapshot| snapshot.generation == generation)
+        .and_then(|snapshot| snapshot.discovery.as_ref())
+        .map(|discovery| discovery.batch_epoch);
     let show =
         is_preview || show_cards.unwrap_or(has_cards && state.expanded.load(Ordering::Acquire));
     let was_visible = state.card_visible.swap(show, Ordering::AcqRel);
@@ -775,6 +783,18 @@ pub async fn present_hand(
         receiver.await.map_err(|_| "错误：手牌窗口不可用")??;
     }
     drop(_serial);
+    // The webview acknowledgment can be skipped by transient layout state, so
+    // record the batch that was actually presented from the native side too.
+    if !is_preview && show {
+        if let Some(batch_epoch) = displayed_epoch {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = super::hand_discovery::record_presented(&app, batch_epoch).await {
+                    let _ = app.emit("hand-error", error);
+                }
+            });
+        }
+    }
     if state.expanded.load(Ordering::Acquire) || is_preview {
         activate_keyboard(&app).await?;
         observe_pointer(app.clone(), generation);
