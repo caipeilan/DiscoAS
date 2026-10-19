@@ -51,31 +51,27 @@ pub fn play_position(app: &tauri::AppHandle, index: usize) {
             let (id, discovery) = {
                 let _operation = cache.operation.lock().await;
                 let settings = MusicSetting::load(&app).map_err(|e| e.to_string())?;
-                if !settings.hand.enabled
-                    && !(settings.hand_discovery.enabled && settings.hand_discovery.merged)
-                {
-                    return Ok::<_, String>(());
-                }
-                let discovery = if settings.hand_discovery.enabled && settings.hand_discovery.merged
-                {
-                    Some(super::hand_discovery::service(&app)?.get_state().await?)
-                } else {
-                    None
-                };
-                let discovery_count = discovery.as_ref().map_or(0, |s| s.songs.len());
-                if index < discovery_count {
-                    let state = discovery.unwrap();
-                    let card = super::hand_discovery::project(&state, &[])[index].clone();
-                    (None, Some((card, state.batch_epoch)))
-                } else {
+                // A positional key always targets the ordinary hand when that
+                // mode is on, regardless of Mini Discovery being visible or
+                // merged. Mini Discovery is the fallback only when the hand is
+                // disabled.
+                if settings.hand.enabled {
                     (
                         store(&app)?
                             .load()?
                             .cards
-                            .get(index - discovery_count)
+                            .get(index)
                             .map(|card| card.id.clone()),
                         None,
                     )
+                } else if settings.hand_discovery.enabled {
+                    let state = super::hand_discovery::service(&app)?.get_state().await?;
+                    let card = super::hand_discovery::project(&state, &[])
+                        .get(index)
+                        .cloned();
+                    (None, card.map(|card| (card, state.batch_epoch)))
+                } else {
+                    return Ok::<_, String>(());
                 }
             };
             if let Some((card, epoch)) = discovery {

@@ -11,6 +11,7 @@ import { WeightingSettings } from "./WeightingSettings";
 import { SpotifySettings } from "./SpotifySettings";
 import { BrowserSettings } from "./BrowserSettings";
 import { KeyboardSettings } from "./KeyboardSettings";
+import { HandPlayShortcuts } from "./HandPlayShortcuts";
 import { HandSettings } from "./HandSettings";
 import { RenderingSettings } from "./RenderingSettings";
 import { Reveal } from "../../components/Motion";
@@ -280,6 +281,7 @@ export function Settings({
             </p>
           )}
         </section>
+        <HandPlayShortcuts value={draft.hand} discoveryEnabled={draft.hand_discovery.enabled} onChange={(value) => set("hand", value)} />
         <KeyboardSettings value={draft.discovery_keybindings} globalShortcut={draft.shortcut_key} onChange={(value) => set("discovery_keybindings", value)} disabled={!!busy} />
         </>)}
         {panel("startup", <>

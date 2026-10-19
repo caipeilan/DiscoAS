@@ -66,7 +66,7 @@ export function WeightingSettings({ mode, traditional, ranked, onChange, songCou
   }, [songCount, sourceIdentity]);
   return <section className="settings-section weighting-settings">
     <h2>{t("加权发现")}</h2>
-    <SettingRow title={t("加权模式")} description={t("排序相对加权按最近展示顺序分配相对权重，并可用时间冷却与老歌复现叠加调整。")}>
+    <SettingRow title={t("加权模式")}>
       <Select label={t("加权模式")} value={mode} onChange={(value) => changeMode(value as DiscoveryWeightingMode)}
         options={[
           { value: "none", label: t("不加权") },
@@ -135,39 +135,43 @@ function RankedWeightingSettings({ value, onChange, recommendedBand }: {
 }) {
   const set = (patch: Partial<RankedWeighting>) => onChange({ ...value, ...patch });
   return <>
-    <SettingRow title={t("过渡带")} description={t("排除窗口之外的歌曲按此数量从低权重平滑恢复到正常概率；0 表示硬边界。排除模式为「不排除」时从最新展示开始软起排。默认是启用歌单曲数的 10%，没有歌单时为 20。")}>
+    <SettingRow title={t("过渡带")} description={t("排除窗口之外的歌曲按此数量从低权重平滑恢复到正常概率；0 表示硬边界。排除模式为「不排除」时从最新展示开始软起排。默认是启用歌单曲数的 10%，没有歌单时为 20。")}
+      hint={t("当前歌单推荐过渡带：{p0} 首", { p0: recommendedBand })}>
       <NumberField label={t("过渡带")} value={value.soft_band} min={0} max={10000} onChange={(soft_band) => set({ soft_band })} />
     </SettingRow>
     <SettingRow title={t("时间冷却")} description={t("在排序过渡之外，再按发现轮次压低最近展示的歌曲；不作用于从未出现的歌曲。")}>
       <Toggle label={t("时间冷却")} value={value.time_cooling} onChange={(time_cooling) => set({ time_cooling })} />
     </SettingRow>
     <Reveal open={value.time_cooling}>
-      <SettingRow title={t("冷却强度")} description={t("0 到 0.95，越接近 0.95 冷却越强。")}>
-        <NumberField decimal label={t("冷却强度")} value={value.time_cooling_strength} min={0} max={0.95} suffix=""
-          onChange={(time_cooling_strength) => set({ time_cooling_strength })} />
-      </SettingRow>
-      <SettingRow title={t("冷却刷新次数")} description={t("发现轮次尺度，越大冷却恢复越慢。")}>
-        <NumberField label={t("冷却刷新次数")} value={value.time_cooling_batches} min={1} max={10000} suffix={t("次")}
-          onChange={(time_cooling_batches) => set({ time_cooling_batches })} />
-      </SettingRow>
+      <div className="settings-subrows">
+        <SettingRow title={t("冷却强度")} description={t("0 到 0.95，越接近 0.95 冷却越强。")}>
+          <NumberField decimal label={t("冷却强度")} value={value.time_cooling_strength} min={0} max={0.95} suffix=""
+            onChange={(time_cooling_strength) => set({ time_cooling_strength })} />
+        </SettingRow>
+        <SettingRow title={t("冷却刷新次数")} description={t("发现轮次尺度，越大冷却恢复越慢。")}>
+          <NumberField label={t("冷却刷新次数")} value={value.time_cooling_batches} min={1} max={10000} suffix={t("次")}
+            onChange={(time_cooling_batches) => set({ time_cooling_batches })} />
+        </SettingRow>
+      </div>
     </Reveal>
     <SettingRow title={t("老歌复现")} description={t("超过等待次数后逐步提高很久没展示过的歌曲权重；默认关闭，开启后老歌概率会高于从未出现的歌曲。")}>
       <Toggle label={t("老歌复现")} value={value.revival} onChange={(revival) => set({ revival })} />
     </SettingRow>
     <Reveal open={value.revival}>
-      <SettingRow title={t("复现增益")} description={t("0 到 2；0.5 表示最高约 1.5 倍权重。")}>
-        <NumberField decimal label={t("复现增益")} value={value.revival_gain} min={0} max={2} suffix=""
-          onChange={(revival_gain) => set({ revival_gain })} />
-      </SettingRow>
-      <SettingRow title={t("等待次数")} description={t("距离上次展示达到该轮次后才开始复现。")}>
-        <NumberField label={t("等待次数")} value={value.revival_wait} min={0} max={10000} suffix={t("次")}
-          onChange={(revival_wait) => set({ revival_wait })} />
-      </SettingRow>
-      <SettingRow title={t("爬升次数")} description={t("复现权重从基线爬到满增益所需的轮次。")}>
-        <NumberField label={t("爬升次数")} value={value.revival_span} min={1} max={10000} suffix={t("次")}
-          onChange={(revival_span) => set({ revival_span })} />
-      </SettingRow>
+      <div className="settings-subrows">
+        <SettingRow title={t("复现增益")} description={t("0 到 2；0.5 表示最高约 1.5 倍权重。")}>
+          <NumberField decimal label={t("复现增益")} value={value.revival_gain} min={0} max={2} suffix=""
+            onChange={(revival_gain) => set({ revival_gain })} />
+        </SettingRow>
+        <SettingRow title={t("等待次数")} description={t("距离上次展示达到该轮次后才开始复现。")}>
+          <NumberField label={t("等待次数")} value={value.revival_wait} min={0} max={10000} suffix={t("次")}
+            onChange={(revival_wait) => set({ revival_wait })} />
+        </SettingRow>
+        <SettingRow title={t("爬升次数")} description={t("复现权重从基线爬到满增益所需的轮次。")}>
+          <NumberField label={t("爬升次数")} value={value.revival_span} min={1} max={10000} suffix={t("次")}
+            onChange={(revival_span) => set({ revival_span })} />
+        </SettingRow>
+      </div>
     </Reveal>
-    <p className="form-hint">{t("当前歌单推荐过渡带：{p0} 首", { p0: recommendedBand })}</p>
   </>;
 }

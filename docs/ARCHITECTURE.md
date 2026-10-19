@@ -41,7 +41,7 @@
 | 紧凑下拉框、隐藏帮助及缩放定位 | `app/src/components/Select.tsx`、`Popover.tsx`、`SettingsControls.tsx`、`popoverPlacement.ts` |
 | 键盘选歌、按键录制与卡片选中反馈 | `app/src/features/discovery/keyboardSelection.ts`、`useKeyboardSelection.ts`、`app/src/features/settings/KeyboardSettings.tsx`、`discoveryKeybindings.ts` |
 | 窗口、托盘、快捷键、系统对话框、自启或客户端最小化 | `app/src-tauri/src/desktop/`、`lib.rs`、`client_window.rs` |
-| 前九张手牌的全局快捷键 | `hand::HandSettings.play_shortcuts`、`desktop/shortcuts.rs` 的身份映射与按住抑制、`desktop/hand_actions.rs` 的当前位置读取；沿用 `play_hand_card` 的失败保留／回牌 |
+| 快捷打出（前九张） | 设置位于「快捷键」的 `HandPlayShortcuts`；`hand::HandSettings.play_shortcuts` 由 `desktop/shortcuts.rs` 注册并按住抑制，`desktop/hand_actions.rs` 优先读取普通手牌，手牌模式关闭时才读取迷你发现；沿用 `play_hand_card` 的失败保留／回牌 |
 | 应用风格的托盘右键菜单 | `app/src-tauri/src/desktop/tray_menu.rs`、`app/src/features/tray/`、`app/src-tauri/capabilities/tray-menu.json` |
 | Windows 安装兼容检查与 WebView2 准备 | `app/src-tauri/installer/installer.nsi`、`hooks.nsh`、`app/src-tauri/tauri.conf.json`、`app/scripts/` |
 | 关于页的项目、作者链接与更新入口 | `app/src/features/about/`、`app/src/About.tsx`、`app/src/features/updates/` |

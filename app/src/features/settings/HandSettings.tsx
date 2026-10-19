@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { GuiSettings, HandSettings as HandPreferences, HandDiscoverySettings, Preferences } from "../../types";
-import { defaultHandSettings } from "../../types";
-import { SettingRow, NumberField, ScaleField, Toggle, HelpHint } from "../../components/SettingsControls";
+import { SettingRow, NumberField, ScaleField, Toggle } from "../../components/SettingsControls";
 import { Select } from "../../components/Select";
-import { AnimatedDetails, Reveal } from "../../components/Motion";
+import { Reveal } from "../../components/Motion";
 import { ShortcutRecorder } from "../../ShortcutRecorder";
 import { call, onDesktopEvent } from "../../services/desktop";
 import { t, errorText } from "../../i18n";
@@ -74,14 +73,6 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
       </>}
       </Reveal>
       <SettingRow title={t("手牌快捷键")}><ShortcutRecorder label={t("手牌快捷键")} value={value.shortcut} onChange={(v) => set("shortcut", v)} /></SettingRow>
-      <AnimatedDetails className="hand-shortcut-settings" summary={<>{t("按位置打出（前九张）")}<span onClick={(event) => event.stopPropagation()}><HelpHint label={t("按位置打出（前九张）")}>{t("合并时按迷你发现在前、手牌在后的当前顺序打出；分开时只控制普通手牌。调整顺序后立即生效。")}</HelpHint></span></>}>
-        {defaultHandSettings.play_shortcuts.map((fallback, index) => <SettingRow key={index} title={t("第 {p0} 张", { p0: index + 1 })}>
-          <ShortcutRecorder label={t("打出第 {p0} 张手牌", { p0: index + 1 })} value={value.play_shortcuts?.[index] ?? fallback} onChange={(key) => {
-            const keys = [...(value.play_shortcuts ?? defaultHandSettings.play_shortcuts)]; keys[index] = key; set("play_shortcuts", keys);
-          }} />
-        </SettingRow>)}
-        <div className="appearance-actions"><button type="button" className="button secondary" onClick={() => set("play_shortcuts", [...defaultHandSettings.play_shortcuts])}>{t("恢复打出快捷键")}</button></div>
-      </AnimatedDetails>
       <Reveal open={value.enabled}>
       <SettingRow title={t("手牌上限")}><NumberField label={t("手牌上限")} value={value.capacity} min={1} max={100} suffix={t("张")} onChange={(v) => set("capacity", v)} /></SettingRow>
       <SettingRow title={t("手牌位置")}><Select label={t("手牌位置")} value={value.side} options={[

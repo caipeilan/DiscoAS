@@ -19,6 +19,38 @@
 .setting-control .theme-picker { width: auto; min-width: 228px; }
 .theme-picker > button { white-space: nowrap; }
 .settings-content + .unsaved-note { text-align: left; font-size: calc(12px * var(--font-scale, 1)); line-height: 1.65; }
+.setting-row.has-hint { row-gap: 4px; }
+.setting-hint { flex-basis: 100%; margin: 0; color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.6; font-variant-numeric: tabular-nums; }
+.hand-shortcut-settings > summary,
+.weighting-parameters > summary {
+  display: flex; align-items: center; gap: 7px;
+  padding: 12px 18px; border-bottom: 1px solid var(--border);
+  color: var(--text); font-size: calc(13px * var(--font-scale, 1)); font-weight: 500;
+  list-style: none; cursor: pointer;
+}
+.hand-shortcut-settings > summary::-webkit-details-marker,
+.weighting-parameters > summary::-webkit-details-marker { display: none; }
+.hand-shortcut-settings > summary:hover,
+.weighting-parameters > summary:hover { background: var(--surface-subtle); }
+.hand-shortcut-settings > summary:focus-visible,
+.weighting-parameters > summary:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
+.hand-shortcut-settings > summary::after,
+.weighting-parameters > summary::after {
+  content: ""; width: 6px; height: 6px; margin-left: auto; flex-shrink: 0;
+  border-right: 1.5px solid var(--text-tertiary); border-bottom: 1.5px solid var(--text-tertiary);
+  transform: rotate(-45deg); transition: transform 160ms var(--ease-out);
+}
+.hand-shortcut-settings[open] > summary::after,
+.weighting-parameters[open] > summary::after { transform: rotate(45deg); }
+.hand-shortcut-settings .setting-row,
+.weighting-parameters .setting-row,
+.settings-subrows .setting-row { padding: 10px 18px; }
+.hand-shortcut-settings .setting-row .shortcut-input,
+.weighting-parameters .setting-row .shortcut-input,
+.settings-subrows .setting-row .shortcut-input { font-size: calc(11px * var(--font-scale, 1)); }
+.hand-shortcut-settings .setting-row strong,
+.weighting-parameters .setting-row strong,
+.settings-subrows .setting-row strong { font-size: calc(12px * var(--font-scale, 1)); font-weight: 500; }
 .connection-status { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; color: var(--text); }
 .connection-status > svg { color: var(--text-secondary); margin-top: 3px; }
 .connection-status[data-connected="true"] > svg { color: var(--accent-text); }

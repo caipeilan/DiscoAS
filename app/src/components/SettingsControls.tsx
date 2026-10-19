@@ -112,19 +112,22 @@ export function ScaleField({
 export function SettingRow({
   title,
   description,
+  hint,
   children,
 }: {
   title: string;
   description?: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="setting-row">
+    <div className={`setting-row${hint ? " has-hint" : ""}`}>
       <div className="setting-label">
         <strong>{title}</strong>
         {description && <HelpHint label={title}>{description}</HelpHint>}
       </div>
       <div className="setting-control">{children}</div>
+      {hint && <p className="setting-hint">{hint}</p>}
     </div>
   );
 }
