@@ -135,9 +135,9 @@ function RankedWeightingSettings({ value, onChange, recommendedBand }: {
 }) {
   const set = (patch: Partial<RankedWeighting>) => onChange({ ...value, ...patch });
   return <>
-    <SettingRow title={t("过渡带")} description={t("排除窗口之外的歌曲按此数量从低权重平滑恢复到正常概率；0 表示硬边界。排除模式为「不排除」时从最新展示开始软起排。默认是启用歌单曲数的 10%，没有歌单时为 20。")}
-      hint={t("当前歌单推荐过渡带：{p0} 首", { p0: recommendedBand })}>
-      <NumberField label={t("过渡带")} value={value.soft_band} min={0} max={10000} onChange={(soft_band) => set({ soft_band })} />
+    <SettingRow title={t("过渡窗口")} description={t("排除窗口之外的歌曲按此数量从低权重平滑恢复到正常概率；0 表示硬边界。排除模式为「不排除」时从最新展示开始软起排。默认是启用歌单曲数的 10%，没有歌单时为 20。")}
+      hint={t("当前歌单推荐过渡窗口：{p0} 首", { p0: recommendedBand })}>
+      <NumberField label={t("过渡窗口")} value={value.soft_band} min={0} max={10000} onChange={(soft_band) => set({ soft_band })} />
     </SettingRow>
     <SettingRow title={t("时间冷却")} description={t("在排序过渡之外，再按发现轮次压低最近展示的歌曲；不作用于从未出现的歌曲。")}>
       <Toggle label={t("时间冷却")} value={value.time_cooling} onChange={(time_cooling) => set({ time_cooling })} />
