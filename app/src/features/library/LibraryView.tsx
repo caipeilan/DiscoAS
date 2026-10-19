@@ -8,7 +8,7 @@ import { sourceKey } from "./libraryModel";
 import type { LibrarySort } from "./libraryModel";
 import { OperationProgress } from "./OperationProgress";
 import { Select } from "../../components/Select";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useListMotion } from "../../hooks/useListMotion";
 import { Reveal } from "../../components/Motion";
 
@@ -43,6 +43,8 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
   discover?: () => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  // Each row used to serialize its identity three times per render.
+  const sourceKeys = useMemo(() => new Map(filtered.map((entry) => [entry, sourceKey(entry)] as const)), [filtered]);
   useListMotion(list, filtered, `${query}\n${filter}`);
   const enabled = state.playlists.find((p) => p.enabled);
   const normalCount = state.settings.number_of_discovered_songs;
@@ -144,7 +146,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
         </span>
       </div>
       {state.playlists.length > 0 && <div className="library-selection">
-        <label><input type="checkbox" disabled={!!busy || !filtered.length} checked={filtered.length > 0 && filtered.every((entry) => selected.has(sourceKey(entry)))} onChange={selectVisible} />{t("选择当前列表")}</label>
+        <label><input type="checkbox" disabled={!!busy || !filtered.length} checked={filtered.length > 0 && filtered.every((entry) => selected.has(sourceKeys.get(entry)!))} onChange={selectVisible} />{t("选择当前列表")}</label>
         <span>{t("已选择 {p0} 个卡池", { p0: selected.size })}</span>
         <div className="library-batch-actions">
           <button className="button compact secondary" disabled={!!busy || !selected.size} onClick={updateSelected}><Icon name="refresh" size={15} />{t("更新")}</button>
@@ -156,11 +158,11 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
           {!startup && filtered.map((p) => (
             <article
               className={`playlist-row ${p.enabled ? "enabled-row" : ""}`}
-              data-selected={selected.has(sourceKey(p)) || undefined}
-              key={sourceKey(p)}
-              data-motion-key={sourceKey(p)}
+              data-selected={selected.has(sourceKeys.get(p)!) || undefined}
+              key={sourceKeys.get(p)}
+              data-motion-key={sourceKeys.get(p)}
             >
-              <input className="source-checkbox" type="checkbox" aria-label={t("选择 {p0}", { p0: p.title })} checked={selected.has(sourceKey(p))} disabled={!!busy} onChange={() => toggleSelected(p)} />
+              <input className="source-checkbox" type="checkbox" aria-label={t("选择 {p0}", { p0: p.title })} checked={selected.has(sourceKeys.get(p)!)} disabled={!!busy} onChange={() => toggleSelected(p)} />
               <Cover
                 url={p.coverUrl}
                 data={p.coverDataUri}

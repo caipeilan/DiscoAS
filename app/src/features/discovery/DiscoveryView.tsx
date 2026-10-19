@@ -45,6 +45,7 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
   const active = !loading && !cancelling && !playing && !songError && !busy && overlayPhase === "open";
   const { selectedIndex, pointedIndex, inputMode, pointerMove, pointerDown, pointerLeave, focusIndex } = useKeyboardSelection({
     songs, grid, active, batchRevision, play, replace, preview, externalPointer: previewPointer, previewKey, preserveSlots: true,
+    layoutKey: `${gui.card_size}:${gui.font_size ?? 0}`,
     keybindings: state.settings.discovery_keybindings || defaultDiscoveryKeybindings,
   });
   const showBar = status.exclusionEnabled || status.replacementEnabled;

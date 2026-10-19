@@ -247,7 +247,12 @@ async fn refresh_source_job(
     let fetcher = crate::platforms::fetcher_for(&source.name).map_err(|e| e.to_string())?;
     let progress_app = app.clone();
     let progress_request = job.request_id().to_string();
+    // A retry restarts the platform fetch. Once any page has been read, a full
+    // replay would repeat the most expensive part of a large source.
+    let fetched_pages = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let progress_pages = fetched_pages.clone();
     let on_progress: discoas_core::platforms::FetchProgressCallback = Arc::new(move |p| {
+        progress_pages.fetch_max(p.pages, std::sync::atomic::Ordering::Relaxed);
         let _ = progress_app.emit(
             "library-progress",
             LibraryProgress {
@@ -283,7 +288,9 @@ async fn refresh_source_job(
                         Ok(data) => return Ok(data),
                         Err(error) => {
                             let error = error.to_string();
-                            if attempt == 0 && request_errors::retryable(&error) {
+                            let replay_is_cheap =
+                                fetched_pages.load(std::sync::atomic::Ordering::Relaxed) == 0;
+                            if attempt == 0 && replay_is_cheap && request_errors::retryable(&error) {
                                 tokio::time::sleep(Duration::from_millis(600)).await;
                             } else {
                                 return Err(request_errors::short_error(&error));
@@ -317,29 +324,53 @@ async fn refresh_source_job(
     let _guard = job.run(async { Ok(cache.operation.lock().await) }).await?;
     job.begin_commit()?;
     progress(app, &job, "saving", count, Some(count));
-    let settings_before = repository.load_settings()?;
-    repository.commit_refresh(
-        source.clone(),
-        base.as_ref(),
-        &data,
-        require_existing || base.is_some(),
-    )?;
-    if let Some(bytes) = cover {
-        let root = paths::cover_pic_dir(app)
-            .map_err(|e| e.to_string())?
-            .join("library");
-        let key = crate::image_cache::library_key(
-            &source.name,
-            &source.typename,
-            &source.playlist_album_id,
-        );
-        if discoas_core::image_cache::save_library_cover(&root, &key, &bytes).is_ok() {
-            cache.cache_image(url, bytes).await;
-        } else {
-            crate::desktop_preferences::log_event(app, "library_cover", "write_failed");
-            let _ = app.emit("cover-refresh-failed", ());
-        }
-    } else if !url.is_empty() {
+    let identity = SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename);
+    let cover_root = paths::cover_pic_dir(app)
+        .map_err(|e| e.to_string())?
+        .join("library");
+    let cover_key = crate::image_cache::library_key(
+        &source.name,
+        &source.typename,
+        &source.playlist_album_id,
+    );
+    let had_cover = cover.is_some();
+    let require_existing = require_existing || base.is_some();
+    // The settings write is atomic and synced; the cover directory prune scans
+    // the whole cache. Both must stay off the UI thread and out of the runtime
+    // workers while the operation lock orders this commit.
+    let commit_app = app.clone();
+    let (settings_before, settings_after, saved_cover) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let repository = crate::desktop::library::repository(&commit_app)?;
+            let settings_before = repository.load_settings()?;
+            repository.commit_refresh(source, base.as_ref(), &data, require_existing)?;
+            let saved_cover = match cover {
+                Some(bytes) => match discoas_core::image_cache::save_library_cover(
+                    &cover_root,
+                    &cover_key,
+                    &bytes,
+                ) {
+                    Ok(()) => Some(bytes),
+                    Err(_) => {
+                        crate::desktop_preferences::log_event(
+                            &commit_app,
+                            "library_cover",
+                            "write_failed",
+                        );
+                        let _ = commit_app.emit("cover-refresh-failed", ());
+                        None
+                    }
+                },
+                None => None,
+            };
+            let settings_after = repository.load_settings()?;
+            Ok::<_, String>((settings_before, settings_after, saved_cover))
+        })
+        .await
+        .map_err(|_| "错误：保存歌单失败".to_string())??;
+    if let Some(bytes) = saved_cover {
+        cache.cache_image(url, bytes).await;
+    } else if !had_cover && !url.is_empty() {
         crate::desktop_preferences::log_event(app, "library_cover", "refresh_failed");
         let _ = app.emit("cover-refresh-failed", ());
     }
@@ -347,18 +378,13 @@ async fn refresh_source_job(
         .startup_refresh_error
         .lock()
         .unwrap() = None;
-    let settings_after = repository.load_settings()?;
-    let invalidated = source_refresh_changes_discovery(
-        &settings_before,
-        &settings_after,
-        &SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename),
-    );
+    let invalidated = source_refresh_changes_discovery(&settings_before, &settings_after, &identity);
     if invalidated {
         cache.invalidate_source_snapshot();
     }
     changed_with_invalidation(app, cache, invalidated).await;
     progress(app, &job, "done", count, Some(count));
-    library_patch(app, &repository, Some(&SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename)))
+    library_patch(app, &repository, Some(&identity))
 }
 
 pub fn refresh_enabled_on_startup(app: tauri::AppHandle) {

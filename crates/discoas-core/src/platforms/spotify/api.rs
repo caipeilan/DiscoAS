@@ -3,9 +3,11 @@
 
 use std::{
     collections::HashSet,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::Mutex,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{Client, Response, Url};
 use serde_json::{json, Value};
@@ -21,6 +23,91 @@ const PAGE_SIZE: usize = 100;
 const MAX_ITEMS: usize = 50_000;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+const BUNDLE_TTL: Duration = Duration::from_secs(3_600);
+
+static CLIENT: Lazy<Client> = Lazy::new(|| {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("Spotify HTTP client")
+});
+
+/// The web-player bundle is multi-megabyte and its query hashes only change
+/// when Spotify ships a new player. A short cache avoids re-downloading and
+/// rescanning it for every playlist or album import.
+#[derive(Clone)]
+struct BundleHashes {
+    playlist: Option<(String, String)>,
+    album: Option<(String, String)>,
+    fetched: Instant,
+}
+impl BundleHashes {
+    fn for_kind(&self, kind: TypeName) -> Result<(String, String), AppError> {
+        match kind {
+            TypeName::Album => self.album.clone(),
+            _ => self.playlist.clone(),
+        }
+        .ok_or_else(|| platform_error("未找到当前查询，公开接口可能已变化"))
+    }
+}
+static BUNDLE_HASHES: Lazy<Mutex<Option<BundleHashes>>> = Lazy::new(|| Mutex::new(None));
+fn cached_hashes(kind: TypeName) -> Option<(String, String)> {
+    let mut cache = BUNDLE_HASHES.lock().unwrap();
+    let hashes = cache.as_ref()?;
+    if hashes.fetched.elapsed() > BUNDLE_TTL {
+        *cache = None;
+        return None;
+    }
+    hashes.for_kind(kind).ok()
+}
+fn remember_hashes(hashes: BundleHashes) {
+    *BUNDLE_HASHES.lock().unwrap() = Some(hashes);
+}
+fn forget_hashes() {
+    *BUNDLE_HASHES.lock().unwrap() = None;
+}
+fn hashes_pair(
+    (metadata, contents): (AppResult<String>, AppResult<String>),
+) -> Option<(String, String)> {
+    Some((metadata.ok()?, contents.ok()?))
+}
+async fn fetch_bundle_hashes(client: &Client) -> AppResult<BundleHashes> {
+    let homepage = read_response(
+        client
+            .get(ORIGIN)
+            .send()
+            .await
+            .map_err(http_error)?,
+    )
+    .await?;
+    let bundle_url = discover_bundle(&homepage)?;
+    let bundle = read_response(
+        client
+            .get(bundle_url)
+            .send()
+            .await
+            .map_err(http_error)?,
+    )
+    .await?;
+    let playlist = hashes_pair((
+        discover_hash(&bundle, "fetchPlaylistMetadata"),
+        discover_hash(&bundle, "fetchPlaylistContents"),
+    ));
+    let album = hashes_pair((
+        discover_hash(&bundle, "getAlbum"),
+        discover_hash(&bundle, "queryAlbumTracks"),
+    ));
+    if playlist.is_none() && album.is_none() {
+        return Err(platform_error("未找到查询，公开接口可能已变化"));
+    }
+    Ok(BundleHashes {
+        playlist,
+        album,
+        fetched: Instant::now(),
+    })
+}
 
 fn platform_error(message: impl Into<String>) -> AppError {
     AppError::Platform(format!("Spotify：{}；原缓存未被覆盖", message.into()))
@@ -377,37 +464,57 @@ async fn fetch_playlist_inner(
             "标识格式无效，请粘贴 Spotify 分享链接或 22 位 ID",
         ));
     }
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(http_error)?;
+    let client = CLIENT.clone();
     let embed_url = format!("{ORIGIN}embed/{}/{id}", kind.as_str());
     let embed = read_response(client.get(embed_url).send().await.map_err(http_error)?).await?;
     let session = AnonymousSession::from_embed(parse_next_data(&embed)?)?;
-    let homepage = read_response(client.get(ORIGIN).send().await.map_err(http_error)?).await?;
-    let bundle_url = discover_bundle(&homepage)?;
-    let bundle = read_response(client.get(bundle_url).send().await.map_err(http_error)?).await?;
     let (metadata_operation, contents_operation) = match kind {
         TypeName::Playlist => ("fetchPlaylistMetadata", "fetchPlaylistContents"),
         TypeName::Album => ("getAlbum", "queryAlbumTracks"),
         _ => return Err(platform_error("只支持歌单或专辑")),
     };
-    let metadata_hash = discover_hash(&bundle, metadata_operation)?;
-    let contents_hash = discover_hash(&bundle, contents_operation)?;
+    let cached = cached_hashes(kind);
+    let mut retried = cached.is_none();
+    let (mut metadata_hash, mut contents_hash) = match cached {
+        Some(hashes) => hashes,
+        None => {
+            let hashes = fetch_bundle_hashes(&client).await?;
+            let pair = hashes.for_kind(kind)?;
+            remember_hashes(hashes);
+            pair
+        }
+    };
     let uri = format!("spotify:{}:{id}", kind.as_str());
-    let metadata = query(
-        &client,
-        &session,
-        metadata_operation,
-        &metadata_hash,
-        json!({
-            "uri": uri, "offset": 0, "limit": 1, "locale": "",
-            "enableWatchFeedEntrypoint": false, "includeEpisodeContentRatingsV2": false,
-        }),
-    )
-    .await?;
+    let metadata = loop {
+        let result = query(
+            &client,
+            &session,
+            metadata_operation,
+            &metadata_hash,
+            json!({
+                "uri": uri, "offset": 0, "limit": 1, "locale": "",
+                "enableWatchFeedEntrypoint": false, "includeEpisodeContentRatingsV2": false,
+            }),
+        )
+        .await;
+        match result {
+            Ok(value) => break value,
+            // A cached hash can outlive a player update. Drop it and retry once
+            // with the current bundle; rate limiting is not a stale hash.
+            Err(error)
+                if !retried && !error.to_string().contains("请求过于频繁") =>
+            {
+                retried = true;
+                forget_hashes();
+                let hashes = fetch_bundle_hashes(&client).await?;
+                let pair = hashes.for_kind(kind)?;
+                metadata_hash = pair.0;
+                contents_hash = pair.1;
+                remember_hashes(hashes);
+            }
+            Err(error) => return Err(error),
+        }
+    };
     let entity_path = match kind {
         TypeName::Playlist => "/data/playlistV2",
         TypeName::Album => "/data/albumUnion",

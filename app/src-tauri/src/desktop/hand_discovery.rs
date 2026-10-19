@@ -113,7 +113,7 @@ mod tests {
         let mut state = DiscoveryStateDto {
             songs: (0..3).map(|index| discoas_core::model::SongCardDto {
                 song_id: index.to_string(),
-                cover_data_uri: Some("artwork".repeat(1024)),
+                cover_data_uri: Some("artwork".repeat(1024).into()),
                 ..Default::default()
             }).collect(),
             ..Default::default()
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn layout_refresh_reuses_the_projected_batch_and_metadata_revision_rebuilds_changed_cards() {
-        let mut batch = vec![discoas_core::model::SongCardDto { song_id: "a".into(), cover_data_uri: Some("cover".repeat(200_000)), ..Default::default() }];
+        let mut batch = vec![discoas_core::model::SongCardDto { song_id: "a".into(), cover_data_uri: Some("cover".repeat(200_000).into()), ..Default::default() }];
         let mut projected = ProjectedBatch::default();
         let original = projected.cards((1, 0), &batch);
         let same = projected.cards((1, 0), &[]);

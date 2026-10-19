@@ -109,7 +109,7 @@ mod tests {
                 mystery_revealed: false,
                 discovery: false,
                 song: discoas_core::model::SongCardDto {
-                    cover_data_uri: Some(format!("cover-{id}")),
+                    cover_data_uri: Some(format!("cover-{id}").into()),
                     ..Default::default()
                 },
             })
@@ -210,7 +210,8 @@ async fn cards(app: &tauri::AppHandle, music: &MusicSetting) -> Result<Vec<Arc<H
             card.song.cover_data_uri = read_library_cover(
                 &root.join("history/covers"),
                 &library_key(&card.song.platform, "song", &card.song.song_id),
-            );
+            )
+            .map(Into::into);
         }
         if card.song.cover_data_uri.is_none() {
             card.song.cover_data_uri = discoas_core::image_cache::read_cached_image(

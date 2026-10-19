@@ -23,7 +23,7 @@ export type PreviewKeyEvent = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "
   action?: "up" | "left" | "down" | "right" | "select" | "replace";
 };
 
-export function useKeyboardSelection({ songs, keybindings, grid, active, batchRevision, play, replace, preview = false, externalPointer, previewKey, preserveSlots = false }: {
+export function useKeyboardSelection({ songs, keybindings, grid, active, batchRevision, play, replace, preview = false, externalPointer, previewKey, layoutKey = "", preserveSlots = false }: {
   songs: Song[];
   keybindings: DiscoveryKeybindings;
   grid: RefObject<HTMLDivElement | null>;
@@ -34,9 +34,17 @@ export function useKeyboardSelection({ songs, keybindings, grid, active, batchRe
   preview?: boolean;
   externalPointer?: { x: number; y: number } | null;
   previewKey?: { event: PreviewKeyEvent; sequence: number } | null;
+  layoutKey?: string;
   preserveSlots?: boolean;
 }) {
   const selection = useRef(new CardSelection());
+  const slotGeometry = useRef<{ batch: string; layout: string; rects: DOMRect[] } | null>(null);
+  // Slot measurements stay valid until the batch, layout inputs or window size change.
+  useEffect(() => {
+    const clear = () => { slotGeometry.current = null; };
+    window.addEventListener("resize", clear);
+    return () => window.removeEventListener("resize", clear);
+  }, []);
   const [, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((revision) => revision + 1), []);
   const batch = preserveSlots
@@ -73,15 +81,17 @@ export function useKeyboardSelection({ songs, keybindings, grid, active, batchRe
     const previousMode = model.inputMode;
     const moved = model.pointer(externalPointer.x, externalPointer.y);
     if (moved || model.inputMode === "pointer") {
-      const slots = grid.current ? Array.from(grid.current.querySelectorAll<HTMLDivElement>(".song-card-slot")) : [];
-      model.point(slots.findIndex((slot) => {
-        const rect = slot.getBoundingClientRect();
-        return externalPointer.x >= rect.left && externalPointer.x <= rect.right
-          && externalPointer.y >= rect.top && externalPointer.y <= rect.bottom;
-      }));
+      const cached = slotGeometry.current;
+      if (!cached || cached.batch !== batch || cached.layout !== layoutKey) {
+        const slots = grid.current ? Array.from(grid.current.querySelectorAll<HTMLDivElement>(".song-card-slot")) : [];
+        slotGeometry.current = { batch, layout: layoutKey, rects: slots.map((slot) => slot.getBoundingClientRect()) };
+      }
+      const rects = slotGeometry.current?.rects ?? [];
+      model.point(rects.findIndex((rect) => externalPointer.x >= rect.left && externalPointer.x <= rect.right
+        && externalPointer.y >= rect.top && externalPointer.y <= rect.bottom));
     }
     if (previousIndex !== model.index || previousMode !== model.inputMode) refresh();
-  }, [active, batch, externalPointer, grid, preview, refresh]);
+  }, [active, batch, externalPointer, grid, preview, refresh, layoutKey]);
   const focusIndex = useCallback((index: number) => {
     // Keyboard navigation sets the mode before calling focus; mouse/programmatic focus does not.
     if (!current.current.active || selection.current.inputMode !== "keyboard") return;

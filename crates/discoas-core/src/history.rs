@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -258,6 +259,17 @@ pub struct HistoryStore {
     path: PathBuf,
 }
 
+/// In-process write counter: cover preparation can skip a second disk read
+/// when no history write happened while the network work ran.
+static HISTORY_WRITES: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HistoryVersion {
+    len: u64,
+    modified: Option<SystemTime>,
+    writes: u64,
+}
+
 impl HistoryStore {
     pub fn new(user_data: impl AsRef<Path>) -> Self {
         Self {
@@ -266,6 +278,18 @@ impl HistoryStore {
     }
     pub fn path(&self) -> &Path {
         &self.path
+    }
+    pub(crate) fn version(&self) -> AppResult<HistoryVersion> {
+        let (len, modified) = match std::fs::metadata(&self.path) {
+            Ok(metadata) => (metadata.len(), metadata.modified().ok()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (0, None),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(HistoryVersion {
+            len,
+            modified,
+            writes: HISTORY_WRITES.load(Ordering::SeqCst),
+        })
     }
     pub fn load(&self) -> AppResult<HistorySnapshot> {
         match std::fs::read(&self.path) {
@@ -280,7 +304,11 @@ impl HistoryStore {
         for row in snapshot.discovered.iter_mut().chain(&mut snapshot.selected) {
             row.cover_data_uri = None;
         }
-        crate::storage::atomic_write(&self.path, &serde_json::to_vec_pretty(snapshot)?)
+        // Events are already ordered by recency; a compact snapshot keeps the
+        // per-display rewrite proportional to the data rather than its layout.
+        crate::storage::atomic_write(&self.path, &serde_json::to_vec(snapshot)?)?;
+        HISTORY_WRITES.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
     pub fn clear(&self) -> AppResult<()> {
         self.save(&mut HistorySnapshot::default())
@@ -396,7 +424,11 @@ impl HistoryStore {
             upsert(&mut snapshot.selected, entry);
             snapshot.weighting.selected(song);
         }
-        normalize_snapshot(&mut snapshot);
+        // Rows are only dropped once both lists together exceed the retention
+        // limit; below it the merge, sort and identity copies would change nothing.
+        if snapshot.discovered.len() + snapshot.selected.len() > MAX_HISTORY_LIMIT as usize {
+            normalize_snapshot(&mut snapshot);
+        }
         self.save(&mut snapshot)?;
         Ok(snapshot)
     }
@@ -474,50 +506,64 @@ impl HistoryStore {
 }
 
 impl HistorySnapshot {
-    pub(crate) fn entries(&self, limit: u32) -> Vec<HistoryEntry> {
-        Self { discovered: self.discovered.clone(), selected: self.selected.clone(), weighting: Default::default() }
-            .into_entries(limit)
+    /// Merge only the identities a cover page asked for. The full page merge
+    /// clones and sorts every retained row, which a 64-cover request does not need.
+    pub(crate) fn selected_entries(
+        &self,
+        wanted: &HashSet<(&str, &str)>,
+    ) -> HashMap<(String, String), HistoryEntry> {
+        let mut merged = HashMap::new();
+        for entry in self.discovered.iter().chain(&self.selected) {
+            if wanted.contains(&(entry.platform.as_str(), entry.song_id.as_str())) {
+                merge_entry(&mut merged, entry.clone());
+            }
+        }
+        merged
     }
 
     pub(crate) fn into_entries(self, limit: u32) -> Vec<HistoryEntry> {
         let mut merged: HashMap<(String, String), HistoryEntry> = HashMap::new();
         for entry in self.discovered.into_iter().chain(self.selected) {
-            let key = (entry.platform.clone(), entry.song_id.clone());
-            if let Some(old) = merged.get_mut(&key) {
-                let discovered = old.discovered_at.max(entry.discovered_at);
-                let selected = old.selected_at.max(entry.selected_at);
-                let available_metadata = if !entry.has_hidden_metadata() {
-                    Some((entry.name.clone(), entry.artist_names.clone()))
-                } else if !old.has_hidden_metadata() {
-                    Some((old.name.clone(), old.artist_names.clone()))
-                } else {
-                    None
-                };
-                let cover = if !entry.cover_url.is_empty() {
-                    (entry.cover_url.clone(), entry.cover_key.clone())
-                } else {
-                    (old.cover_url.clone(), old.cover_key.clone())
-                };
-                if entry.latest() >= old.latest() {
-                    *old = entry;
-                }
-                if old.has_hidden_metadata() {
-                    if let Some((name, artists)) = available_metadata {
-                        old.name = name;
-                        old.artist_names = artists;
-                    }
-                }
-                old.discovered_at = discovered;
-                old.selected_at = selected;
-                old.cover_url = cover.0;
-                old.cover_key = cover.1;
-            } else {
-                merged.insert(key, entry);
-            }
+            merge_entry(&mut merged, entry);
         }
         let mut merged: Vec<_> = merged.into_values().collect();
         normalize(&mut merged, limit);
         merged
+    }
+}
+
+fn merge_entry(merged: &mut HashMap<(String, String), HistoryEntry>, entry: HistoryEntry) {
+    let key = (entry.platform.clone(), entry.song_id.clone());
+    if let Some(old) = merged.get_mut(&key) {
+        let discovered = old.discovered_at.max(entry.discovered_at);
+        let selected = old.selected_at.max(entry.selected_at);
+        let available_metadata = if !entry.has_hidden_metadata() {
+            Some((entry.name.clone(), entry.artist_names.clone()))
+        } else if !old.has_hidden_metadata() {
+            Some((old.name.clone(), old.artist_names.clone()))
+        } else {
+            None
+        };
+        let cover = if !entry.cover_url.is_empty() {
+            (entry.cover_url.clone(), entry.cover_key.clone())
+        } else {
+            (old.cover_url.clone(), old.cover_key.clone())
+        };
+        if entry.latest() >= old.latest() {
+            *old = entry;
+        }
+        if old.has_hidden_metadata() {
+            if let Some((name, artists)) = available_metadata {
+                old.name = name;
+                old.artist_names = artists;
+            }
+        }
+        old.discovered_at = discovered;
+        old.selected_at = selected;
+        old.cover_url = cover.0;
+        old.cover_key = cover.1;
+    } else {
+        merged.insert(key, entry);
     }
 }
 

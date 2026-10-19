@@ -527,6 +527,47 @@ pub async fn fetch_song_detail(song_id: &str) -> AppResult<Option<Value>> {
     Ok(Some(track))
 }
 
+/// One `CgiGetTrackInfo` request for the whole batch. The request body already
+/// takes an ID array, so each card no longer waits for its own round trip.
+pub async fn fetch_song_details(
+    song_ids: &[String],
+) -> AppResult<std::collections::HashMap<String, Value>> {
+    use std::collections::HashMap;
+    let mut requested = Vec::new();
+    let mut by_number: HashMap<u64, String> = HashMap::new();
+    for id in song_ids {
+        let Ok(number) = numeric_id(id) else { continue };
+        if by_number.insert(number, id.clone()).is_none() {
+            requested.push(number);
+        }
+    }
+    if requested.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let stamps = vec![0; requested.len()];
+    let data = request(
+        "music.trackInfo.UniformRuleCtrl",
+        "CgiGetTrackInfo",
+        json!({
+            "types": [0], "ids": requested, "modify_stamp": stamps, "ctx": 0, "client": 1,
+        }),
+    )
+    .await?;
+    let mut details = HashMap::new();
+    for track in data.get("tracks").and_then(Value::as_array).into_iter().flatten() {
+        let Some(number) = track.get("id").or_else(|| track.get("songid")).and_then(number)
+        else {
+            continue;
+        };
+        if let Some(original) = by_number.get(&number) {
+            details
+                .entry(original.clone())
+                .or_insert_with(|| track.clone());
+        }
+    }
+    Ok(details)
+}
+
 fn song_id_matches(song: &Value, id: u64) -> bool {
     song.get("id")
         .or_else(|| song.get("songid"))

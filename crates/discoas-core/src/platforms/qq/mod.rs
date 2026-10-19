@@ -31,6 +31,30 @@ pub struct QqDetailLoader;
 
 #[async_trait]
 impl SongDetailLoader for QqDetailLoader {
+    fn supports_batch_details(&self) -> bool {
+        true
+    }
+
+    async fn load_batch_details(
+        &self,
+        _source: &Value,
+        song_ids: &[String],
+    ) -> AppResult<std::collections::HashMap<String, AppResult<SongDetail>>> {
+        let tracks = get_json::fetch_song_details(song_ids).await?;
+        Ok(song_ids
+            .iter()
+            .map(|id| {
+                let detail = tracks
+                    .get(id)
+                    .ok_or_else(|| {
+                        AppError::NotFound(format!("QQ 音乐歌曲 {id} 不可读取"))
+                    })
+                    .and_then(|track| detail_from_track(track, false, ""));
+                (id.clone(), detail)
+            })
+            .collect())
+    }
+
     async fn load_song_detail(
         &self,
         _source: &Value,

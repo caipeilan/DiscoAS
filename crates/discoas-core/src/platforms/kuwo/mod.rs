@@ -11,11 +11,44 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{json, Value};
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 pub struct KuwoFetcher;
 pub use super::public_music::PublicMusicDetailLoader as KuwoDetailLoader;
 const PAGE_SIZE: usize = 100;
 const MAX_ITEMS: usize = 50_000;
+/// Reuse one connection pool and TLS session for playback-page reads.
+static PLAYBACK_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    video::client("https://www.kuwo.cn/").expect("Kuwo playback client")
+});
+/// The official page exposes a stable native URI per song; a short cache avoids
+/// refetching the whole page when the same card is played again.
+const PLAYBACK_URI_TTL: Duration = Duration::from_secs(300);
+const PLAYBACK_URI_CACHE: usize = 16;
+static PLAYBACK_URIS: Lazy<Mutex<HashMap<String, (Instant, String)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+fn cached_playback_uri(id: &str) -> Option<String> {
+    let mut cache = PLAYBACK_URIS.lock().unwrap();
+    let (fetched, uri) = cache.get(id)?;
+    if fetched.elapsed() > PLAYBACK_URI_TTL {
+        cache.remove(id);
+        return None;
+    }
+    Some(uri.clone())
+}
+fn remember_playback_uri(id: String, uri: &str) {
+    let mut cache = PLAYBACK_URIS.lock().unwrap();
+    if cache.len() >= PLAYBACK_URI_CACHE {
+        cache.retain(|_, (fetched, _)| fetched.elapsed() <= PLAYBACK_URI_TTL);
+        if cache.len() >= PLAYBACK_URI_CACHE {
+            cache.clear();
+        }
+    }
+    cache.insert(id, (Instant::now(), uri.to_string()));
+}
 static NATIVE_LINK: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)<iframe\b[^>]*\bsrc\s*=\s*[\"'](kuwo://play/\?[^\"'<>]+)[\"']"#).unwrap()
 });
@@ -78,8 +111,11 @@ pub fn playback_url(id: &str) -> AppResult<String> {
 /// We do not run its scripts or read streams; the caller opens the validated URI.
 pub async fn native_playback_url(id: &str) -> AppResult<String> {
     let id = music::numeric(id)?;
+    if let Some(uri) = cached_playback_uri(&id) {
+        return Ok(uri);
+    }
     let address = playback_url(&id)?;
-    let response = video::client("https://www.kuwo.cn/")?
+    let response = PLAYBACK_CLIENT
         .get(&address)
         .send()
         .await
@@ -88,7 +124,9 @@ pub async fn native_playback_url(id: &str) -> AppResult<String> {
         return Err(music::error("酷我歌曲页面不可用"));
     }
     let html = video::read(response).await?;
-    native_link_from_html(&html, &id)
+    let link = native_link_from_html(&html, &id)?;
+    remember_playback_uri(id, &link);
+    Ok(link)
 }
 
 fn native_link_from_html(html: &str, id: &str) -> AppResult<String> {

@@ -64,7 +64,7 @@ struct PreparedHistoryCover {
     row: HistoryEntry,
     detail: Option<crate::platforms::SongDetail>,
     bytes: Option<Arc<[u8]>>,
-    data: Option<String>,
+    data: Option<Arc<str>>,
 }
 impl SamplingInputs {
     fn remaining(&self) -> u32 {
@@ -298,23 +298,36 @@ impl DiscoveryService {
         deadline: Duration,
         inputs: SamplingInputs,
     ) -> Result<Vec<SongCardDto>, String> {
-        let SamplingInputs {
-            snapshot,
-            excluded,
-            weights,
-            ..
-        } = inputs;
+        self.prepare_parts(
+            setting,
+            deadline,
+            &inputs.snapshot,
+            &inputs.excluded,
+            &inputs.weights,
+        )
+        .await
+    }
+
+    /// One captured source, exclusion set and weight map can serve the queue
+    /// check, several preloaded batches and their status in one operation.
+    async fn prepare_parts(
+        &self,
+        setting: &MusicSetting,
+        deadline: Duration,
+        snapshot: &SourceSnapshot,
+        excluded: &HashSet<String>,
+        weights: &HashMap<String, f64>,
+    ) -> Result<Vec<SongCardDto>, String> {
         tokio::time::timeout(deadline, async {
-            let mut songs =
-                load_snapshot_batch(&snapshot, setting, &self.cache, &excluded, &weights)
-                    .await
-                    .map_err(|error| match error {
-                        crate::error::AppError::Json(_) => {
-                            "本地歌单缓存不可用，请到歌单页更新此歌单".into()
-                        }
-                        crate::error::AppError::Platform(message) => message,
-                        other => other.to_string(),
-                    })?;
+            let mut songs = load_snapshot_batch(snapshot, setting, &self.cache, excluded, weights)
+                .await
+                .map_err(|error| match error {
+                    crate::error::AppError::Json(_) => {
+                        "本地歌单缓存不可用，请到歌单页更新此歌单".into()
+                    }
+                    crate::error::AppError::Platform(message) => message,
+                    other => other.to_string(),
+                })?;
             prepare_batch_covers(&self.cache, &mut songs).await;
             for song in &songs {
                 if let Some(url) = song
@@ -409,14 +422,16 @@ impl DiscoveryService {
         force: bool,
         _guard: &tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<DiscoveryBatch, String> {
-        if self.hand_discovery {
-            self.settings()?;
-        }
+        // One settings read and one sampling capture serve the current-batch
+        // check, the fallback preparation and the published status.
+        let setting = self.settings()?;
+        let inputs = self.sampling_inputs(&setting)?;
+        let remaining = inputs.remaining();
+
         if !force {
             let current = self.cache.current_batch.lock().await.clone();
             if let Some(songs) = current {
                 let songs = if songs.iter().any(|song| song.detail_error.is_some()) {
-                    let setting = self.settings()?;
                     let songs = self.repair_failed_batch(&setting, songs).await?;
                     // Metadata repair keeps the same identities, display round and budget.
                     self.cache
@@ -426,24 +441,20 @@ impl DiscoveryService {
                 } else {
                     songs
                 };
+                let state = self
+                    .status_for(&setting, remaining)
+                    .await
+                    .with_songs(songs.clone());
                 return Ok(DiscoveryBatch {
                     songs,
                     newly_selected: false,
-                    state: self.get_state().await?,
+                    state,
                 });
             }
         } else {
             self.cache.release_current_batch().await;
         }
-        let setting = self.settings()?;
-        let enabled = setting.playlist_albums.iter().find(|source| source.enabled);
-        let excluded = if let Some(source) = enabled {
-            self.excluded_song_ids(&setting, &source.name)?
-        } else {
-            Default::default()
-        };
         let mut restored = false;
-        let mut prepared_remaining = None;
         let songs = loop {
             match self.cache.pop_batch().await {
                 Some(batch) => {
@@ -451,7 +462,11 @@ impl DiscoveryService {
                     if returned && force {
                         continue;
                     }
-                    if returned || batch.iter().all(|song| !excluded.contains(&song.song_id)) {
+                    if returned
+                        || batch
+                            .iter()
+                            .all(|song| !inputs.excluded.contains(&song.song_id))
+                    {
                         restored = returned;
                         let reusable = (returned
                             && batch.iter().any(|song| song.detail_error.is_some()))
@@ -468,9 +483,15 @@ impl DiscoveryService {
                     }
                 }
                 None => {
-                    let (songs, remaining) = self.prepare(&setting).await?;
-                    prepared_remaining = Some(remaining);
-                    break songs;
+                    break self
+                        .prepare_parts(
+                            &setting,
+                            BATCH_PREPARATION_TIMEOUT,
+                            &inputs.snapshot,
+                            &inputs.excluded,
+                            &inputs.weights,
+                        )
+                        .await?;
                 }
             }
         };
@@ -479,10 +500,6 @@ impl DiscoveryService {
         } else {
             self.cache.set_current_batch(songs.clone()).await;
         }
-        let remaining = match prepared_remaining {
-            Some(count) => count,
-            None => self.remaining_for(&setting)?,
-        };
         let state = self
             .status_for(&setting, remaining)
             .await
@@ -503,46 +520,70 @@ impl DiscoveryService {
     }
 
     async fn fill_preload(&self) -> Result<(), String> {
+        // Settings, source and exclusions are captured once per generation;
+        // queued batches only change the reserved set between loop rounds.
+        let mut generation = self.cache.generation();
+        let mut setting = self.settings()?;
+        let mut inputs = self.sampling_inputs(&setting)?;
+        let mut dedup_plan: Option<(HashSet<String>, usize)> = None;
+        let mut dedup_excluded: Option<HashSet<String>> = None;
         loop {
-            let generation = self.cache.generation();
-            let setting = self.settings()?;
+            if self.cache.generation() != generation {
+                generation = self.cache.generation();
+                setting = self.settings()?;
+                inputs = self.sampling_inputs(&setting)?;
+                dedup_plan = None;
+                dedup_excluded = None;
+            }
             if setting.cache_batches == 0
                 || setting.playlist_albums.iter().all(|source| !source.enabled)
                 || self.cache.batch_count().await >= setting.cache_batches.min(5) as usize
             {
                 return Ok(());
             }
-            let mut inputs = self.sampling_inputs(&setting)?;
-            if setting.preload_deduplication {
-                let eligible: HashSet<_> = inputs
-                    .snapshot
-                    .playlist
-                    .song_ids
-                    .iter()
-                    .filter(|id| !id.is_empty() && !inputs.excluded.contains(*id))
-                    .cloned()
-                    .collect();
+            let excluded: &HashSet<String> = if setting.preload_deduplication {
+                if dedup_plan.is_none() {
+                    let eligible: HashSet<_> = inputs
+                        .snapshot
+                        .playlist
+                        .song_ids
+                        .iter()
+                        .filter(|id| !id.is_empty() && !inputs.excluded.contains(*id))
+                        .cloned()
+                        .collect();
+                    let target = (setting.number_of_discovered_songs.clamp(1, 15)
+                        + if setting.have_mystery_song {
+                            setting
+                                .num_of_mystery_song
+                                .min(15 - setting.number_of_discovered_songs.clamp(1, 15))
+                        } else {
+                            0
+                        }) as usize;
+                    dedup_plan = Some((eligible, target));
+                }
+                let (eligible, target) = dedup_plan.as_ref().expect("dedup plan");
+                let target = *target;
                 let reserved = self.cache.reserved_song_ids(&inputs.source.name).await;
-                let target = (setting.number_of_discovered_songs.clamp(1, 15)
-                    + if setting.have_mystery_song {
-                        setting
-                            .num_of_mystery_song
-                            .min(15 - setting.number_of_discovered_songs.clamp(1, 15))
-                    } else {
-                        0
-                    }) as usize;
-                if eligible.difference(&reserved).count() < target.min(eligible.len())
-                    || eligible.is_empty()
+                if eligible.is_empty()
+                    || eligible.difference(&reserved).count() < target.min(eligible.len())
                 {
                     return Ok(());
                 }
-                inputs.excluded.extend(reserved);
-            }
+                let extended = dedup_excluded.get_or_insert_with(|| inputs.excluded.clone());
+                extended.extend(reserved);
+                extended
+            } else {
+                &inputs.excluded
+            };
             let prepared = tokio::select! {
                 biased;
                 _ = self.cache.generation_changed(generation) => continue,
-                prepared = self.prepare_inputs(
-                    &setting, BATCH_PREPARATION_TIMEOUT, inputs,
+                prepared = self.prepare_parts(
+                    &setting,
+                    BATCH_PREPARATION_TIMEOUT,
+                    &inputs.snapshot,
+                    excluded,
+                    &inputs.weights,
                 ) => prepared,
             };
             match prepared {
@@ -1111,14 +1152,15 @@ impl DiscoveryService {
             return Err("发现记录请求无效".into());
         }
         if identities.is_empty() { return Ok(Vec::new()); }
-        let rows = self
-            .history
-            .entries(MAX_HISTORY_LIMIT)
-            .map_err(|e| e.to_string())?;
-        let rows: HashMap<_, _> = rows
-            .into_iter()
-            .map(|row| ((row.platform.clone(), row.song_id.clone()), row))
+        let wanted_refs: HashSet<(&str, &str)> = identities
+            .iter()
+            .map(|id| (id.platform.as_str(), id.song_id.as_str()))
             .collect();
+        // Capture the version before the network work; an unchanged history does
+        // not need a second full parse when the covers come back.
+        let version = self.history.version().map_err(|e| e.to_string())?;
+        let snapshot = self.history.load().map_err(|e| e.to_string())?;
+        let mut rows = snapshot.selected_entries(&wanted_refs);
         if wanted.iter().any(|id| !rows.contains_key(id)) {
             return Err("发现记录已改变，请刷新后重试".into());
         }
@@ -1162,41 +1204,63 @@ impl DiscoveryService {
                 prepared.push(cover);
             }
         }
-        let _guard = self.cache.operation.lock().await;
-        let mut current = self.history.load().map_err(|e| e.to_string())?;
-        let originals: HashSet<_> = current.entries(MAX_HISTORY_LIMIT).into_iter().collect();
-        let existing: HashSet<_> = originals.iter().map(|row| (row.platform.clone(), row.song_id.clone())).collect();
-        let mut repairs = Vec::new();
         let mut covers = Vec::new();
+        for cover in &prepared {
+            if let Some(bytes) = cover.bytes.clone() {
+                covers.push((
+                    library_key(&cover.row.platform, "song", &cover.row.song_id),
+                    bytes,
+                ));
+            }
+        }
+        // Cover files are content addressed; writing them before the operation
+        // lock cannot restore or change a history row.
+        save_library_covers(&self.store.root().join("history/covers"), &covers)?;
+        let _guard = self.cache.operation.lock().await;
+        let (mut current, current_rows) =
+            if self.history.version().map_err(|e| e.to_string())? == version {
+                (snapshot, rows)
+            } else {
+                let current = self.history.load().map_err(|e| e.to_string())?;
+                rows = current.selected_entries(&wanted_refs);
+                (current, rows)
+            };
+        let mut repairs = Vec::new();
         let mut prepared_data = HashMap::new();
-        for PreparedHistoryCover { row, detail, bytes, data } in prepared {
-            if !originals.contains(&row) {
+        for PreparedHistoryCover {
+            row,
+            detail,
+            bytes: _,
+            data,
+        } in prepared
+        {
+            let key = (row.platform.clone(), row.song_id.clone());
+            if current_rows.get(&key) != Some(&row) {
                 continue;
             }
-            prepared_data.insert((row.platform.clone(), row.song_id.clone()), data);
-            if let Some(bytes) = bytes {
-                covers.push((library_key(&row.platform, "song", &row.song_id), bytes));
-            }
+            prepared_data.insert(key, data);
             if let Some(detail) = detail {
                 repairs.push((row, detail));
             }
         }
-        save_library_covers(&self.store.root().join("history/covers"), &covers)?;
-        self.history
-            .repair_cover_metadata(&mut current, &repairs)
-            .map_err(|e| e.to_string())?;
+        if !repairs.is_empty() {
+            self.history
+                .repair_cover_metadata(&mut current, &repairs)
+                .map_err(|e| e.to_string())?;
+        }
         let mut bytes = 0usize;
         Ok(identities
             .iter()
             .map(|id| {
                 let key = (id.platform.clone(), id.song_id.clone());
-                let data = if existing.contains(&key) {
-                    prepared_data.remove(&key).unwrap_or_else(|| read_library_cover(
+                let data = match prepared_data.remove(&key) {
+                    Some(data) => data,
+                    None if current_rows.contains_key(&key) => read_library_cover(
                         &self.store.root().join("history/covers"),
                         &library_key(&id.platform, "song", &id.song_id),
-                    ))
-                } else {
-                    None
+                    )
+                    .map(Arc::from),
+                    None => None,
                 };
                 let data = data.filter(|data| {
                     bytes = bytes.saturating_add(data.len());
@@ -1222,7 +1286,12 @@ impl DiscoveryService {
             .clone();
         let key = library_key(&row.platform, "song", &row.song_id);
         if let Some(data) = read_library_cover(&self.store.root().join("history/covers"), &key) {
-            return Some(PreparedHistoryCover { row, detail: None, bytes: None, data: Some(data) });
+            return Some(PreparedHistoryCover {
+                row,
+                detail: None,
+                bytes: None,
+                data: Some(Arc::from(data)),
+            });
         }
         tokio::time::timeout(Duration::from_secs(8), async {
             let detail = if row.cover_url.is_empty() || row.has_hidden_metadata() {

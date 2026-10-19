@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 import type { AppState, Preferences, GuiSettings, DesktopPreferences } from "../../types";
 import { Icon } from "../../Icon";
@@ -70,11 +71,17 @@ export function Settings({
   const panel = (id: SettingsSectionId, children: ReactNode) => <SettingsPanel id={id} category={category}>{children}</SettingsPanel>;
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((previous) => ({ ...previous, [key]: value }));
-  const dirty =
-    !samePreferences(draft, state.settings) ||
-    !sameGuiPreferences(guiDraft, state.guiSettings) ||
-    JSON.stringify(desktopDraft) !== JSON.stringify(state.desktopSettings);
-  const appearanceDirty = !sameGuiPreferences(guiDraft, state.guiSettings);
+  const dirty = useMemo(
+    () =>
+      !samePreferences(draft, state.settings) ||
+      !sameGuiPreferences(guiDraft, state.guiSettings) ||
+      JSON.stringify(desktopDraft) !== JSON.stringify(state.desktopSettings),
+    [draft, guiDraft, desktopDraft, state.settings, state.guiSettings, state.desktopSettings],
+  );
+  const appearanceDirty = useMemo(
+    () => !sameGuiPreferences(guiDraft, state.guiSettings),
+    [guiDraft, state.guiSettings],
+  );
   const enabledSource = state.playlists.find((entry) => entry.enabled);
   const total =
     draft.number_of_discovered_songs +

@@ -102,25 +102,25 @@ async fn download(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes.to_vec())
 }
 
-pub async fn prepare_song_cover(cache: &Arc<Cache>, url: &str) -> Result<Option<String>, String> {
+pub async fn prepare_song_cover(cache: &Arc<Cache>, url: &str) -> Result<Option<Arc<str>>, String> {
     if url.is_empty() {
         return Ok(None);
     }
     if let Some(image) = cache.get_prepared_image(url).await {
-        return Ok(image.data_uri.as_deref().map(str::to_owned));
+        return Ok(image.data_uri.clone());
     }
     // A concurrent foreground batch and background batch share a URL request.
     let lock = cache.image_request_lock(url).await;
     let _guard = lock.lock().await;
     if let Some(image) = cache.get_prepared_image(url).await {
-        return Ok(image.data_uri.as_deref().map(str::to_owned));
+        return Ok(image.data_uri.clone());
     }
     let bytes = download(url).await?;
     if crate::platforms::local::is_cover_reference(url) && image_mime(&bytes).is_none() {
         return Ok(None);
     }
     let image = cache.cache_prepared_image(url.to_string(), bytes).await;
-    Ok(image.data_uri.as_deref().map(str::to_owned))
+    Ok(image.data_uri.clone())
 }
 
 pub async fn refresh_library_cover(
@@ -207,13 +207,16 @@ fn prune(root: &Path, keep: &Path, budget: u64) -> std::io::Result<()> {
     Ok(())
 }
 
-pub async fn read_cached_image(cache: &Arc<Cache>, url: &str) -> Option<String> {
+pub async fn read_cached_image(cache: &Arc<Cache>, url: &str) -> Option<Arc<str>> {
     if let Some(image) = cache.get_prepared_image(url).await {
-        return image.data_uri.as_deref().map(str::to_owned);
+        return image.data_uri.clone();
     }
     // get_image intentionally has no remote fallback.
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return read_local(Path::new(url)).ok().and_then(|b| data_uri(&b));
+        return read_local(Path::new(url))
+            .ok()
+            .and_then(|b| data_uri(&b))
+            .map(Arc::from);
     }
     None
 }
@@ -351,7 +354,7 @@ mod tests {
             std::env::temp_dir().join(format!("discoas-large-cover-{}", rand::random::<u64>()));
         let bytes = cache.get_image(&url).await.unwrap();
         save_library_cover(&root, "large", &bytes).unwrap();
-        assert_eq!(read_library_cover(&root, "large").unwrap(), expected);
+        assert_eq!(read_library_cover(&root, "large").unwrap(), expected.as_ref());
         let path = disk_path(&root, "large");
         assert_eq!(
             prepare_song_cover(&Cache::new(), path.to_str().unwrap())

@@ -2,12 +2,21 @@
 //! Favorites/collections/series contain videos (P1); single-video import expands all P.
 use super::{video, FetchProgress, FetchProgressCallback, PlaylistFetcher, TypeName};
 use crate::error::AppResult;
+use once_cell::sync::Lazy;
 use reqwest::{Client, Url};
 use serde_json::{json, Value};
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+};
 
 const MAX_ITEMS: usize = 50_000;
 const PAGE_SIZE: usize = 30;
+const MAX_PAGES: usize = 2_000;
+/// Page requests share one connection pool; imports read many pages per source.
+static CLIENT: Lazy<Client> = Lazy::new(|| {
+    video::client("https://www.bilibili.com/").expect("Bilibili source client")
+});
 pub struct BilibiliFetcher;
 
 pub fn valid_bvid(id: &str) -> bool {
@@ -230,6 +239,61 @@ async fn get(client: &Client, path: &str, query: &[(&str, String)]) -> AppResult
         _ => Err(video::error("Bilibili 来源无法读取")),
     }
 }
+
+/// One page of a favorites list, collection or series. Page numbers are
+/// independent, so callers can read several at once after page one fixes total.
+async fn fetch_page(
+    client: &Client,
+    kind: TypeName,
+    id: &str,
+    page: usize,
+    page_size: usize,
+) -> AppResult<Value> {
+    match kind {
+        TypeName::Favorites => {
+            get(
+                client,
+                "/x/v3/fav/resource/list",
+                &[
+                    ("media_id", id.to_string()),
+                    ("pn", page.to_string()),
+                    ("ps", page_size.to_string()),
+                    ("platform", "web".to_string()),
+                ],
+            )
+            .await
+        }
+        TypeName::Collection => {
+            let (uid, sid) = pair(id)?;
+            get(
+                client,
+                "/x/polymer/web-space/seasons_archives_list",
+                &[
+                    ("mid", uid.to_string()),
+                    ("season_id", sid.to_string()),
+                    ("page_num", page.to_string()),
+                    ("page_size", page_size.to_string()),
+                ],
+            )
+            .await
+        }
+        TypeName::Series => {
+            let (uid, sid) = pair(id)?;
+            get(
+                client,
+                "/x/series/archives",
+                &[
+                    ("mid", uid.to_string()),
+                    ("series_id", sid.to_string()),
+                    ("pn", page.to_string()),
+                    ("ps", page_size.to_string()),
+                ],
+            )
+            .await
+        }
+        _ => Err(video::error("不支持的视频来源类型")),
+    }
+}
 fn cover(value: &str) -> String {
     if let Some(rest) = value.strip_prefix("http://") {
         format!("https://{rest}")
@@ -315,7 +379,7 @@ impl PlaylistFetcher for BilibiliFetcher {
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         let stable_id = normalize(kind, id)?;
-        let client = video::client("https://www.bilibili.com/")?;
+        let client = CLIENT.clone();
         progress(FetchProgress {
             completed: 0,
             total: None,
@@ -343,11 +407,10 @@ impl PlaylistFetcher for BilibiliFetcher {
         }
         let mut tracks = Vec::new();
         let mut seen = HashSet::new();
-        let mut fetched = 0;
-        let mut expected = None;
-        let mut unavailable = 0;
+        let mut fetched = 0usize;
+        let mut unavailable = 0usize;
         let mut name = id.clone();
-        let mut image = String::new();
+        let mut image;
         let series_meta = if kind == TypeName::Series {
             let (_, sid) = pair(&id)?;
             Some(get(&client, "/x/series/series", &[("series_id", sid.into())]).await?)
@@ -357,80 +420,83 @@ impl PlaylistFetcher for BilibiliFetcher {
         if let Some(meta) = &series_meta {
             name = meta["meta"]["name"].as_str().unwrap_or(&id).into();
         }
-        for page in 1..=2_000 {
-            let data = match kind {
-                TypeName::Favorites => {
-                    get(
-                        &client,
-                        "/x/v3/fav/resource/list",
-                        &[
-                            ("media_id", id.clone()),
-                            ("pn", page.to_string()),
-                            ("ps", "20".into()),
-                            ("platform", "web".into()),
-                        ],
-                    )
-                    .await?
-                }
-                TypeName::Collection => {
-                    let (uid, sid) = pair(&id)?;
-                    get(
-                        &client,
-                        "/x/polymer/web-space/seasons_archives_list",
-                        &[
-                            ("mid", uid.into()),
-                            ("season_id", sid.into()),
-                            ("page_num", page.to_string()),
-                            ("page_size", PAGE_SIZE.to_string()),
-                        ],
-                    )
-                    .await?
-                }
-                TypeName::Series => {
-                    let (uid, sid) = pair(&id)?;
-                    get(
-                        &client,
-                        "/x/series/archives",
-                        &[
-                            ("mid", uid.into()),
-                            ("series_id", sid.into()),
-                            ("pn", page.to_string()),
-                            ("ps", PAGE_SIZE.to_string()),
-                        ],
-                    )
-                    .await?
-                }
-                _ => unreachable!(),
+        let page_size = if kind == TypeName::Favorites {
+            20
+        } else {
+            PAGE_SIZE
+        };
+        let first = fetch_page(&client, kind, &id, 1, page_size).await?;
+        let total = if kind == TypeName::Favorites {
+            first["info"]["media_count"].as_u64()
+        } else {
+            first["page"]["total"].as_u64()
+        }
+        .ok_or_else(|| video::error("来源缺少视频总数，原缓存保留"))? as usize;
+        if total > MAX_ITEMS {
+            return Err(video::error("来源数量超出导入上限"));
+        }
+        if total == 0 {
+            return Err(video::error("来源为空或没有可访问的视频"));
+        }
+        {
+            let meta = if kind == TypeName::Favorites {
+                &first["info"]
+            } else {
+                &first["meta"]
             };
-            let total = if kind == TypeName::Favorites {
+            let meta_name = meta["title"]
+                .as_str()
+                .or_else(|| meta["name"].as_str())
+                .unwrap_or(&name)
+                .to_string();
+            name = meta_name;
+            image = cover(meta["cover"].as_str().unwrap_or(""));
+        }
+        // Page one fixes the total. Later page numbers are independent, so a
+        // small chunk is read together and then validated in page order.
+        let mut final_has_more = None;
+        let mut pending: VecDeque<(usize, Value)> = VecDeque::new();
+        pending.push_back((1, first));
+        let mut next_page = 2usize;
+        while fetched < total {
+            if pending.is_empty() {
+                if next_page > MAX_PAGES {
+                    return Err(video::error("来源分页超出上限，原缓存保留"));
+                }
+                let wanted = (total - fetched).div_ceil(page_size).max(1);
+                let end = (next_page + 3)
+                    .min(MAX_PAGES)
+                    .min(next_page + wanted - 1);
+                let mut set = tokio::task::JoinSet::new();
+                for page in next_page..=end {
+                    let client = client.clone();
+                    let id = id.clone();
+                    set.spawn(async move {
+                        let data = fetch_page(&client, kind, &id, page, page_size).await;
+                        (page, data)
+                    });
+                }
+                let mut chunk = Vec::with_capacity(end - next_page + 1);
+                while let Some(joined) = set.join_next().await {
+                    let Ok((page, data)) = joined else {
+                        return Err(video::error("来源读取失败，原缓存保留"));
+                    };
+                    chunk.push((page, data?));
+                }
+                chunk.sort_by_key(|(page, _)| *page);
+                pending.extend(chunk);
+                next_page = end + 1;
+            }
+            let (page, data) = pending.pop_front().expect("pending page");
+            let page_total = if kind == TypeName::Favorites {
                 data["info"]["media_count"].as_u64()
             } else {
                 data["page"]["total"].as_u64()
             }
             .ok_or_else(|| video::error("来源缺少视频总数，原缓存保留"))?
                 as usize;
-            if total > MAX_ITEMS {
-                return Err(video::error("来源数量超出导入上限"));
-            }
-            if expected.is_some_and(|n| n != total) {
+            if page_total != total {
                 return Err(video::error("来源在导入期间发生变化，请重试"));
-            }
-            expected = Some(total);
-            if page == 1 {
-                let meta = if kind == TypeName::Favorites {
-                    &data["info"]
-                } else {
-                    &data["meta"]
-                };
-                name = meta["title"]
-                    .as_str()
-                    .or_else(|| meta["name"].as_str())
-                    .unwrap_or(&name)
-                    .into();
-                image = cover(meta["cover"].as_str().unwrap_or(""));
-            }
-            if total == 0 {
-                return Err(video::error("来源为空或没有可访问的视频"));
             }
             let items = data[if kind == TypeName::Favorites {
                 "medias"
@@ -463,48 +529,10 @@ impl PlaylistFetcher for BilibiliFetcher {
                 pages: page,
             });
             if fetched == total {
-                if kind == TypeName::Favorites && data["has_more"].as_bool() == Some(true) {
-                    return Err(video::error("来源分页数量不一致，原缓存保留"));
+                if kind == TypeName::Favorites {
+                    final_has_more = data["has_more"].as_bool();
                 }
-                if image.is_empty() {
-                    image = tracks
-                        .first()
-                        .and_then(|t| t["cover_url"].as_str())
-                        .unwrap_or("")
-                        .into();
-                }
-                if matches!(kind, TypeName::Collection | TypeName::Series)
-                    && tracks
-                        .iter()
-                        .any(|t| t["artists"].as_array().is_some_and(|a| a.is_empty()))
-                {
-                    // These endpoints omit uploader names; a source-owned video's public view
-                    // provides the name once per update, never once per discovery card.
-                    let (uid, _) = pair(&id)?;
-                    if let Some(bvid) = tracks.first().and_then(|t| t["bvid"].as_str()) {
-                        if let Ok(view) =
-                            get(&client, "/x/web-interface/view", &[("bvid", bvid.into())]).await
-                        {
-                            let owner_id = view["owner"]["mid"]
-                                .as_u64()
-                                .map(|n| n.to_string())
-                                .or_else(|| view["owner"]["mid"].as_str().map(str::to_owned));
-                            if owner_id.as_deref() == Some(uid) {
-                                if let Some(author) =
-                                    view["owner"]["name"].as_str().filter(|s| !s.is_empty())
-                                {
-                                    for track in &mut tracks {
-                                        if track["artists"].as_array().is_some_and(|a| a.is_empty())
-                                        {
-                                            track["artists"] = json!([author]);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                return source_snapshot(&stable_id, &id, kind, &name, &image, tracks, unavailable);
+                break;
             }
             if fetched > total
                 || (kind == TypeName::Favorites && data["has_more"].as_bool() == Some(false))
@@ -512,7 +540,47 @@ impl PlaylistFetcher for BilibiliFetcher {
                 return Err(video::error("来源目录不完整，原缓存保留"));
             }
         }
-        Err(video::error("来源分页超出上限，原缓存保留"))
+        if kind == TypeName::Favorites && final_has_more == Some(true) {
+            return Err(video::error("来源分页数量不一致，原缓存保留"));
+        }
+        if image.is_empty() {
+            image = tracks
+                .first()
+                .and_then(|t| t["cover_url"].as_str())
+                .unwrap_or("")
+                .into();
+        }
+        if matches!(kind, TypeName::Collection | TypeName::Series)
+            && tracks
+                .iter()
+                .any(|t| t["artists"].as_array().is_some_and(|a| a.is_empty()))
+        {
+            // These endpoints omit uploader names; a source-owned video's public view
+            // provides the name once per update, never once per discovery card.
+            let (uid, _) = pair(&id)?;
+            if let Some(bvid) = tracks.first().and_then(|t| t["bvid"].as_str()) {
+                if let Ok(view) =
+                    get(&client, "/x/web-interface/view", &[("bvid", bvid.into())]).await
+                {
+                    let owner_id = view["owner"]["mid"]
+                        .as_u64()
+                        .map(|n| n.to_string())
+                        .or_else(|| view["owner"]["mid"].as_str().map(str::to_owned));
+                    if owner_id.as_deref() == Some(uid) {
+                        if let Some(author) =
+                            view["owner"]["name"].as_str().filter(|s| !s.is_empty())
+                        {
+                            for track in &mut tracks {
+                                if track["artists"].as_array().is_some_and(|a| a.is_empty()) {
+                                    track["artists"] = json!([author]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        source_snapshot(&stable_id, &id, kind, &name, &image, tracks, unavailable)
     }
 }
 

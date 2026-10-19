@@ -147,7 +147,9 @@ impl LocalSource {
         let mut missing = Vec::new();
         for (index, path) in files.into_values().enumerate() {
             check_cancelled(cancelled)?;
-            if !path.is_file() {
+            // A single stat identifies missing tracks and stamps the cover.
+            let metadata = std::fs::metadata(&path).ok();
+            if !metadata.as_ref().is_some_and(|m| m.is_file()) {
                 missing.push(path);
             } else {
                 let mut title = path
@@ -176,7 +178,7 @@ impl LocalSource {
                     }
                 }
                 tracks.push(json!({"id":song_id(&path), "name":title, "artists":artists,
-                    "path":path, "cover_url":cover_reference(&path)}));
+                    "path":path, "cover_url":cover_reference(&path, metadata.as_ref())}));
             }
             if index % 32 == 0 || index + 1 == total {
                 progress(FetchProgress {
@@ -285,10 +287,8 @@ pub fn playback_path(id: &str, filename: &str) -> AppResult<String> {
     }
     Ok(path.to_string_lossy().into_owned())
 }
-fn cover_reference(path: &Path) -> String {
-    let metadata = std::fs::metadata(path).ok();
+fn cover_reference(path: &Path, metadata: Option<&std::fs::Metadata>) -> String {
     let stamp = metadata
-        .as_ref()
         .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |t| t.as_nanos());

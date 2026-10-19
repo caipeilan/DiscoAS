@@ -16,7 +16,7 @@ pub struct SongCardDto {
     pub artist_names: Vec<String>,
     pub album_pic_url: String,
     #[serde(default)]
-    pub cover_data_uri: Option<String>,
+    pub cover_data_uri: Option<std::sync::Arc<str>>,
     #[serde(default)]
     pub cover_error: Option<String>,
     pub mystery_mode: bool,
@@ -98,7 +98,7 @@ pub struct HistoryMutationDto {
 pub struct HistoryCoverDto {
     pub platform: String,
     pub song_id: String,
-    pub cover_data_uri: Option<String>,
+    pub cover_data_uri: Option<std::sync::Arc<str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

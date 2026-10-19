@@ -251,7 +251,8 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
     });
     if (floating) {
       for (const attachment of [
-        listenPreviewPointer((point) => setPreviewPointer(point)),
+        listenPreviewPointer((point) => setPreviewPointer((current) =>
+          current && current.x === point.x && current.y === point.y ? current : point)),
         listenPreviewKey((event) => setPreviewKey({ event: { ...event, isComposing: false }, sequence: ++previewKeySequence.current })),
         listenPreviewAppearance((gui) => setPreviewGui(gui)),
         listenPreviewClosed(() => {

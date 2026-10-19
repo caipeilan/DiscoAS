@@ -18,5 +18,7 @@ pub async fn read_cached_image(
     cache: &Arc<Cache>,
     url: &str,
 ) -> Option<String> {
-    discoas_core::image_cache::read_cached_image(cache, url).await
+    discoas_core::image_cache::read_cached_image(cache, url)
+        .await
+        .map(|data| data.to_string())
 }
