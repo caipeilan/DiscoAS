@@ -102,6 +102,11 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
     <SettingRow title={t("迷你发现")}><Toggle label={t("迷你发现")} value={discovery.enabled} onChange={v => setDiscovery("enabled", v)} /></SettingRow>
     <Reveal open={discovery.enabled}>
       {value.enabled && <SettingRow title={t("与手牌合并布局")}><Toggle label={t("与手牌合并布局")} value={discovery.merged} onChange={v => setDiscovery("merged", v)} /></SettingRow>}
+      <SettingRow title={t("Liquid 效果")} description={t("实时模糊更接近液态玻璃，但会增加游戏运行时的 GPU 合成开销；静态磨砂更省性能。")}>
+        <Select label={t("Liquid 效果")} value={discovery.liquid_mode ?? "static"} options={[
+          { value: "static", label: t("静态磨砂") }, { value: "blur", label: t("实时模糊") },
+        ]} onChange={v => setDiscovery("liquid_mode", v as HandDiscoverySettings["liquid_mode"])} />
+      </SettingRow>
       <SettingRow title={t("Liquid 强度")} description={t("0% 关闭玻璃效果，100% 为完整效果。") }>
         <div className="scale-field">
           <input type="range" aria-label={t("Liquid 强度滑块")} min={0} max={100} step={1} value={discovery.liquid_strength}

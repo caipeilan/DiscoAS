@@ -49,13 +49,21 @@ export const defaultHandSettings: HandSettings = {
   shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
   play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
 };
-export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edge_distance" | "position" | "overlap" | "tilt"> { enabled: boolean; merged: boolean; text_outline_width: number; liquid_strength: number }
-export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, text_outline_width: 1, liquid_strength: 100, side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
+export type LiquidMode = "static" | "blur";
+export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edge_distance" | "position" | "overlap" | "tilt"> { enabled: boolean; merged: boolean; text_outline_width: number; liquid_strength: number; liquid_mode: LiquidMode }
+export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, text_outline_width: 1, liquid_strength: 100, liquid_mode: "static", side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
 export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean; discovery?: boolean; placeholder?: boolean }
 export interface CollectedHandCard { id: string; discovery: DiscoveryState }
 export interface HandRect { left: number; top: number; width: number; height: number }
 export interface HandPoint { x: number; y: number }
 export interface HandSurface { left: number; top: number; width: number; height: number; scale: number }
+export interface HandDragPose { x: number; y: number; angle: number; width: number; height: number; scale: number }
+export interface HandDragSnapshot {
+  generation: number; card: HandCard; settings: HandSettings;
+  discoverySettings: HandDiscoverySettings; gui: GuiSettings; pose: HandDragPose;
+}
+export interface HandDragIntent { playable: boolean; collecting: boolean; dx: number; dy: number }
+export interface HandDragEnd { cancelled: boolean }
 export interface HandDockSnapshot {
   generation: number; count: number; settings: HandSettings; gui: GuiSettings;
   workArea: HandRect; workAreas: HandRect[]; dockPoint: HandPoint | null; expanded: boolean;

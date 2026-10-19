@@ -8,16 +8,17 @@ const DiscoverWindow = React.lazy(() => import("./features/discovery/DiscoverWin
 const TrayMenu = React.lazy(() => import("./features/tray/TrayMenu").then((m) => ({ default: m.TrayMenu })));
 const HandWindow = React.lazy(() => import("./features/hand/HandWindow").then((m) => ({ default: m.HandWindow })));
 const HandDockWindow = React.lazy(() => import("./features/hand/HandDockWindow").then((m) => ({ default: m.HandDockWindow })));
+const HandDragWindow = React.lazy(() => import("./features/hand/HandDragWindow").then((m) => ({ default: m.HandDragWindow })));
 
 const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
 if (favicon) favicon.href = appLogo;
 
 const view = new URLSearchParams(location.search).get("view");
-document.documentElement.classList.toggle("hand-window", view === "hand" || view === "hand-dock");
+document.documentElement.classList.toggle("hand-window", view === "hand" || view === "hand-dock" || view === "hand-drag");
 document.documentElement.classList.toggle("tray-menu-window", view === "tray");
 document.documentElement.classList.toggle(
   "floating-window",
-  view === "discover" || view === "splash" || view === "tray" || view === "hand" || view === "hand-dock",
+  view === "discover" || view === "splash" || view === "tray" || view === "hand" || view === "hand-dock" || view === "hand-drag",
 );
 
 function Root() {
@@ -26,6 +27,7 @@ function Root() {
   if (view === "tray") return <TrayMenu />;
   if (view === "hand") return <HandWindow />;
   if (view === "hand-dock") return <HandDockWindow />;
+  if (view === "hand-drag") return <HandDragWindow />;
   return startupDone ? (
     <App />
   ) : (

@@ -225,6 +225,30 @@ pub fn show(window: &WebviewWindow, visible: bool) -> Result<(), String> {
     .map(|_| ())
 }
 
+/// Raise any passive floating surface to the top of the topmost band.
+pub fn raise_topmost(window: &WebviewWindow) -> Result<(), String> {
+    let handle = window.hwnd().map_err(|_| "错误：浮窗窗口不可用")?.0 as usize;
+    dispatch(window, move |_| {
+        let hwnd = handle as HWND;
+        unsafe {
+            if SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+            ) == 0
+            {
+                return Err("错误：无法调整浮窗层级".into());
+            }
+        }
+        Ok(())
+    })
+    .map(|_| ())
+}
+
 /// Discovery takes precedence over held cards and their control dock while visible.
 pub fn raise_discovery(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("overlay") else {

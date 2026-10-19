@@ -182,6 +182,7 @@ pub fn run() {
         .manage(desktop::auto_hand::AutoHandService::default())
         .manage(desktop::hand_discovery::HandDiscoveryState::default())
         .manage(desktop::hand_dock::DockState::default())
+        .manage(desktop::hand_drag::DragState::default())
         .manage(AtomicBool::new(false))
         .manage(StartupPending(AtomicBool::new(true)))
         .manage(StartupShowMain(AtomicBool::new(true)))
@@ -351,6 +352,10 @@ pub fn run() {
             desktop::hand_dock::position_hand_dock,
             desktop::hand_dock::set_hand_dock_hit_regions,
             desktop::hand_dock::save_hand_dock,
+            desktop::hand_drag::begin_hand_drag,
+            desktop::hand_drag::set_hand_drag_intent,
+            desktop::hand_drag::end_hand_drag,
+            desktop::hand_drag::hand_drag_ready,
             desktop::hand_actions::collect_hand_card,
             desktop::hand::show_collected_hand_card,
             desktop::hand_actions::play_hand_card,

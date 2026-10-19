@@ -12,6 +12,7 @@ pub mod hand;
 pub mod hand_actions;
 pub mod hand_discovery;
 pub mod hand_dock;
+pub mod hand_drag;
 mod hand_input;
 pub mod library;
 pub mod monitors;

@@ -1,4 +1,5 @@
 //! Pointer observation and keyboard ownership for the card surface.
+use super::geometry::Point;
 use super::hand::{preview, visible, HandState};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager};
@@ -24,6 +25,7 @@ pub(super) fn observe_pointer(app: tauri::AppHandle, generation: u64) {
             return;
         };
         let mut last = None;
+        let mut last_drag = None;
         let mut last_regions_revision = u64::MAX;
         let mut intercepting = unsafe {
             let hwnd = window.hwnd().unwrap().0 as windows_sys::Win32::Foundation::HWND;
@@ -34,7 +36,8 @@ pub(super) fn observe_pointer(app: tauri::AppHandle, generation: u64) {
         };
         let is_preview = preview(&app);
         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            let drag_active = super::hand_drag::is_active(&app);
+            tokio::time::sleep(std::time::Duration::from_millis(if drag_active { 8 } else { 16 })).await;
             let state = app.state::<HandState>();
             if state.generation.load(Ordering::Acquire) != generation
                 || !state.card_visible.load(Ordering::Acquire)
@@ -50,6 +53,33 @@ pub(super) fn observe_pointer(app: tauri::AppHandle, generation: u64) {
                 (cursor.x - canvas.origin.x) as f64 / canvas.scale,
                 (cursor.y - canvas.origin.y) as f64 / canvas.scale,
             );
+            if let Some(motion) = super::hand_drag::motion(&app) {
+                if last_drag != Some(pointer) {
+                    // A small layered window follows the physical cursor; the
+                    // hand WebView never resizes for an arbitrary drag path.
+                    use windows_sys::Win32::UI::WindowsAndMessaging::{
+                        SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
+                        SWP_NOZORDER,
+                    };
+                    let center = Point {
+                        x: pointer.0 + motion.offset.x,
+                        y: pointer.1 + motion.offset.y,
+                    };
+                    let physical = canvas.physical(center);
+                    unsafe {
+                        SetWindowPos(
+                            motion.hwnd as windows_sys::Win32::Foundation::HWND,
+                            std::ptr::null_mut(),
+                            (physical.x - motion.size.width as f64 / 2.0).round() as i32,
+                            (physical.y - motion.size.height as f64 / 2.0).round() as i32,
+                            0,
+                            0,
+                            SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE | SWP_ASYNCWINDOWPOS,
+                        );
+                    }
+                    last_drag = Some(pointer);
+                }
+            }
             let revision = state.regions_revision.load(Ordering::Acquire);
             if last == Some(pointer) && revision == last_regions_revision {
                 continue;

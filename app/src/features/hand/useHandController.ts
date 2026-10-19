@@ -380,7 +380,7 @@ export function useHandController() {
   const errorPosition = errorDock ? { left: errorDock.left, top: Math.max(snapshot.workArea.top + 8, errorDock.top - 48) } : undefined;
   const clearError = () => setError("");
   return { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
-    busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
+    scheduleRegions, busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId: groups.discovery[replacing]?.id,
     refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount: groups.discovery.length, ordinaryCount: groups.ordinary.length,

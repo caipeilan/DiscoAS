@@ -344,6 +344,9 @@ async fn open(
 ) -> Result<(), String> {
     let state = app.state::<HandState>();
     let _serial = state.serial.lock().await;
+    if super::hand_drag::is_active(app) {
+        super::hand_drag::hide(app);
+    }
     let is_preview = draft.is_some();
     {
         let mut ready = state.arrival_ready.lock().unwrap();
@@ -378,6 +381,9 @@ async fn open(
     if app.get_webview_window(LABEL).is_none() {
         create(app).await?;
     }
+    // Warm the transient drag surface while the hand is opening; it stays
+    // hidden until a card is actually dragged.
+    super::hand_drag::ensure(app);
     let canvas = position_surface(app, !visible(app))?;
     if is_preview {
         fit_card_surface(
@@ -612,6 +618,9 @@ async fn set_expanded(app: &tauri::AppHandle, expanded: bool, focus: bool) -> Re
         }
     }
     state.expanded.store(expanded, Ordering::Release);
+    if !expanded {
+        super::hand_drag::hide(app);
+    }
     state
         .keyboard_active
         .store(focus && expanded, Ordering::Release);
@@ -658,6 +667,7 @@ pub fn stop_preview(app: &tauri::AppHandle) {
     }
 }
 pub fn hide(app: &tauri::AppHandle) {
+    super::hand_drag::hide(app);
     let state = app.state::<HandState>();
     state.arrival_ready.lock().unwrap().take();
     state.visible.store(false, Ordering::Release);
@@ -851,16 +861,10 @@ pub async fn set_hand_hit_regions(
     let is_preview = preview(&app);
     let mut resized = false;
     if !is_preview {
-        let bounds = if dragging {
-            Some(Rect {
-                left: -32.0,
-                top: -32.0,
-                width: canvas.size.width as f64 / canvas.scale + 64.0,
-                height: canvas.size.height as f64 / canvas.scale + 64.0,
-            })
-        } else {
-            drawing_bounds.or_else(|| drawing_extent(&rects))
-        };
+        // Dragging no longer expands the hand surface to the virtual desktop.
+        // The dedicated drag window owns the moving card; the compact hand
+        // surface keeps its precomputed drawing envelope.
+        let bounds = drawing_bounds.or_else(|| drawing_extent(&rects));
         if let Some(bounds) = bounds {
             if *state.drawing_bounds.lock().unwrap() != Some(bounds) {
                 fit_card_surface(

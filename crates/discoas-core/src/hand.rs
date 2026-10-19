@@ -47,6 +47,16 @@ pub enum AutoPlayPosition {
     First,
     Last,
 }
+/// The card face either pays for a live backdrop filter or uses a static
+/// frosted treatment. Static is the default so game overlays do not compete
+/// with the foreground game for compositor time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LiquidMode {
+    #[default]
+    Static,
+    Blur,
+}
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AutoDetectionMode {
@@ -131,6 +141,7 @@ pub struct HandDiscoverySettings {
     pub merged: bool,
     pub text_outline_width: f64,
     pub liquid_strength: f64,
+    pub liquid_mode: LiquidMode,
     pub side: HandSide,
     pub scale: f64,
     pub edge_distance: f64,
@@ -146,6 +157,7 @@ impl Default for HandDiscoverySettings {
             merged: true,
             text_outline_width: 1.0,
             liquid_strength: 100.0,
+            liquid_mode: LiquidMode::Static,
             side: hand.side,
             scale: hand.scale,
             edge_distance: hand.edge_distance,
@@ -201,12 +213,14 @@ mod shortcut_settings_tests {
             serde_json::from_str(r#"{"enabled":true}"#).unwrap();
         assert_eq!(discovery.text_outline_width, 1.0);
         assert_eq!(discovery.liquid_strength, 100.0);
+        assert_eq!(discovery.liquid_mode, LiquidMode::Static);
         discovery = serde_json::from_str(
-            r#"{"enabled":true,"text_outline_enabled":false,"text_outline_width":0.7,"liquid_strength":42.5}"#,
+            r#"{"enabled":true,"text_outline_enabled":false,"text_outline_width":0.7,"liquid_strength":42.5,"liquid_mode":"blur"}"#,
         )
         .unwrap();
         assert_eq!(discovery.text_outline_width, 0.7);
         assert_eq!(discovery.liquid_strength, 42.5);
+        assert_eq!(discovery.liquid_mode, LiquidMode::Blur);
         assert_eq!(
             serde_json::from_str::<HandDiscoverySettings>(
                 &serde_json::to_string(&discovery).unwrap()

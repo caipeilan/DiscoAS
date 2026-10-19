@@ -104,9 +104,11 @@ export function useHandSurface(context: SurfaceContext) {
       measuring = true; dirty = false;
       await commitRegions.current().catch((e) => { if (!cancelled) setError(errorText(e)); });
       measuring = false;
-      if (!cancelled && (dirty || stage.current?.getAnimations({ subtree: true }).some((a) => a.playState === "running" || a.pending))) {
-        schedule();
-      }
+      // Animated geometry is committed by the state change that starts it and
+      // by the transition/animation-end hooks. Polling every animation frame
+      // forced a DOM read plus native region IPC exactly while the game was
+      // competing for the same frame budget.
+      if (!cancelled && dirty) schedule();
     };
     scheduleRegions.current = schedule;
     const observer = new ResizeObserver(schedule);

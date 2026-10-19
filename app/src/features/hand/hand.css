@@ -40,6 +40,14 @@
 .hand-card-face > span { margin: 1px 4px; flex-shrink: 0; font-size: calc(10px * var(--font-scale)); line-height: 1.5; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hand-active .hand-card-face { border-color: var(--accent-focus); box-shadow: var(--shadow-floating), 0 0 0 1px var(--accent-focus); }
 .hand-dragging { cursor: grabbing; transition: none; will-change: transform; }
+/* The source card keeps pointer capture but the dedicated drag surface owns
+   the pixels while the pointer moves. */
+.hand-card.hand-drag-source { opacity: 0 !important; transition: none; }
+.hand-card.hand-drag-dropping { animation: hand-drag-drop 160ms ease both; }
+@keyframes hand-drag-drop { to { opacity: 0; } }
+.hand-drag-stage { position: fixed; inset: 0; width: 100%; height: 100%; display: grid; place-items: center; pointer-events: none; }
+.hand-drag-stage .hand-card { left: 50%; top: 50%; pointer-events: none; }
+.hand-drag-stage .hand-card-face, .hand-drag-stage .hand-release-label { pointer-events: none; }
 .hand-card[data-hand-motion] { transition: none; will-change: transform, opacity; }
 .hand-card:focus { outline: none; }
 .hand-pending { visibility: hidden; pointer-events: none; }
@@ -53,6 +61,15 @@
 .hand-discovery { --hand-glass-text: #fff; --hand-glass-outline-color: #000; }
 :root[data-theme="dark"] .hand-discovery { --hand-glass-text: #000; --hand-glass-outline-color: #fff; }
 .hand-discovery .hand-card-face { background: color-mix(in srgb, var(--surface) var(--hand-glass-opacity, 46%), transparent); color: var(--hand-glass-text); border-color: color-mix(in srgb, var(--text) 16%, transparent); backdrop-filter: var(--hand-glass-filter, blur(22px) saturate(160%)); box-shadow: inset 1px 1px 0 color-mix(in srgb, var(--surface) var(--hand-glass-highlight, 70%), transparent), var(--shadow-popover); }
+/* Static frosted mode keeps the translucent/bright treatment without asking
+   the compositor to re-filter a moving card over a game every frame. */
+.hand-stage[data-liquid-mode="static"] .hand-discovery .hand-card-face {
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--surface) min(100%, calc(var(--hand-glass-opacity, 46%) + 8%)), transparent),
+    color-mix(in srgb, var(--surface) var(--hand-glass-opacity, 46%), var(--text) 5%));
+  backdrop-filter: none;
+}
+.hand-stage[data-liquid-mode="static"] .hand-discovery .hand-card-face { -webkit-backdrop-filter: none; }
 .hand-discovery .hand-card-face > span, .hand-discovery .hand-release-label { color: var(--hand-glass-text); }
 .hand-discovery .hand-card-face > strong, .hand-discovery .hand-card-face > span, .hand-discovery .hand-release-label { -webkit-text-stroke: calc(var(--hand-glass-outline, 1px) * var(--font-scale, 1)) var(--hand-glass-outline-color); paint-order: stroke fill; }
 .hand-discovery .hand-release-label svg { color: var(--text-secondary); }

@@ -4,15 +4,15 @@ import { call, desktop, onDesktopEvent } from "../../services/desktop";
 import { errorText } from "../../i18n";
 import { keybindingFromEvent } from "../settings/discoveryKeybindings";
 import { canPlayDrag, reorderHandGroups, reorderIndex, hoverGroupedHandIndex, groupSettings, handIntakeIndex } from "./handLayout";
-import { handPoseBounds } from "./handDrawingBounds";
 import { releaseHandMotion } from "./handMotion";
 import { readPose, type Drag, type HandInputContext } from "./handControllerTypes";
 
 /** Owns pointer gestures, hover mode and keyboard selection; card rendering stays declarative. */
 export function useHandInput(context: HandInputContext) {
   const { snapshot, current, mounted, dockMoving, stage, busyRef, selectedRef, hoverRef, inputRef, pointer,
-    toolbarBounds, posesRef, restPosesRef, dragRef, dragFrame, dragDrawing, setDrag, setInputMode, setHover,
-    setSelected, setSnapshot, setError, toCanvas, scheduleRegions, commitRegions, operation } = context;
+    toolbarBounds, posesRef, restPosesRef, dragRef, dragFrame, setDrag, setInputMode, setHover,
+    setSelected, setSnapshot, setError, toCanvas, operation } = context;
+  const dragIntentAt = useRef(0);
   const keyboard = (event: KeyboardEvent | HandKey) => {
     const state = current.current;
     if (!state.expanded || dockMoving) return;
@@ -47,6 +47,34 @@ export function useHandInput(context: HandInputContext) {
       selectedRef.current = state.cards[next].id; setSelected(state.cards[next].id);
     }
   };
+  const finishNativeDrag = (held: Drag) => {
+    cancelAnimationFrame(dragFrame.current); dragFrame.current = 0;
+    if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
+    dragRef.current = null; dragIntentAt.current = 0; setDrag(null);
+  };
+  const cancelDrag = () => {
+    const held = dragRef.current; if (!held) return;
+    if (held.nativeStarted) {
+      const generation = current.current.generation;
+      void held.prepared.catch(() => {}).then(() => call("end_hand_drag", { generation, cancelled: true })).catch(() => {});
+    }
+    finishNativeDrag(held);
+  };
+  const beginNativeDrag = (held: Drag) => {
+    const state = current.current;
+    held.nativeStarted = true;
+    setDrag({ ...held });
+    held.prepared = call("begin_hand_drag", {
+      generation: state.generation, card: held.card, settings: state.settings,
+      discoverySettings: state.discoverySettings!, gui: state.gui,
+      pointer: { x: held.startX, y: held.startY }, pose: held.pose,
+    }).then(() => {}).catch((error) => {
+      held.nativeStarted = false;
+      void call("end_hand_drag", { generation: state.generation, cancelled: true }).catch(() => {});
+      if (!held.ending && dragRef.current === held) cancelDrag();
+      setError(errorText(error));
+    });
+  };
   const paintDrag = () => {
     dragFrame.current = 0;
     const held = dragRef.current; if (!held?.ready) return;
@@ -61,25 +89,24 @@ export function useHandInput(context: HandInputContext) {
       const changed = held.index !== index || held.playable !== playable || held.intake !== intake;
       held.index = index; held.intake = intake; held.playable = playable;
       if (changed && !held.ending) setDrag({ ...held });
+      if (held.nativeStarted) {
+        const now = performance.now();
+        if (changed || now - dragIntentAt.current > 33) {
+          dragIntentAt.current = now;
+          void call("set_hand_drag_intent", {
+            generation: state.generation, playable: held.playable,
+            collecting: held.intake !== null, dx: held.dx, dy: held.dy,
+          }).catch(() => {});
+        }
+      }
     }
-    held.element.style.setProperty("--card-x", `${held.dx}px`);
-    held.element.style.setProperty("--card-y", `${held.dy}px`);
-    held.element.style.setProperty("--drag-angle", `${Math.max(-8, Math.min(8, held.dx*.05))}deg`);
-    scheduleRegions.current();
-  };
-  const cancelDrag = () => {
-    const held = dragRef.current; if (!held) return;
-    cancelAnimationFrame(dragFrame.current); dragFrame.current = 0;
-    held.element.style.setProperty("--card-x", "0px"); held.element.style.setProperty("--card-y", "0px");
-    held.element.style.removeProperty("--drag-angle");
-    dragRef.current = null; dragDrawing.current = null; setDrag(null);
-    scheduleRegions.current();
-    if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
   };
   const endDrag = async (event: React.PointerEvent) => {
     const held = dragRef.current; if (!held || held.ending || event.pointerId !== held.pointerId) return;
     if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) updateDragPosition(held, event.clientX, event.clientY);
     held.ending = true;
+    // The begin command may still be creating/showing the drag surface; never
+    // let an end race ahead of it and leave a stale visible window.
     await held.prepared.catch(() => {});
     if (dragRef.current !== held) return;
     const state = current.current;
@@ -89,18 +116,38 @@ export function useHandInput(context: HandInputContext) {
     const valid = canPlayDrag(settings.side, held.dx, held.dy, settings.scale);
     if (!card || state.preview) { cancelDrag(); return; }
     if (!moved) { cancelDrag(); if (card.discovery) void operation("play_hand_card", card, readPose(held.element)); return; }
-    cancelAnimationFrame(dragFrame.current); paintDrag();
-    if (card.discovery && held.intake !== null) { void operation("collect_hand_discovery_card", card, readPose(held.element), held.intake); cancelDrag(); return; }
-    if (valid) { void operation("play_hand_card", card, readPose(held.element)); cancelDrag(); return; }
+    if (!held.nativeStarted) { cancelDrag(); return; }
+    paintDrag();
+    const finishNative = () => {
+      const generation = state.generation;
+      void call("end_hand_drag", { generation, cancelled: false }).catch(() => {});
+    };
+    if (card.discovery && held.intake !== null) {
+      finishNative();
+      await operation("collect_hand_discovery_card", card, undefined, held.intake);
+      if (dragRef.current === held) finishNativeDrag(held);
+      return;
+    }
+    if (valid) {
+      finishNative();
+      await operation("play_hand_card", card);
+      if (dragRef.current === held) finishNativeDrag(held);
+      return;
+    }
     const from = state.cards.findIndex((c) => c.id === held.id);
     const reordered = reorderHandGroups(state.cards, held.id, held.index);
+    finishNative();
     if (from !== held.index) {
       current.current = { ...state, cards: reordered }; setSnapshot(current.current);
-      void call(card.discovery ? "reorder_hand_discovery" : "reorder_hand", {
-        ids: reordered.filter(c => !!c.discovery === !!card.discovery).map((c) => c.id), batchEpoch: state.discovery?.batchEpoch,
-      }).catch((e) => { current.current = state; setSnapshot(state); setError(errorText(e)); });
+      try {
+        await call(card.discovery ? "reorder_hand_discovery" : "reorder_hand", {
+          ids: reordered.filter(c => !!c.discovery === !!card.discovery).map((c) => c.id), batchEpoch: state.discovery?.batchEpoch,
+        });
+      } catch (e) {
+        current.current = state; setSnapshot(state); setError(errorText(e));
+      }
     }
-    cancelDrag();
+    if (dragRef.current === held) finishNativeDrag(held);
   };
   const onCardPointerDown = (card: HandCard, e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || snapshot.preview || busyRef.current || dragRef.current || card.placeholder || (e.target as HTMLElement).closest("button")) return;
@@ -110,15 +157,9 @@ export function useHandInput(context: HandInputContext) {
     const point = toCanvas(e.clientX, e.clientY);
     const discoveryCount = snapshot.cards.filter(c => c.discovery).length;
     const held: Drag = { id: card.id, index: snapshot.cards.findIndex((c) => c.id === card.id), playable: false, pointerId: e.pointerId, startX: point.x, startY: point.y, dx: 0, dy: 0, pose: visualPose, element: e.currentTarget,
-      intake: null, restPoses: [...restPosesRef.current], ready: false, ending: false, prepared: Promise.resolve(),
+      intake: null, restPoses: [...restPosesRef.current], ready: true, ending: false, prepared: Promise.resolve(), nativeStarted: false,
       card, groupPoses: card.discovery ? restPosesRef.current.slice(0, discoveryCount) : restPosesRef.current.slice(discoveryCount), groupOffset: card.discovery ? 0 : discoveryCount, positionDirty: false };
-    dragDrawing.current = handPoseBounds(visualPose);
     dragRef.current = held; setDrag(held); setInputMode("pointer"); setHover(card.id); setSelected(card.id);
-    held.prepared = commitRegions.current().then(() => {
-      if (dragRef.current !== held) return;
-      held.ready = true;
-      if (!held.ending) { setDrag({ ...held }); paintDrag(); }
-    }).catch((error) => { if (dragRef.current === held) { cancelDrag(); setError(errorText(error)); } });
   };
   const updateDragPosition = (held: Drag, clientX: number, clientY: number) => {
     const point = toCanvas(clientX, clientY);
@@ -126,9 +167,10 @@ export function useHandInput(context: HandInputContext) {
     if (held.dx !== dx || held.dy !== dy) held.positionDirty = true;
     held.dx = dx; held.dy = dy;
   };
-  const onCardPointerMove = (card: HandCard, e: React.PointerEvent<HTMLDivElement>) => {
+  const onCardPointerMove = (card: HandCard, e: React.PointerEvent) => {
     const held = dragRef.current; if (!held || held.ending || held.id !== card.id || e.pointerId !== held.pointerId) return;
     updateDragPosition(held, e.clientX, e.clientY);
+    if (!held.nativeStarted && Math.hypot(held.dx, held.dy) > 5) beginNativeDrag(held);
     if (held.ready && !dragFrame.current) dragFrame.current = requestAnimationFrame(paintDrag);
   };
   const keyboardRef = useRef(keyboard); keyboardRef.current = keyboard;

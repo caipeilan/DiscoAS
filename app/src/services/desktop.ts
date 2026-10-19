@@ -5,7 +5,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
 import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch, Preferences, GuiSettings,
-  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint } from "../types";
+  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint,
+  HandDragSnapshot, HandDragIntent, HandDragEnd } from "../types";
 
 export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
 
@@ -15,6 +16,7 @@ export type DesktopCommand =
   | "begin_hand_dock_drag" | "save_hand_dock"
   | "hand_dock_ready" | "position_hand_dock" | "set_hand_dock_hit_regions"
   | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
+  | "begin_hand_drag" | "set_hand_drag_intent" | "end_hand_drag" | "hand_drag_ready"
   | "refresh_hand_discovery" | "hand_discovery_displayed" | "replace_hand_discovery_card" | "collect_hand_discovery_card" | "play_hand_discovery_card" | "reorder_hand_discovery"
   | "tray_menu_ready"
   | "present_tray_menu"
@@ -98,6 +100,9 @@ export interface DesktopEvents {
   "hand-pointer": [number, number, boolean];
   "hand-key": HandKey;
   "hand-preview-closed": void;
+  "hand-drag-state": HandDragSnapshot;
+  "hand-drag-intent": HandDragIntent;
+  "hand-drag-end": HandDragEnd;
   "hand-error": string;
   "hand-discovery-play-requested": string;
   "hand-discovery-refresh-requested": void;

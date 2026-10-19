@@ -1,5 +1,4 @@
-import { memo, type CSSProperties } from "react";
-import type { HandCard } from "../../types";
+import { type CSSProperties } from "react";
 import { desktop } from "../../services/desktop";
 import { t } from "../../i18n";
 import { Cover } from "../../components/Cover";
@@ -7,28 +6,24 @@ import { Icon } from "../../Icon";
 import { appLogo } from "../../assets";
 import { groupSettings } from "./handLayout";
 import { HandDock } from "./HandDock";
+import { HandCardContent } from "./HandCardContent";
 import { useHandController } from "./useHandController";
 import { useAppearance } from "../settings/useAppearance";
 import "../../App.css";
 import "./hand.css";
-const HandCardContent = memo(function HandCardContent({ card }: { card: HandCard }) {
-  return <>
-    <div className="hand-art"><Cover url={card.song.albumPicUrl} data={card.song.coverDataUri} prepared mystery={card.song.mysteryMode} label={card.song.name} /></div>
-    <strong>{card.song.mysteryMode ? "???" : card.song.name}</strong>
-    <span>{card.song.mysteryMode ? "???" : card.song.artistNames.join(" / ")}</span>
-  </>;
-});
 
 /** Rendering delegates persisted operations, pointer input, motion and native regions to their owners. */
 export function HandWindow() {
   const { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
-    busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
+    scheduleRegions, busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId, refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount, ordinaryCount,
     retiringById, entering, finishCardTransition, layoutTransition } = useHandController();
   useAppearance(snapshot.gui);
   const layoutPending = !!layoutTransition?.pending;
   const liquid = snapshot.discoverySettings?.liquid_strength ?? 100;
+  const liquidMode = snapshot.discoverySettings?.liquid_mode ?? "static";
+  const glassFilter = liquidMode === "blur" && liquid ? `blur(${.22 * liquid}px) saturate(${100 + .6 * liquid}%)` : "none";
   const boundaryA = restPoses[layoutDiscoveryCount-1], boundaryB = restPoses[layoutDiscoveryCount];
   const vertical = snapshot.settings.side !== "bottom";
   const boundary = snapshot.discoverySettings?.merged && snapshot.settings.enabled && boundaryA && boundaryB ? {
@@ -36,11 +31,14 @@ export function HandWindow() {
     top: vertical ? (boundaryA.y+boundaryB.y)/2 : Math.min(boundaryA.y,boundaryB.y)-boundaryA.height/2-28,
   } : null;
   return <div ref={stage} tabIndex={-1} inert={layoutPending} className={`hand-stage hand-${phase}`} data-side={snapshot.settings.side} data-preview={snapshot.preview || undefined}
-    data-hidden={hidden || undefined} data-expanded={snapshot.expanded} data-input-mode={inputMode}
+    data-hidden={hidden || undefined} data-expanded={snapshot.expanded} data-input-mode={inputMode} data-liquid-mode={liquidMode}
     style={{ "--hand-card-height": `${cardSize.height}px`, "--hand-glass-outline": `${snapshot.discoverySettings?.text_outline_width ?? 1}px`, width: surface?.width, height: surface?.height,
-      "--hand-glass-filter": liquid ? `blur(${.22 * liquid}px) saturate(${100 + .6 * liquid}%)` : "none",
+      "--hand-glass-filter": glassFilter,
       "--hand-glass-opacity": `${100 - .54 * liquid}%`, "--hand-glass-highlight": `${.7 * liquid}%`,
-      transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties} onContextMenu={(e) => e.preventDefault()}>
+      transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties}
+    onContextMenu={(e) => e.preventDefault()}
+    onTransitionEnd={(event) => { if (event.target !== event.currentTarget) scheduleRegions.current(); }}
+    onAnimationEnd={(event) => { if (event.target !== event.currentTarget) scheduleRegions.current(); }}>
     {(!desktop || snapshot.preview) && <HandDock element={toolbarElement} point={dockPosition} areas={dockAreas} expanded={snapshot.expanded} preview={snapshot.preview}
       diameter={diameter} count={ordinaryCount} capacity={snapshot.settings.capacity} busy={!!busy} confirm={clearConfirm}
       handEnabled={snapshot.settings.enabled || snapshot.preview && !snapshot.discoverySettings?.enabled} discovery={snapshot.discovery} refresh={refreshDiscovery}
@@ -69,7 +67,7 @@ export function HandWindow() {
         "--hand-card-scale": held ? 1.12 : pose.scale, "--hand-order": i, "--discard-delay": `${removing?.delay ?? 0}ms`,
         "--refill-x": settings.side === "left" ? "-42px" : settings.side === "right" ? "42px" : "0px", "--refill-y": settings.side === "bottom" ? "42px" : "0px",
       } as CSSProperties;
-      return <div key={card.id} data-hand-id={card.id} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
+      return <div key={card.id} data-hand-id={card.id} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.nativeStarted && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
         role="button" tabIndex={-1} aria-label={card.song.mysteryMode ? t("神秘歌曲") : card.song.name} aria-disabled={snapshot.preview || !!busy}
         style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); finishCardTransition(card.id); } }} onPointerDown={(e) => onCardPointerDown(card, e)} onPointerMove={(e) => onCardPointerMove(card, e)} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => lostPointerCapture(card.id)}>
         <div className="hand-flip"><div className="hand-card-face">
