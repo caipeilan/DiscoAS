@@ -251,7 +251,14 @@ export function Settings({
             value={desktopDraft.overlay_monitor}
             onChange={(value) => setDesktopDraft((current) => ({ ...current, overlay_monitor: value }))}
           />
-          <SettingRow title={t("播放后最小化客户端")}>
+          <SettingRow
+            title={t("播放后最小化客户端")}
+            hint={
+              desktopDraft.client_window_mode === "persistent"
+                ? t("长期存放客户端时会留在 DiscoAS，不使用此最小化设置")
+                : undefined
+            }
+          >
             <Toggle label={t("播放后最小化客户端")} value={desktopDraft.minimize_after_playback} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_after_playback: value }))} />
           </SettingRow>
           <Reveal open={desktopDraft.minimize_after_playback || desktopDraft.client_window_mode === "temporary"}><SettingRow className="client-wait-row" title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>

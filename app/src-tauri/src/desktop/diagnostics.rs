@@ -1,5 +1,64 @@
 //! App-path resolution and desktop access to diagnostic files.
-use std::path::PathBuf;
+use std::{
+    io::Write,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+static ISOLATION_ROOT: OnceLock<PathBuf> = OnceLock::new();
+static ISOLATION_LOCK: Mutex<()> = Mutex::new(());
+
+/// Called once from app setup; enables bounded client-isolation diagnostics.
+pub fn set_isolation_root(root: PathBuf) {
+    let _ = ISOLATION_ROOT.set(root);
+}
+
+/// Detailed but non-personal client-isolation trace: no titles, URLs, or
+/// credentials. Includes HWND/desktop/state for diagnosing placement failures.
+pub fn log_isolation(stage: &str, detail: &str) {
+    let Some(root) = ISOLATION_ROOT.get() else {
+        return;
+    };
+    let Ok(_guard) = ISOLATION_LOCK.lock() else {
+        return;
+    };
+    if std::fs::create_dir_all(root).is_err() {
+        return;
+    }
+    let path = root.join("client-isolation.log");
+    if std::fs::metadata(&path).is_ok_and(|meta| meta.len() >= 256 * 1024) {
+        let previous = root.join("client-isolation.previous.log");
+        let _ = std::fs::remove_file(&previous);
+        let _ = std::fs::rename(&path, previous);
+    }
+    let safe = |value: &str| {
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric()
+                    || matches!(ch, ' ' | '_' | '-' | '.' | '=' | ':' | ',' | '[' | ']' | '{' | '}')
+                {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .take(512)
+            .collect::<String>()
+    };
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{stamp}\t{}\t{}", safe(stage), safe(detail));
+    }
+}
 
 fn log_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     crate::paths::user_data_dir(app)

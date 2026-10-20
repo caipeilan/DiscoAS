@@ -463,6 +463,7 @@ export const translations: Record<string, [string, string]> = {
   "播放后最小化客户端": ["播放後最小化用戶端", "Minimize player after selection"],
   "最小化等待时间": ["最小化等待時間", "Minimize delay"],
   "客户端单独桌面": ["用戶端獨立桌面", "Separate desktop for client"],
+  "长期存放客户端时会留在 DiscoAS，不使用此最小化设置": ["長期存放用戶端時會留在 DiscoAS，不使用此最小化設定", "With long-term storage, the client stays on DiscoAS and this minimize setting is not used"],
   "独立桌面": ["獨立桌面", "Separate desktop"],
   "开启后，客户端将存放于一个独立的桌面中，以避免播放歌曲时客户端界面在当前屏幕中弹出": [
     "開啟後，用戶端將存放於一個獨立的桌面中，以避免播放歌曲時用戶端介面在目前畫面中彈出",

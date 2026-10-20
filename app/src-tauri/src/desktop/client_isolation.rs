@@ -1,13 +1,17 @@
 //! Background desktop for scheme-launched local music clients.
 //!
-//! The main window is moved before the scheme URI is opened, and a short
-//! watcher covers a client that is starting from a closed/tray state. Hidden
-//! windows are shown just long enough to become movable; the scheme then
-//! activates them on the background desktop.
+//! The main window is moved non-activating before the scheme URI is opened,
+//! and a short watcher covers a client that is starting from a closed/tray
+//! state. Hidden windows are revealed with SW_SHOWNOACTIVATE just long enough
+//! to obtain an application view; the URI itself is opened with the same
+//! non-activating show request.
 
 use crate::{
     client_window,
-    desktop::virtual_desktop::{self, DesktopId, BACKGROUND_NAME},
+    desktop::{
+        diagnostics,
+        virtual_desktop::{self, DesktopId, BACKGROUND_NAME},
+    },
     desktop_preferences::DesktopPreferences,
     platforms::names,
 };
@@ -66,6 +70,19 @@ pub struct ShowClientResult {
     pub shown: usize,
 }
 
+/// A prepared playback owns the window placement until the URI dispatch has
+/// succeeded. Temporary restoration is scheduled by `playback_started`, not by
+/// prepare, so a failed URI cannot leave a stale return timer behind.
+#[derive(Clone, Debug)]
+pub(crate) struct IsolationHandle {
+    generation: u64,
+    platform: String,
+    target: DesktopId,
+    mode: ClientWindowMode,
+    delay_seconds: f64,
+    minimize_after: bool,
+}
+
 pub(crate) fn status() -> ClientDesktopStatus {
     let supported = virtual_desktop::supported();
     let desktop = if supported {
@@ -82,12 +99,11 @@ pub(crate) fn status() -> ClientDesktopStatus {
     }
 }
 
-/// Returns true when the separate-desktop path owns this playback. A watcher
-/// covers a client that is not running yet, so the caller must not fall back to
-/// the old minimize schedule merely because no window existed at this instant.
-/// If a window exists but cannot be moved, false is returned so the old
-/// minimize fallback still runs rather than claiming isolation succeeded.
-pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
+/// Prepares window placement for a playback. `None` means the caller must keep
+/// the legacy minimize fallback. A `Some` handle means isolation owns the
+/// playback and must be completed with `playback_started` or `abort` after URI
+/// dispatch.
+pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<IsolationHandle> {
     let mode = mode(settings);
     if !matches!(
         mode,
@@ -95,49 +111,96 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
     ) || !virtual_desktop::supported()
         || !virtual_desktop::automatic_move_supported()
     {
-        return false;
+        return None;
     }
     let Ok(Some(desktop)) = virtual_desktop::find_by_name(BACKGROUND_NAME) else {
-        return false;
+        return None;
     };
     let target = desktop.id;
     let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst);
+    diagnostics::log_isolation(
+        "prepare",
+        &format!(
+            "platform={platform} mode={mode:?} current={:?} target={target}",
+            virtual_desktop::current().ok()
+        ),
+    );
 
     let windows = client_window::windows(platform);
+    let window_count = windows.len();
     let had_window = !windows.is_empty();
     let mut placed = false;
-    for window in windows {
-        if place_window(window.hwnd, target) {
+    let mut main_placed = false;
+    for (index, window) in windows.into_iter().enumerate() {
+        let window_placed = place_window(window.hwnd, target);
+        if index == 0 {
+            main_placed = window_placed;
+        }
+        if window_placed {
             placed = true;
         }
     }
-    if placed {
-        if mode == ClientWindowMode::Temporary {
-            schedule_restore(
-                platform.to_string(),
-                target,
-                settings.minimize_delay_seconds,
-                settings.minimize_after_playback,
-            );
-        }
-        return true;
+    diagnostics::log_isolation(
+        "prepare_scan",
+        &format!(
+            "windows={window_count} had_window={had_window} placed={placed} main_placed={main_placed}"
+        ),
+    );
+    if placed && main_placed {
+        return Some(IsolationHandle {
+            generation,
+            platform: platform.to_string(),
+            target,
+            mode,
+            delay_seconds: settings.minimize_delay_seconds,
+            minimize_after: settings.minimize_after_playback,
+        });
     }
     if had_window {
         // The Explorer interface exists but could not move a concrete window;
         // let playback.rs keep the old minimize fallback.
-        return false;
+        diagnostics::log_isolation("prepare_failed", "concrete_window_not_placed");
+        return None;
     }
 
-    start_watcher(
-        platform.to_string(),
+    diagnostics::log_isolation("prepare_watcher", "no_window_yet");
+    start_watcher(platform.to_string(), target, generation);
+    Some(IsolationHandle {
+        generation,
+        platform: platform.to_string(),
         target,
         mode,
-        settings.minimize_delay_seconds,
-        settings.minimize_after_playback,
-        generation,
+        delay_seconds: settings.minimize_delay_seconds,
+        minimize_after: settings.minimize_after_playback,
+    })
+}
+
+pub(crate) fn playback_started(handle: IsolationHandle) {
+    if WATCH_GENERATION.load(Ordering::SeqCst) != handle.generation {
+        diagnostics::log_isolation("playback_started", "stale_generation_ignored");
+        return;
+    }
+    diagnostics::log_isolation(
+        "playback_started",
+        &format!("mode={:?} target={}", handle.mode, handle.target),
     );
-    true
+    if handle.mode == ClientWindowMode::Temporary {
+        schedule_restore(
+            handle.platform,
+            handle.target,
+            handle.delay_seconds,
+            handle.minimize_after,
+        );
+    }
+}
+
+pub(crate) fn abort(handle: IsolationHandle) {
+    if WATCH_GENERATION.load(Ordering::SeqCst) == handle.generation {
+        WATCH_GENERATION.fetch_add(1, Ordering::SeqCst);
+        RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst);
+        diagnostics::log_isolation("abort", &format!("target={}", handle.target));
+    }
 }
 
 fn place_window(hwnd: isize, target: DesktopId) -> bool {
@@ -146,22 +209,36 @@ fn place_window(hwnd: isize, target: DesktopId) -> bool {
     // foreground itself; leaving it visible on the isolated desktop avoids
     // that. SW_SHOWNOACTIVATE must never be replaced with SW_RESTORE or
     // SetForegroundWindow here.
-    let placed = virtual_desktop::window_desktop(hwnd).ok() == Some(target)
-        || virtual_desktop::move_window(hwnd, target).is_ok();
-    if placed {
+    let on_target = virtual_desktop::window_desktop(hwnd).ok() == Some(target);
+    let mut placed = on_target || virtual_desktop::move_window(hwnd, target).is_ok();
+    let mut revealed = false;
+    if !placed {
+        // Hidden/tray windows can have no IApplicationView yet, so the private
+        // move returns 0x8002802B. Make the window visible on its CURRENT
+        // desktop without activation, then move it. This is the only way to
+        // obtain a view for a tray-hidden main window.
         client_window::show_window(hwnd);
+        revealed = true;
+        placed = virtual_desktop::window_desktop(hwnd).ok() == Some(target)
+            || virtual_desktop::move_window(hwnd, target).is_ok();
     }
-    placed
+    let restored = if placed {
+        // Wait (bounded) for the non-activating restore; the URI must see a
+        // visible, non-minimized client or its handler may foreground it.
+        client_window::ensure_restored(hwnd)
+    } else {
+        false
+    };
+    diagnostics::log_isolation(
+        "place",
+        &format!(
+            "hwnd=0x{hwnd:X} target={target} on_target={on_target} revealed={revealed} placed={placed} restored={restored}"
+        ),
+    );
+    placed && restored
 }
 
-fn start_watcher(
-    platform: String,
-    target: DesktopId,
-    mode: ClientWindowMode,
-    delay_seconds: f64,
-    minimize_after: bool,
-    generation: u64,
-) {
+fn start_watcher(platform: String, target: DesktopId, generation: u64) {
     thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline && WATCH_GENERATION.load(Ordering::SeqCst) == generation {
@@ -173,10 +250,10 @@ fn start_watcher(
                 }
             }
             if placed {
-                if mode == ClientWindowMode::Temporary {
-                    schedule_restore(platform.clone(), target, delay_seconds, minimize_after);
-                    return;
-                }
+                diagnostics::log_isolation(
+                    "watcher_placed",
+                    &format!("found={} target={target}", windows.len()),
+                );
                 // The first top-level window can be a splash. Keep moving the
                 // real main window if the client creates it a moment later.
                 let settle = Instant::now() + Duration::from_secs(4);
@@ -207,11 +284,18 @@ fn schedule_restore(
     } else {
         4.0
     };
+    diagnostics::log_isolation(
+        "restore_scheduled",
+        &format!("delay={delay} target={target}"),
+    );
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs_f64(delay)).await;
         if RESTORE_GENERATION.load(Ordering::SeqCst) != generation {
+            diagnostics::log_isolation("restore_cancelled", "generation_changed");
             return;
         }
+        // The cold-start placement watcher must not race the return move.
+        WATCH_GENERATION.fetch_add(1, Ordering::SeqCst);
         let _ = tauri::async_runtime::spawn_blocking(move || {
             #[cfg(windows)]
             {
@@ -221,6 +305,10 @@ fn schedule_restore(
                 let Ok(current) = virtual_desktop::current() else {
                     return;
                 };
+                diagnostics::log_isolation(
+                    "restore",
+                    &format!("current={current} target={target}"),
+                );
                 // Do not pull the client back while the user is working on the
                 // background desktop.
                 if current == target {
@@ -257,10 +345,7 @@ fn schedule_restore(
 pub(crate) fn show_all() -> Result<ShowClientResult, String> {
     cancel_pending();
     if !virtual_desktop::automatic_move_supported() {
-        return Err(
-            "错误：当前 Windows 版本不支持自动移动客户端窗口（需要 Windows 11 24H2 或更新版本）"
-                .into(),
-        );
+        return Err("错误：当前 Windows 版本不支持自动移动客户端窗口".into());
     }
     let current = virtual_desktop::current()?;
     let mut found = 0usize;
@@ -300,6 +385,10 @@ pub(crate) fn show_all() -> Result<ShowClientResult, String> {
             }
         }
     }
+    diagnostics::log_isolation(
+        "show_all",
+        &format!("current={current} found={found} shown={shown}"),
+    );
     Ok(ShowClientResult { found, shown })
 }
 
@@ -321,7 +410,10 @@ fn create_background() -> Result<ClientDesktopStatus, String> {
 }
 
 #[tauri::command]
-pub fn get_client_desktop_status() -> ClientDesktopStatus {
+pub fn get_client_desktop_status(refresh: Option<bool>) -> ClientDesktopStatus {
+    if refresh.unwrap_or(false) {
+        virtual_desktop::invalidate_move_capability();
+    }
     status()
 }
 
@@ -370,6 +462,11 @@ mod tests {
     #[test]
     #[ignore = "moves the interactive NetEase client and checks the current desktop"]
     fn live_prepare_does_not_switch_desktop() {
+        let log_root = std::env::temp_dir().join(format!(
+            "discoas-isolation-test-{}",
+            std::process::id()
+        ));
+        super::diagnostics::set_isolation_root(log_root.clone());
         let original = super::virtual_desktop::current().expect("current desktop");
         let target = super::virtual_desktop::find_by_name(super::BACKGROUND_NAME)
             .expect("desktop list")
@@ -382,14 +479,37 @@ mod tests {
         if windows.is_empty() {
             return;
         }
+        eprintln!(
+            "auto={} original={original} target={target:?} windows={}",
+            super::virtual_desktop::automatic_move_supported(),
+            windows.len()
+        );
         for window in &windows {
-            let _ = super::virtual_desktop::move_window(window.hwnd, original);
+            eprintln!(
+                "before hwnd=0x{:X} desktop={:?}",
+                window.hwnd,
+                super::virtual_desktop::window_desktop(window.hwnd)
+            );
+            let moved = super::virtual_desktop::move_window(window.hwnd, original);
+            eprintln!("move-to-original={moved:?}");
+        }
+        for window in &windows {
+            eprintln!(
+                "after-move hwnd=0x{:X} desktop={:?}",
+                window.hwnd,
+                super::virtual_desktop::window_desktop(window.hwnd)
+            );
         }
         let settings = DesktopPreferences {
             client_window_mode: "persistent".into(),
             ..Default::default()
         };
-        assert!(super::prepare(crate::platforms::names::NETEASE, &settings));
+        let prepared = super::prepare(crate::platforms::names::NETEASE, &settings);
+        eprintln!("prepare={}", prepared.is_some());
+        if let Ok(log) = std::fs::read_to_string(log_root.join("client-isolation.log")) {
+            eprintln!("diagnostics:\n{log}");
+        }
+        assert!(prepared.is_some());
         assert_eq!(
             super::virtual_desktop::current().expect("current desktop"),
             original
@@ -409,7 +529,7 @@ mod tests {
             client_window_mode: "persistent".into(),
             ..Default::default()
         };
-        assert!(super::prepare(crate::platforms::names::NETEASE, &settings));
+        assert!(super::prepare(crate::platforms::names::NETEASE, &settings).is_some());
         let target = super::virtual_desktop::find_by_name(super::BACKGROUND_NAME)
             .expect("desktop list")
             .expect("DiscoAS desktop");

@@ -66,6 +66,7 @@ mod imp {
     use super::{Desktop, DesktopId, VIRTUAL_DESKTOPS};
     use std::{
         ptr,
+        sync::Mutex,
         thread,
         time::{Duration, Instant},
     };
@@ -269,12 +270,41 @@ mod imp {
         build_number().is_some_and(|build| build >= 22621)
     }
 
+    const MOVE_CAPABILITY_TTL: Duration = Duration::from_secs(15);
+    static MOVE_CAPABILITY: MoveCapabilityCache = MoveCapabilityCache(Mutex::new(None));
+
+    #[derive(Default)]
+    struct MoveCapabilityCache(Mutex<Option<(Instant, bool)>>);
+
+    impl MoveCapabilityCache {
+        fn get_or_probe(&self, probe: impl FnOnce() -> bool) -> bool {
+            let mut cached = self.0.lock().unwrap_or_else(|error| error.into_inner());
+            if let Some((checked_at, supported)) = *cached {
+                if checked_at.elapsed() < MOVE_CAPABILITY_TTL {
+                    return supported;
+                }
+            }
+            // Keep concurrent cache misses on a single probe.
+            let supported = probe();
+            *cached = Some((Instant::now(), supported));
+            supported
+        }
+
+        fn invalidate(&self) {
+            *self.0.lock().unwrap_or_else(|error| error.into_inner()) = None;
+        }
+    }
+
     /// Probe Explorer's view manager instead of guessing from a build number.
     /// The early vtable methods used for the move are shared by Windows 11
     /// 22H2 through 25H2, and an unknown future build either answers this
     /// probe or falls back instead of failing silently.
     pub(super) fn automatic_move_supported() -> bool {
-        internal::available()
+        MOVE_CAPABILITY.get_or_probe(internal::available)
+    }
+
+    pub(super) fn invalidate_move_capability() {
+        MOVE_CAPABILITY.invalidate();
     }
 
     pub(super) fn find_by_name(name: &str) -> Result<Option<Desktop>, String> {
@@ -411,36 +441,36 @@ mod imp {
         unsafe fn probe_on_sta() -> bool {
             let hr = CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32);
             let initialized = hr >= 0;
+            let mut provider = ptr::null_mut();
+            let mut view_collection = ptr::null_mut();
+            let mut manager = ptr::null_mut();
+            let mut desktops = ptr::null_mut();
             let result: Result<bool, String> = (|| {
-                let provider = open_provider()?;
-                let view_collection = query_service(
+                provider = open_provider()?;
+                view_collection = query_service(
                     provider,
                     &IID_APPLICATION_VIEW_COLLECTION,
                     &IID_APPLICATION_VIEW_COLLECTION,
                 )?;
-                let manager = query_service(
+                manager = query_service(
                     provider,
                     &CLSID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
                     &IID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
                 )?;
                 let get_desktops: GetDesktopsFn = method(manager, 7);
-                let mut desktops = ptr::null_mut();
                 let hr = get_desktops(manager, &mut desktops);
                 if hr < 0 || desktops.is_null() {
-                    release(manager);
-                    release(view_collection);
-                    release(provider);
                     return Ok(false);
                 }
                 let get_count: GetCountFn = method(desktops, 3);
                 let mut count = 0u32;
                 let hr = get_count(desktops, &mut count);
-                release(desktops);
-                release(manager);
-                release(view_collection);
-                release(provider);
                 Ok(hr >= 0)
             })();
+            release(desktops);
+            release(manager);
+            release(view_collection);
+            release(provider);
             if initialized {
                 CoUninitialize();
             }
@@ -636,8 +666,73 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
-        use super::{guid_to_id, id_to_guid, DesktopId};
+        use super::{
+            guid_to_id, id_to_guid, DesktopId, MoveCapabilityCache, MOVE_CAPABILITY_TTL,
+        };
+        use std::{
+            sync::{
+                atomic::{AtomicUsize, Ordering},
+                Arc, Barrier, Mutex,
+            },
+            time::Instant,
+        };
         use windows::core::GUID;
+
+        #[test]
+        fn move_capability_caches_positive_and_negative_results() {
+            for supported in [true, false] {
+                let cache = MoveCapabilityCache::default();
+                assert_eq!(cache.get_or_probe(|| supported), supported);
+                assert_eq!(
+                    cache.get_or_probe(|| panic!("cached result expected")),
+                    supported
+                );
+            }
+        }
+
+        #[test]
+        fn move_capability_refreshes_expired_results() {
+            for supported in [true, false] {
+                let cache = MoveCapabilityCache(Mutex::new(Some((
+                    Instant::now() - MOVE_CAPABILITY_TTL,
+                    supported,
+                ))));
+                assert_eq!(cache.get_or_probe(|| !supported), !supported);
+            }
+        }
+
+        #[test]
+        fn move_capability_invalidation_allows_immediate_recovery() {
+            let cache = MoveCapabilityCache::default();
+            assert!(!cache.get_or_probe(|| false));
+            cache.invalidate();
+            assert!(cache.get_or_probe(|| true));
+        }
+
+        #[test]
+        fn move_capability_concurrent_misses_share_one_probe() {
+            let cache = Arc::new(MoveCapabilityCache::default());
+            let probes = Arc::new(AtomicUsize::new(0));
+            let barrier = Arc::new(Barrier::new(8));
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    let cache = Arc::clone(&cache);
+                    let probes = Arc::clone(&probes);
+                    let barrier = Arc::clone(&barrier);
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        cache.get_or_probe(|| {
+                            probes.fetch_add(1, Ordering::SeqCst);
+                            true
+                        })
+                    })
+                })
+                .collect();
+            for thread in threads {
+                assert!(thread.join().unwrap());
+            }
+            assert_eq!(probes.load(Ordering::SeqCst), 1);
+        }
 
         #[test]
         #[ignore = "moves a temporary window between the interactive desktops"]
@@ -735,6 +830,11 @@ pub(crate) fn automatic_move_supported() -> bool {
 }
 
 #[cfg(windows)]
+pub(crate) fn invalidate_move_capability() {
+    imp::invalidate_move_capability();
+}
+
+#[cfg(windows)]
 pub(crate) fn find_by_name(name: &str) -> Result<Option<Desktop>, String> {
     imp::find_by_name(name)
 }
@@ -773,6 +873,9 @@ pub(crate) fn supported() -> bool {
 pub(crate) fn automatic_move_supported() -> bool {
     false
 }
+
+#[cfg(not(windows))]
+pub(crate) fn invalidate_move_capability() {}
 
 #[cfg(not(windows))]
 pub(crate) fn find_by_name(_name: &str) -> Result<Option<Desktop>, String> {

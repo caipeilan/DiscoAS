@@ -96,7 +96,8 @@ export interface ClientDesktopStatus {
   desktopId: string | null;
   desktopName: string;
 }
-export const getClientDesktopStatus = () => call<ClientDesktopStatus>("get_client_desktop_status");
+export const getClientDesktopStatus = (refresh = false) =>
+  call<ClientDesktopStatus>("get_client_desktop_status", refresh ? { refresh: true } : undefined);
 export const createClientDesktop = () => call<ClientDesktopStatus>("create_client_desktop");
 export interface ShowClientResult {
   found: number;

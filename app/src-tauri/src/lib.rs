@@ -188,6 +188,9 @@ pub fn run() {
         .manage(StartupShowMain(AtomicBool::new(true)))
         .setup(|app| {
             paths::init_user_data_dirs(app.handle())?;
+            if let Ok(root) = paths::user_data_dir(app.handle()) {
+                desktop::diagnostics::set_isolation_root(root.join("logs"));
+            }
             services::preferences::disable_unavailable_auto_play(
                 &paths::music_setting_path(app.handle())?,
             )?;

@@ -84,7 +84,7 @@ async fn dispatch_to_platform(
             && options.spotify_playback_mode == "extension";
         // The scheme must be opened after the window is moved; the service
         // performs that open internally for local clients.
-        let isolated = if !spotify_extension
+        let isolation = if !spotify_extension
             && matches!(
                 mode,
                 ClientWindowMode::Temporary | ClientWindowMode::Persistent
@@ -92,9 +92,11 @@ async fn dispatch_to_platform(
         {
             super::client_isolation::prepare(&args.platform, options)
         } else {
-            false
+            None
         };
-        app.state::<crate::spotify_playback::PlaybackService>()
+        let isolated = isolation.is_some();
+        let result = app
+            .state::<crate::spotify_playback::PlaybackService>()
             .invoke(
                 app.clone(),
                 args,
@@ -103,7 +105,13 @@ async fn dispatch_to_platform(
                 &options.spotify_playback_mode,
                 isolated,
             )
-            .await?;
+            .await;
+        match (result.as_ref(), isolation) {
+            (Ok(()), Some(handle)) => super::client_isolation::playback_started(handle),
+            (Err(_), Some(handle)) => super::client_isolation::abort(handle),
+            _ => {}
+        }
+        result?;
         if !isolated {
             crate::client_window::schedule(
                 app.clone(),

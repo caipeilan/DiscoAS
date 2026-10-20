@@ -26,9 +26,9 @@ export function ClientDesktopSettings({
   const [error, setError] = useState<string | null>(null);
   const enabled = mode !== "off";
 
-  const refresh = useCallback(async (): Promise<ClientDesktopStatus | null> => {
+  const refresh = useCallback(async (force = false): Promise<ClientDesktopStatus | null> => {
     try {
-      const next = await getClientDesktopStatus();
+      const next = await getClientDesktopStatus(force);
       setStatus(next);
       setError(null);
       return next;
@@ -68,7 +68,7 @@ export function ClientDesktopSettings({
   const detect = async () => {
     setBusy("detect");
     setMessage(null);
-    const next = await refresh();
+    const next = await refresh(true);
     if (next) {
       setMessage(
         next.configured

@@ -107,6 +107,38 @@ pub(crate) fn show_window(hwnd: isize) {
     }
 }
 
+/// Restore a minimized/hidden window without activation and wait briefly for
+/// the asynchronous `ShowWindowAsync` to take effect.
+pub(crate) fn ensure_restored(hwnd: isize) -> bool {
+    #[cfg(windows)]
+    {
+        use std::time::{Duration, Instant};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindowVisible};
+
+        let restored = || unsafe {
+            IsWindowVisible(hwnd as *mut core::ffi::c_void) != 0
+                && IsIconic(hwnd as *mut core::ffi::c_void) == 0
+        };
+        if restored() {
+            return true;
+        }
+        show_window(hwnd);
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < deadline {
+            if restored() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        restored()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        false
+    }
+}
+
 pub(crate) fn process_image(pid: u32) -> Option<String> {
     windows::image_for_pid(pid)
 }

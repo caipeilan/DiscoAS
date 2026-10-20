@@ -377,15 +377,33 @@ impl PlaybackService {
 
 async fn open_scheme(url: String, no_activate: bool) -> Result<(), String> {
     #[cfg(windows)]
-    if no_activate {
-        return tauri::async_runtime::spawn_blocking(move || open_url_no_activate(&url))
+    let result = if no_activate {
+        tauri::async_runtime::spawn_blocking(move || open_url_no_activate(&url))
             .await
-            .map_err(|_| "错误：无法打开音乐客户端".to_string())?;
-    }
-    tauri::async_runtime::spawn_blocking(move || tauri_plugin_opener::open_url(url, None::<&str>))
+            .map_err(|_| "错误：无法打开音乐客户端".to_string())?
+    } else {
+        tauri::async_runtime::spawn_blocking(move || {
+            tauri_plugin_opener::open_url(url, None::<&str>)
+        })
         .await
         .map_err(|_| "错误：无法打开音乐客户端".to_string())?
         .map_err(|_| "错误：无法打开音乐客户端".to_string())
+    };
+    #[cfg(not(windows))]
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        tauri_plugin_opener::open_url(url, None::<&str>)
+    })
+    .await
+    .map_err(|_| "错误：无法打开音乐客户端".to_string())?
+    .map_err(|_| "错误：无法打开音乐客户端".to_string());
+    crate::desktop::diagnostics::log_isolation(
+        "open_scheme",
+        &format!(
+            "no_activate={no_activate} result={}",
+            if result.is_ok() { "ok" } else { "error" }
+        ),
+    );
+    result
 }
 
 /// The regular opener uses `SW_SHOWNORMAL`, which asks the shell and the URI
@@ -393,10 +411,11 @@ async fn open_scheme(url: String, no_activate: bool) -> Result<(), String> {
 /// desktop that activation would bring the user's desktop along with it.
 #[cfg(windows)]
 fn open_url_no_activate(url: &str) -> Result<(), String> {
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
     use windows_sys::Win32::{
         Foundation::CloseHandle,
         UI::{
-            Shell::{ShellExecuteExW, SHELLEXECUTEINFOW},
+            Shell::{ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SHELLEXECUTEINFOW},
             WindowsAndMessaging::SW_SHOWNOACTIVATE,
         },
     };
@@ -405,10 +424,27 @@ fn open_url_no_activate(url: &str) -> Result<(), String> {
         value.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
+    struct ComApartment;
+    impl Drop for ComApartment {
+        fn drop(&mut self) {
+            // SAFETY: this thread successfully initialized COM.
+            unsafe { CoUninitialize() };
+        }
+    }
+
+    // ShellExecuteExW itself does not require COM, and a blocking thread may
+    // already be MTA (RPC_E_CHANGED_MODE). Only balance CoUninitialize when this
+    // call actually initialized the apartment; never fail playback just
+    // because the thread was initialized in another mode.
+    // SAFETY: the apartment is released by ComApartment on this thread.
+    let initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok();
+    let _apartment = if initialized { Some(ComApartment) } else { None };
+
     let file = wide(url);
     let verb = wide("open");
     let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
     info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    info.fMask = SEE_MASK_FLAG_NO_UI;
     info.lpVerb = verb.as_ptr();
     info.lpFile = file.as_ptr();
     info.nShow = SW_SHOWNOACTIVATE;
@@ -779,6 +815,40 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "opens a real NetEase scheme and verifies the current desktop"]
+    fn live_isolated_netease_uri_does_not_switch_desktop() {
+        let original = crate::desktop::virtual_desktop::current().expect("current desktop");
+        let target = crate::desktop::virtual_desktop::find_by_name(
+            crate::desktop::virtual_desktop::BACKGROUND_NAME,
+        )
+        .expect("desktop list")
+        .expect("DiscoAS desktop")
+        .id;
+        if original == target {
+            return;
+        }
+        let settings = crate::desktop_preferences::DesktopPreferences {
+            client_window_mode: "persistent".into(),
+            ..Default::default()
+        };
+        let handle = crate::desktop::client_isolation::prepare(
+            crate::platforms::names::NETEASE,
+            &settings,
+        )
+        .expect("isolation prepared");
+        let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
+        open_url_no_activate(&url).expect("scheme opened");
+        std::thread::sleep(Duration::from_secs(2));
+        assert_eq!(
+            crate::desktop::virtual_desktop::current().expect("current desktop"),
+            original
+        );
+        crate::desktop::client_isolation::playback_started(handle);
+    }
+
     #[test]
     fn spotify_session_selection_does_not_target_web_browsers_or_helpers() {
         assert!(is_spotify_app_id("Spotify.exe"));
