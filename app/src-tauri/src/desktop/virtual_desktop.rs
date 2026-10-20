@@ -269,10 +269,12 @@ mod imp {
         build_number().is_some_and(|build| build >= 22621)
     }
 
-    /// The 24H2+ Explorer interface is required to move another process's
-    /// window. The public IVirtualDesktopManager refuses cross-process moves.
+    /// Probe Explorer's view manager instead of guessing from a build number.
+    /// The early vtable methods used for the move are shared by Windows 11
+    /// 22H2 through 25H2, and an unknown future build either answers this
+    /// probe or falls back instead of failing silently.
     pub(super) fn automatic_move_supported() -> bool {
-        build_number().is_some_and(|build| build >= 26100)
+        internal::available()
     }
 
     pub(super) fn find_by_name(name: &str) -> Result<Option<Desktop>, String> {
@@ -328,6 +330,12 @@ mod imp {
             data3: 0x4124,
             data4: [0x90, 0x0C, 0x05, 0x71, 0x58, 0x06, 0x0B, 0x27],
         };
+        const IID_VIRTUAL_DESKTOP: GUID = GUID {
+            data1: 0x3F07F4BE,
+            data2: 0xB107,
+            data3: 0x441A,
+            data4: [0xAF, 0x0F, 0x39, 0xD8, 0x25, 0x29, 0x07, 0x2C],
+        };
 
         type QueryServiceFn = unsafe extern "system" fn(
             *mut c_void,
@@ -339,8 +347,11 @@ mod imp {
             unsafe extern "system" fn(*mut c_void, *mut c_void, *mut *mut c_void) -> i32;
         type MoveViewToDesktopFn =
             unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void) -> i32;
-        type FindDesktopFn =
-            unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32;
+        type GetDesktopsFn = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32;
+        type GetCountFn = unsafe extern "system" fn(*mut c_void, *mut u32) -> i32;
+        type GetAtFn =
+            unsafe extern "system" fn(*mut c_void, u32, *const GUID, *mut *mut c_void) -> i32;
+        type GetIdFn = unsafe extern "system" fn(*mut c_void, *mut GUID) -> i32;
         type ReleaseFn = unsafe extern "system" fn(*mut c_void) -> u32;
 
         fn raw_guid(guid: windows::core::GUID) -> GUID {
@@ -356,6 +367,13 @@ mod imp {
             format!("错误：{action}失败（0x{:08X}）", hr as u32)
         }
 
+        fn same_guid(left: &GUID, right: &GUID) -> bool {
+            left.data1 == right.data1
+                && left.data2 == right.data2
+                && left.data3 == right.data3
+                && left.data4 == right.data4
+        }
+
         pub(super) fn move_window(
             hwnd: isize,
             target: windows::core::GUID,
@@ -369,21 +387,17 @@ mod imp {
                 .map_err(|_| "错误：移动客户端窗口的线程异常".to_string())?
         }
 
+        pub(super) fn available() -> bool {
+            std::thread::spawn(|| unsafe { probe_on_sta() })
+                .join()
+                .unwrap_or(false)
+        }
+
         unsafe fn move_on_sta(hwnd: isize, target: GUID) -> Result<(), String> {
             let hr = CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32);
             let initialized = hr >= 0;
             let result = (|| {
-                let mut provider = ptr::null_mut();
-                let hr = CoCreateInstance(
-                    &CLSID_IMMERSIVE_SHELL,
-                    ptr::null_mut(),
-                    CLSCTX_ALL,
-                    &IID_ISERVICE_PROVIDER,
-                    &mut provider,
-                );
-                if hr < 0 {
-                    return Err(error("连接 Explorer 虚拟桌面服务", hr));
-                }
+                let provider = open_provider()?;
                 let result = with_provider(provider, hwnd, &target);
                 release(provider);
                 result
@@ -392,6 +406,63 @@ mod imp {
                 CoUninitialize();
             }
             result
+        }
+
+        unsafe fn probe_on_sta() -> bool {
+            let hr = CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32);
+            let initialized = hr >= 0;
+            let result: Result<bool, String> = (|| {
+                let provider = open_provider()?;
+                let view_collection = query_service(
+                    provider,
+                    &IID_APPLICATION_VIEW_COLLECTION,
+                    &IID_APPLICATION_VIEW_COLLECTION,
+                )?;
+                let manager = query_service(
+                    provider,
+                    &CLSID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
+                    &IID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
+                )?;
+                let get_desktops: GetDesktopsFn = method(manager, 7);
+                let mut desktops = ptr::null_mut();
+                let hr = get_desktops(manager, &mut desktops);
+                if hr < 0 || desktops.is_null() {
+                    release(manager);
+                    release(view_collection);
+                    release(provider);
+                    return Ok(false);
+                }
+                let get_count: GetCountFn = method(desktops, 3);
+                let mut count = 0u32;
+                let hr = get_count(desktops, &mut count);
+                release(desktops);
+                release(manager);
+                release(view_collection);
+                release(provider);
+                Ok(hr >= 0)
+            })();
+            if initialized {
+                CoUninitialize();
+            }
+            result.unwrap_or(false)
+        }
+
+        unsafe fn open_provider() -> Result<*mut c_void, String> {
+            let mut provider = ptr::null_mut();
+            let hr = CoCreateInstance(
+                &CLSID_IMMERSIVE_SHELL,
+                ptr::null_mut(),
+                CLSCTX_ALL,
+                &IID_ISERVICE_PROVIDER,
+                &mut provider,
+            );
+            if hr < 0 {
+                return Err(error("连接 Explorer 虚拟桌面服务", hr));
+            }
+            if provider.is_null() {
+                return Err("错误：Explorer 虚拟桌面服务返回空接口".into());
+            }
+            Ok(provider)
         }
 
         unsafe fn with_provider(
@@ -420,22 +491,57 @@ mod imp {
                 let get_view: GetViewForHwndFn = method(view_collection, 6);
                 let mut view = ptr::null_mut();
                 let hr = get_view(view_collection, hwnd as *mut c_void, &mut view);
-                if hr < 0 {
+                if hr < 0 || view.is_null() {
                     return Err(error("获取客户端窗口视图", hr));
                 }
 
-                let find_desktop: FindDesktopFn = method(manager, 14);
-                let mut desktop = ptr::null_mut();
-                let hr = find_desktop(manager, target, &mut desktop);
+                // Enumerate desktops through the stable early vtable methods
+                // (GetDesktops is slot 7 from 22H2 through 25H2). FindDesktop
+                // moved from slot 13 to 14 in 24H2, so avoiding it keeps this
+                // path usable on older and newer Win11 builds.
+                let get_desktops: GetDesktopsFn = method(manager, 7);
+                let mut desktops = ptr::null_mut();
+                let hr = get_desktops(manager, &mut desktops);
+                if hr < 0 || desktops.is_null() {
+                    release(view);
+                    return Err(error("枚举虚拟桌面", hr));
+                }
+                let get_count: GetCountFn = method(desktops, 3);
+                let mut count = 0u32;
+                let hr = get_count(desktops, &mut count);
                 if hr < 0 {
                     release(view);
-                    return Err(error("查找目标虚拟桌面", hr));
+                    release(desktops);
+                    return Err(error("读取虚拟桌面数量", hr));
+                }
+
+                let get_at: GetAtFn = method(desktops, 4);
+                let mut target_desktop = ptr::null_mut();
+                for index in 0..count {
+                    let mut desktop = ptr::null_mut();
+                    let hr = get_at(desktops, index, &IID_VIRTUAL_DESKTOP, &mut desktop);
+                    if hr < 0 || desktop.is_null() {
+                        continue;
+                    }
+                    let get_id: GetIdFn = method(desktop, 4);
+                    let mut id = GUID::default();
+                    let hr = get_id(desktop, &mut id);
+                    if hr >= 0 && same_guid(&id, target) {
+                        target_desktop = desktop;
+                        break;
+                    }
+                    release(desktop);
+                }
+                release(desktops);
+                if target_desktop.is_null() {
+                    release(view);
+                    return Err("错误：未找到目标虚拟桌面".into());
                 }
 
                 let move_view: MoveViewToDesktopFn = method(manager, 4);
-                let hr = move_view(manager, view, desktop);
+                let hr = move_view(manager, view, target_desktop);
                 release(view);
-                release(desktop);
+                release(target_desktop);
                 if hr < 0 {
                     Err(error("移动客户端窗口", hr))
                 } else {

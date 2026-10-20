@@ -126,6 +126,11 @@ export function ClientDesktopSettings({
           options={options}
         />
       </SettingRow>
+      {status && status.supported && !status.moveSupported && (
+        <p className="client-desktop-error">
+          {t("当前 Windows 版本暂不支持自动移动客户端窗口；播放后使用最小化兜底。")}
+        </p>
+      )}
       {enabled && (
         <div className="client-desktop-status" role="status" aria-live="polite">
           {!status ? (
@@ -199,13 +204,6 @@ export function ClientDesktopSettings({
                 {t("创建后按 Win+Tab，右键新桌面 → 重命名 → 输入 DiscoAS，再点重新检测。")}
               </p>
             </>
-          )}
-          {status && status.supported && !status.moveSupported && (
-            <p className="client-desktop-error">
-              {t(
-                "当前 Windows 版本暂不支持自动移动客户端窗口（需要 Windows 11 24H2 或更新版本）；播放后使用最小化兜底。",
-              )}
-            </p>
           )}
           {message && <p className="client-desktop-hint">{message}</p>}
           {error && <p className="client-desktop-error">{error}</p>}

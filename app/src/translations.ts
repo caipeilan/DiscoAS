@@ -485,7 +485,7 @@ export const translations: Record<string, [string, string]> = {
     "Background desktop created. Rename it to DiscoAS in Task View, then choose Check again.",
   ],
   "需要 Windows 11 22H2 或更新版本": ["需要 Windows 11 22H2 或更新版本", "Requires Windows 11 22H2 or later"],
-  "当前 Windows 版本暂不支持自动移动客户端窗口（需要 Windows 11 24H2 或更新版本）；播放后使用最小化兜底。": ["目前 Windows 版本暫不支援自動移動用戶端視窗（需要 Windows 11 24H2 或更新版本）；播放後使用最小化作為備援。", "This Windows build cannot move the client window automatically (requires Windows 11 24H2 or later); playback falls back to minimizing it."],
+  "当前 Windows 版本暂不支持自动移动客户端窗口；播放后使用最小化兜底。": ["目前 Windows 版本暫不支援自動移動用戶端視窗；播放後使用最小化作為備援。", "This Windows build does not support moving the client window automatically; playback falls back to minimizing it."],
   "正在检测后台桌面…": ["正在偵測背景桌面…", "Checking background desktop…"],
   "正在检测 DiscoAS 独立桌面…": ["正在偵測 DiscoAS 獨立桌面…", "Checking DiscoAS separate desktop…"],
   "已重新检测到 DiscoAS 桌面": ["已重新偵測到 DiscoAS 桌面", "DiscoAS desktop found"],

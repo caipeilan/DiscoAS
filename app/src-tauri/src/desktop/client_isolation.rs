@@ -85,6 +85,8 @@ pub(crate) fn status() -> ClientDesktopStatus {
 /// Returns true when the separate-desktop path owns this playback. A watcher
 /// covers a client that is not running yet, so the caller must not fall back to
 /// the old minimize schedule merely because no window existed at this instant.
+/// If a window exists but cannot be moved, false is returned so the old
+/// minimize fallback still runs rather than claiming isolation succeeded.
 pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
     let mode = mode(settings);
     if !matches!(
@@ -102,8 +104,10 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
     let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst);
 
+    let windows = client_window::windows(platform);
+    let had_window = !windows.is_empty();
     let mut placed = false;
-    for window in client_window::windows(platform) {
+    for window in windows {
         if place_window(window.hwnd, target) {
             placed = true;
         }
@@ -118,6 +122,11 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
             );
         }
         return true;
+    }
+    if had_window {
+        // The Explorer interface exists but could not move a concrete window;
+        // let playback.rs keep the old minimize fallback.
+        return false;
     }
 
     start_watcher(
