@@ -58,6 +58,7 @@ DiscoAS是蔡某人特地为了他那[5000+曲数小众歌单](https://music.163
 - 酷我音乐
 - 汽水音乐
 - Spotify
+- Apple Music（通过网页）
 - YouTube（通过网页）
 - Bilibili（通过网页）
 
@@ -116,7 +117,7 @@ user_data/
 
 Q:没有支持我使用的平台/软件诶
 
-A: 目前已接入网易云、QQ音乐、酷狗、酷我、汽水、Spotify以及YouTube和Bilibili。其他平台看反馈后续再考虑。
+A: 目前已接入网易云、QQ音乐、酷狗、酷我、汽水、Spotify以及Apple Music、YouTube和Bilibili。其他平台看反馈后续再考虑。
 
 Q:界面尺寸太大/太小了
 
