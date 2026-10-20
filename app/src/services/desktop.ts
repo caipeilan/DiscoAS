@@ -67,6 +67,10 @@ export type DesktopCommand =
   | "play_song"
   | "show_discover"
   | "show_main"
+  | "get_client_desktop_status"
+  | "create_client_desktop"
+  | "show_local_client"
+  | "get_display_monitors"
   | "set_shortcut_recording"
   | "finish_startup"
   | "startup_ready"
@@ -84,6 +88,23 @@ export interface UpdateInfo {
   fullDownloadUrl: string | null;
 }
 export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
+
+export interface ClientDesktopStatus {
+  supported: boolean;
+  configured: boolean;
+  desktopId: string | null;
+  desktopName: string;
+}
+export const getClientDesktopStatus = () => call<ClientDesktopStatus>("get_client_desktop_status");
+export const createClientDesktop = () => call<ClientDesktopStatus>("create_client_desktop");
+export const showLocalClient = () => call<number>("show_local_client");
+
+export interface DisplayMonitor {
+  id: string;
+  name: string;
+  primary: boolean;
+}
+export const getDisplayMonitors = () => call<DisplayMonitor[]>("get_display_monitors");
 
 export interface DesktopEvents {
   "open-settings-requested": { category: "playback" };

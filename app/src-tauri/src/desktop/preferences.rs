@@ -149,6 +149,11 @@ pub async fn save_desktop_preferences(
     {
         crate::client_window::cancel_pending();
     }
+    if old.client_window_mode != settings.client_window_mode
+        || old.minimize_delay_seconds != settings.minimize_delay_seconds
+    {
+        super::client_isolation::cancel_pending();
+    }
     if settings.spotify_playback_mode != "extension" {
         app.state::<crate::spotify_playback::PlaybackService>()
             .stop_bridge();

@@ -70,6 +70,25 @@ impl Client {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MainWindow {
+    pub(crate) hwnd: isize,
+}
+
+/// The verified main window, including minimized/tray clients, for the
+/// background-desktop isolation path.
+pub(crate) fn main_window(platform: &str) -> Option<MainWindow> {
+    #[cfg(windows)]
+    {
+        windows::client_main_window(Client::from_platform(platform)?)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = platform;
+        None
+    }
+}
+
 pub(crate) fn process_image(pid: u32) -> Option<String> {
     windows::image_for_pid(pid)
 }
@@ -294,6 +313,14 @@ mod windows {
 
     pub(super) fn main_image(client: Client) -> Option<String> {
         Some(find_main_with_visibility(client, true)?.image)
+    }
+
+    /// Reuse the same verified main-window selection as the minimize fallback.
+    pub(super) fn client_main_window(client: Client) -> Option<super::MainWindow> {
+        let window = find_main_with_visibility(client, true)?;
+        Some(super::MainWindow {
+            hwnd: window.hwnd as isize,
+        })
     }
     /// Reuse the verified main HWND, including while minimized or hidden in the tray.
     pub(crate) struct TitleReader {

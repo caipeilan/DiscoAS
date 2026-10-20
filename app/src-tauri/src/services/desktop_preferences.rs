@@ -11,6 +11,7 @@ pub struct DesktopPreferences {
     pub overlay_monitor: String,
     pub minimize_after_playback: bool,
     pub minimize_delay_seconds: f64,
+    pub client_window_mode: String,
     pub spotify_playback_mode: String,
     #[serde(default)]
     pub spotify_defaults_version: u32,
@@ -26,6 +27,7 @@ impl Default for DesktopPreferences {
             overlay_monitor: "current".into(),
             minimize_after_playback: true,
             minimize_delay_seconds: 4.0,
+            client_window_mode: "off".into(),
             spotify_playback_mode: "extension".into(),
             spotify_defaults_version: 1,
             browser_playback_mode: "extension".into(),
@@ -38,13 +40,19 @@ impl DesktopPreferences {
         if !["auto", "integrated", "discrete", "cpu"].contains(&self.rendering_mode.as_str()) {
             return Err("错误：渲染方式无效".into());
         }
-        if !["current", "primary"].contains(&self.overlay_monitor.as_str()) {
+        if self.overlay_monitor != "current"
+            && self.overlay_monitor != "primary"
+            && !self.overlay_monitor.starts_with(r"\\.\DISPLAY")
+        {
             return Err("错误：显示器选项无效".into());
         }
         if !self.minimize_delay_seconds.is_finite()
             || !(0.0..=30.0).contains(&self.minimize_delay_seconds)
         {
             return Err("错误：最小化等待时间应为 0–30 秒".into());
+        }
+        if !["off", "temporary", "persistent"].contains(&self.client_window_mode.as_str()) {
+            return Err("错误：客户端单独桌面选项无效".into());
         }
         if !["scheme", "pause_then_scheme", "extension"]
             .contains(&self.spotify_playback_mode.as_str())
@@ -195,6 +203,57 @@ mod tests {
         assert_eq!(DesktopPreferences::load_from_path(&path).unwrap(), chosen);
         std::fs::remove_file(path).unwrap();
     }
+    #[test]
+    fn client_window_mode_is_off_for_legacy_files_and_roundtrips_explicit_modes() {
+        let path = std::env::temp_dir().join(format!(
+            "discoas-client-window-mode-{}.json",
+            rand::random::<u64>()
+        ));
+        for (legacy, minimize_expected) in [(true, true), (false, false)] {
+            std::fs::write(
+                &path,
+                format!(r#"{{"minimize_after_playback":{legacy}}}"#),
+            )
+            .unwrap();
+            let settings = DesktopPreferences::load_from_path(&path).unwrap();
+            assert_eq!(settings.client_window_mode, "off");
+            assert_eq!(settings.minimize_after_playback, minimize_expected);
+        }
+        for mode in ["off", "temporary", "persistent"] {
+            let settings = DesktopPreferences {
+                client_window_mode: mode.into(),
+                ..Default::default()
+            };
+            settings.save_to_path(&path).unwrap();
+            assert_eq!(
+                DesktopPreferences::load_from_path(&path)
+                    .unwrap()
+                    .client_window_mode,
+                mode
+            );
+        }
+        let invalid = DesktopPreferences {
+            client_window_mode: "unknown".into(),
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn specific_display_ids_are_accepted_and_unknown_display_values_are_rejected() {
+        let valid = DesktopPreferences {
+            overlay_monitor: r"\\.\DISPLAY1".into(),
+            ..Default::default()
+        };
+        assert!(valid.validate().is_ok());
+        let invalid = DesktopPreferences {
+            overlay_monitor: "unknown".into(),
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+    }
+
     #[test]
     fn empty_library_never_starts_invisibly() {
         let s = DesktopPreferences {

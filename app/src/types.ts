@@ -168,9 +168,10 @@ export interface DesktopPreferences {
   launch_at_login: boolean;
   start_hidden: boolean;
   update_on_startup: boolean;
-  overlay_monitor: "current" | "primary";
+  overlay_monitor: string;
   minimize_after_playback: boolean;
   minimize_delay_seconds: number;
+  client_window_mode: "off" | "temporary" | "persistent";
   spotify_playback_mode: "scheme" | "pause_then_scheme" | "extension";
   spotify_defaults_version: number;
   browser_playback_mode: "extension" | "direct";
@@ -347,6 +348,7 @@ export const emptyState: AppState = {
     overlay_monitor: "current",
     minimize_after_playback: true,
     minimize_delay_seconds: 4,
+    client_window_mode: "off",
     spotify_playback_mode: "extension",
     spotify_defaults_version: 1,
     browser_playback_mode: "extension",

@@ -6,6 +6,8 @@ import { ShortcutRecorder } from "../../ShortcutRecorder";
 import { SettingRow, NumberField, Toggle } from "../../components/SettingsControls";
 import { Select } from "../../components/Select";
 import { samePreferences, sameGuiPreferences } from "./preferences";
+import { DisplayMonitorSetting } from "./DisplayMonitorSetting";
+import { ClientDesktopSettings } from "./ClientDesktopSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { t, errorText } from "../../i18n";
 import { WeightingSettings } from "./WeightingSettings";
@@ -245,23 +247,20 @@ export function Settings({
         {panel("window", <>
         <section className="settings-section">
           <h2>{t("窗口与播放")}</h2>
-          <SettingRow title={t("发现界面显示器")}>
-            <Select
-              label={t("发现界面显示器")}
-              value={desktopDraft.overlay_monitor}
-              onChange={(value) => setDesktopDraft((current) => ({ ...current, overlay_monitor: value as DesktopPreferences["overlay_monitor"] }))}
-              options={[
-                { value: "current", label: t("当前显示器") },
-                { value: "primary", label: t("主显示器") },
-              ]}
-            />
-          </SettingRow>
+          <DisplayMonitorSetting
+            value={desktopDraft.overlay_monitor}
+            onChange={(value) => setDesktopDraft((current) => ({ ...current, overlay_monitor: value }))}
+          />
           <SettingRow title={t("播放后最小化客户端")}>
             <Toggle label={t("播放后最小化客户端")} value={desktopDraft.minimize_after_playback} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_after_playback: value }))} />
           </SettingRow>
-          <Reveal open={desktopDraft.minimize_after_playback}><SettingRow title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>
+          <Reveal open={desktopDraft.minimize_after_playback || desktopDraft.client_window_mode === "temporary"}><SettingRow title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>
             <NumberField decimal label={t("最小化等待时间")} value={desktopDraft.minimize_delay_seconds} min={0} max={30} suffix={t("秒")} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_delay_seconds: value }))} />
           </SettingRow></Reveal>
+          <ClientDesktopSettings
+            mode={desktopDraft.client_window_mode}
+            onChange={(client_window_mode) => setDesktopDraft((current) => ({ ...current, client_window_mode }))}
+          />
         </section>
         </>)}
         {panel("spotify", <>

@@ -279,16 +279,8 @@ fn position_surface(app: &tauri::AppHandle, reposition: bool) -> Result<Canvas, 
         }
     }
     let options = crate::desktop_preferences::DesktopPreferences::load(app)?;
-    let monitor = if options.overlay_monitor == "primary" {
-        window.primary_monitor()
-    } else {
-        window
-            .cursor_position()
-            .and_then(|p| window.monitor_from_point(p.x, p.y))
-    }
-    .map_err(|_| "错误：无法读取显示器信息")?
-    .or_else(|| window.primary_monitor().ok().flatten())
-    .ok_or("错误：无法读取显示器信息")?;
+    let monitor = super::monitors::selected_monitor(&window, &options.overlay_monitor)
+        .ok_or("错误：无法读取显示器信息")?;
     let monitors = window
         .available_monitors()
         .map_err(|_| "错误：无法读取显示器信息")?;

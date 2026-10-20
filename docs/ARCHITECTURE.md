@@ -41,7 +41,7 @@
 | 枚举用户系统字体与多语言字体名 | `app/src-tauri/src/desktop/fonts.rs`、`app/src/components/FontPicker.tsx`、`fontOptions.ts` |
 | 紧凑下拉框、隐藏帮助及缩放定位 | `app/src/components/Select.tsx`、`Popover.tsx`、`SettingsControls.tsx`、`popoverPlacement.ts` |
 | 键盘选歌、按键录制与卡片选中反馈 | `app/src/features/discovery/keyboardSelection.ts`、`useKeyboardSelection.ts`、`app/src/features/settings/KeyboardSettings.tsx`、`discoveryKeybindings.ts` |
-| 窗口、托盘、快捷键、系统对话框、自启或客户端最小化 | `app/src-tauri/src/desktop/`、`lib.rs`、`client_window.rs` |
+| 窗口、托盘、快捷键、系统对话框、自启、客户端最小化或单独桌面 | `app/src-tauri/src/desktop/`、`lib.rs`、`client_window.rs`、`client_isolation.rs`、`virtual_desktop.rs`、`monitors.rs` |
 | 快捷打出（前九张） | 设置位于「快捷键」的 `HandPlayShortcuts`；`hand::HandSettings.play_shortcuts` 由 `desktop/shortcuts.rs` 注册并按住抑制，`desktop/hand_actions.rs` 优先读取普通手牌，手牌模式关闭时才读取迷你发现；沿用 `play_hand_card` 的失败保留／回牌 |
 | 应用风格的托盘右键菜单 | `app/src-tauri/src/desktop/tray_menu.rs`、`app/src/features/tray/`、`app/src-tauri/capabilities/tray-menu.json` |
 | Windows 安装兼容检查与 WebView2 准备 | `app/src-tauri/installer/installer.nsi`、`hooks.nsh`、`app/src-tauri/tauri.conf.json`、`app/scripts/` |
@@ -112,6 +112,10 @@
 九平台能力由核心 `supported_kinds` / `validate_kind` 约束。酷我、汽水及视频来源快照含完整 `tracks_info`，发现详情从快照读取；Bilibili 分 P 用 `BV号_pN` 标识。酷我校验官方 UTF-8 分页的来源 ID、页码、总数和进度；汽水读取官方分享页 SSR，实际歌曲数量不符时拒绝提交。Apple Music 读取公开歌单/专辑页的 `serialized-server-data`，用页头 `trackCount` 与实际曲目数校验完整性；用户歌单 `pl.u-…` 和编辑歌单 `pl.…` 都以 `<storefront>_…` 形式保存来源 ID，页面请求使用无 slug 的规范路径并由 Apple 重定向。Bilibili 收藏夹/合集/系列在第一页确定总数后按每批 4 页并发读取，再按页号顺序执行重复、数量与目录完整性校验。酷我、汽水、Apple Music 与视频来源复用 `public_music.rs` 的快照与详情逻辑，不另建抽歌或封面缓存机制，核心继续不依赖 Tauri。
 
 酷我原生播放 URI 在官网歌曲页取得，并核对固定协议、字段和目标 `MUSIC_<id>`，保留官方 Base64 的字面 `+`；页面读取复用共享 HTTP 连接池，已校验 URI 在 5 分钟内复用。桌面先在操作锁内验证来源并记录 `current_batch_epoch`，释放锁后联网，重新获得锁后二次核对完整来源与批次标记，再读取最新播放设置并唤起客户端。只影响预加载的 `generation` 变化不使当前可见批次失效；取消、换批、选择和来源变化仍不能让旧请求播放。汽水使用官方 Windows 客户端 `luna://luna.com/playing?track_id=...` 协议；客户端识别仅匹配 `SodaMusic.exe`，酷我匹配 `KwMusic.exe`，不把同名辅助进程作为播放器。URI 构造或元数据读取通过不能代替真实客户端切歌验收。
+
+`DesktopPreferences.client_window_mode` 与旧的最小化开关相互独立：`off` 不处理主窗口，`temporary` 在打开 scheme 前把客户端主窗口移到名为 `DiscoAS` 的虚拟桌面并在等待时间后移回，`persistent` 保持在该桌面，只有设置页的“显示客户端”才移回。临时模式移回后仍遵守“播放后最小化客户端”；独立桌面需要 Windows 11 22H2+，使用公开的 `IVirtualDesktopManager` 移动已验证主窗口，创建使用 `Win+Ctrl+D`，桌面名称和 GUID 从 Explorer 注册表读取，首次启用需在任务视图把新桌面改名为 `DiscoAS`。桌面名称改名失败、未配置或系统不支持时回退到原最小化流程；`create_client_desktop` 只创建不自动改名，前端轮询配置状态。该流程覆盖网易云、QQ、酷狗、酷我、汽水和 Spotify scheme 模式，浏览器播放与本地文件不处理。
+
+`DesktopPreferences.overlay_monitor` 除 `current` 和兼容旧值的 `primary` 外，还可保存 Windows 显示器设备 ID。`get_display_monitors` 通过 Tauri 显示器列表和 `EnumDisplayDevicesW` 返回名称；优先使用显示器型号，没有 EDID 名称时回退硬件 ID。启动动画、发现浮层和手牌布局都按同一选择定位，失效的显示器回退主显示器。
 
 浏览器扩展只控制绑定页面，确认首次播放后结束比较；自动续播不写入历史或触发发现事件。Apple Music 由官方网页播放器的 MusicKit 驱动：Chrome / Edge 使用主世界脚本，Firefox 使用 `wrappedJSObject` + `cloneInto`/`exportFunction`；脚本把来源 `song_ids` 写成网页队列并切到选中歌曲（不能按索引跳转时把选中曲放到队首），再读取 `nowPlayingItem`/`playbackTimeDidChange` 回报；首次自动播放被浏览器拦截时由用户在该页面点击一次。两种浏览器都需要先登录 `music.apple.com`。Spicetify 安装 / 配置在操作锁外运行，校验固定资源、保留已有配置和备份。首次安装仅由设置中的明确操作发起；启动、保存模式和选歌的自动入口必须先检查有效且未移除的 DiscoAS 安装记录，服务锁内再检查一次。NSIS 没有安装时自动部署钩子，升级保留配置，卸载仅撤销本应用内容。
 

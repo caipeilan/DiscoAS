@@ -62,7 +62,31 @@
 .connection-steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
 .connection-steps li[aria-current="step"] > span, .connection-steps li[data-complete="true"] > span { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-soft); }
 .connection-notice { font-size: calc(12px * var(--font-scale, 1)); line-height: 1.7; color: var(--text-secondary); margin: 12px 0; }
+.client-desktop-status {
+  padding: 9px 18px 10px;
+  border-radius: 0 0 8px 8px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+.client-desktop-line {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  min-height: 22px; font-size: calc(12px * var(--font-scale, 1));
+}
+.client-desktop-line strong { color: var(--text); font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; }
+.client-desktop-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+.client-desktop-dot.muted { background: var(--text-tertiary); }
+.client-desktop-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.client-desktop-actions .button { min-height: 26px; padding: 4px 9px; font-size: calc(11px * var(--font-scale, 1)); }
+.client-desktop-hint {
+  margin: 5px 0 0; color: var(--text-tertiary);
+  font-size: calc(11px * var(--font-scale, 1)); line-height: 1.55;
+}
+.client-desktop-error {
+  margin: 5px 0 0; color: var(--danger);
+  font-size: calc(11px * var(--font-scale, 1)); line-height: 1.55;
+}
 @media (max-width: 850px) {
   .settings-save-actions { gap: 6px; }
   .settings-save-actions .button { padding: 6px 9px; }
+  .client-desktop-actions { margin-left: 0; width: 100%; }
 }

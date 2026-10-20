@@ -2,6 +2,8 @@
 use discoas_core::model::{PlaySongArgs, SongCardDto};
 use tauri::Manager;
 
+use super::client_isolation::ClientWindowMode;
+
 pub async fn dispatch(
     app: &tauri::AppHandle,
     args: &PlaySongArgs,
@@ -77,15 +79,32 @@ async fn dispatch_to_platform(
     } else {
         app.state::<crate::browser_playback::BrowserPlaybackService>()
             .cancel_pending();
+        let mode = super::client_isolation::mode(options);
+        let spotify_extension = args.platform == discoas_core::platforms::names::SPOTIFY
+            && options.spotify_playback_mode == "extension";
+        // The scheme must be opened after the window is moved; the service
+        // performs that open internally for local clients.
+        let isolated = if !spotify_extension
+            && matches!(
+                mode,
+                ClientWindowMode::Temporary | ClientWindowMode::Persistent
+            )
+        {
+            super::client_isolation::prepare(&args.platform, options)
+        } else {
+            false
+        };
         app.state::<crate::spotify_playback::PlaybackService>()
             .invoke(app.clone(), args, card, url, &options.spotify_playback_mode)
             .await?;
-        crate::client_window::schedule(
-            app.clone(),
-            args.platform.clone(),
-            options.minimize_after_playback,
-            options.minimize_delay_seconds,
-        );
+        if !isolated {
+            crate::client_window::schedule(
+                app.clone(),
+                args.platform.clone(),
+                options.minimize_after_playback,
+                options.minimize_delay_seconds,
+            );
+        }
     }
     Ok(())
 }
