@@ -21,7 +21,7 @@ test("new platform controls expose only the source kinds the backend supports", 
   assert.deepEqual(sourceKinds("LocalMusic"), ["playlist"]);
   assert.deepEqual(sourceKinds("YouTube"), ["playlist", "video"]);
   assert.deepEqual(sourceKinds("Bilibili"), ["video", "favorites", "collection", "series"]);
-  for (const platform of ["NeteaseCloudMusic", "QQMusic", "KugouMusic", "Spotify", "KuwoMusic", "QishuiMusic"])
+  for (const platform of ["NeteaseCloudMusic", "QQMusic", "KugouMusic", "Spotify", "KuwoMusic", "QishuiMusic", "AppleMusic"])
     assert.deepEqual(sourceKinds(platform), ["playlist", "album"]);
 });
 
@@ -61,12 +61,15 @@ test("existing music platform sharing links keep their album or playlist choice"
   assert.deepEqual(identifySource("spotify:album:example"), { platform: "Spotify", kind: "album" });
   assert.deepEqual(identifySource("https://open.spotify.com/playlist/example"), { platform: "Spotify", kind: "playlist" });
   assert.deepEqual(identifySource("https://www.kugou.com/songlist/example"), { platform: "KugouMusic", kind: "playlist" });
+  assert.deepEqual(identifySource("https://music.apple.com/cn/playlist/测试术力口歌单/pl.u-V9D7v0NuB55rVjL"), { platform: "AppleMusic", kind: "playlist" });
+  assert.deepEqual(identifySource("https://music.apple.com/cn/album/未完成/255920420?i=255921025"), { platform: "AppleMusic", kind: "album" });
 });
 
 test("source recognition does not mistake unrelated or lookalike hosts for supported sites", () => {
   for (const value of ["", "a random ID", "https://youtube.com.example.invalid/watch?v=123",
     "https://bilibili.com.example.invalid/video/BV1xx411c7mD", "https://example.invalid/?next=https://youtube.com/watch?v=123",
-    "https://example.invalid/playlist?list=123"])
+    "https://example.invalid/playlist?list=123",
+    "https://music.apple.com.example.invalid/cn/playlist/x/pl.u-V9D7v0NuB55rVjL"])
     assert.equal(identifySource(value), null);
 });
 

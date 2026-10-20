@@ -21,6 +21,9 @@ pub fn normalize_source(platform: &str, kind: TypeName, input: &str) -> Result<S
     if platform == platforms::names::QISHUI {
         return platforms::qishui::normalize(kind, extracted).map_err(|e| e.to_string());
     }
+    if platform == platforms::names::APPLE_MUSIC {
+        return platforms::apple_music::normalize(kind, extracted).map_err(|e| e.to_string());
+    }
     let mut id = extracted.to_string();
     if extracted.starts_with("spotify:") {
         let parts: Vec<_> = extracted.split(':').collect();
@@ -228,6 +231,21 @@ mod tests {
         )
         .is_err());
         assert!(normalize_source("QQMusic", TypeName::Playlist, "https://evil.example/x").is_err());
+        assert_eq!(
+            normalize_source(
+                "AppleMusic",
+                TypeName::Playlist,
+                "https://music.apple.com/cn/playlist/x/pl.u-V9D7v0NuB55rVjL"
+            )
+            .unwrap(),
+            "cn_pl_u-V9D7v0NuB55rVjL"
+        );
+        assert!(normalize_source(
+            "AppleMusic",
+            TypeName::Playlist,
+            "https://music.apple.com/cn/album/x/255920420"
+        )
+        .is_err());
         assert_eq!(normalize_source("KugouMusic",TypeName::Playlist,"https://www.kugou.com/songlist?specialid=-2147483648&global_specialid=collection_3_123").unwrap(),"collection_3_123");
     }
     #[test]

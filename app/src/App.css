@@ -379,10 +379,13 @@ a {
 .import-platform-field { padding: 0; margin: 16px 0; border: 0; min-width: 0; }
 .import-platform-field legend { padding: 0; margin-bottom: 8px; }
 .import-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.import-platforms button { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); }
+.import-platforms button { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); }
 .import-platforms button:hover:not(:disabled) { background: var(--surface-subtle); border-color: var(--control-border); }
 .import-platforms button.selected { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-soft); }
-.import-platforms button > span:not(.platform-logo) { flex: 1; min-width: 0; text-align: left; }
+.import-platforms button > span:not(.platform-logo) { flex: 1; min-width: 0; padding-right: 14px; text-align: left; white-space: nowrap; }
+.import-platforms button > .platform-check { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); }
+.import-platform-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 9px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-subtle); color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.5; }
+.import-platform-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--accent-text); }
 .import-recognition { display: flex; align-items: center; gap: 6px; min-height: 20px; margin: -2px 0 4px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
 .import-recognition > svg { color: var(--accent-text); }
 .import-kinds { margin-bottom: 16px; }

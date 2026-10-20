@@ -86,6 +86,44 @@ test("targets and sender identities reject injected URLs and invalid video parts
     bili(10001), "https://www.bilibili.com/video/BV1234567890/?p=0",
   ]) assert.equal(api.identity(url), null, url);
   assert.deepEqual(copy(api.identity(bili(2))), { platform: "Bilibili", songId: "BV1234567890_p2" });
+  assert.equal(api.target("AppleMusic", "573839785").url, "https://music.apple.com/");
+  assert.throws(() => api.target("AppleMusic", "not-a-song"));
+  assert.deepEqual(copy(api.identity("https://music.apple.com/cn/new")), { platform: "AppleMusic" });
+});
+
+test("Apple Music reuses the web player tab and carries the source song list", async () => {
+  const f = setup();
+  await f.player.command({
+    requestId: 1,
+    songId: "573839785",
+    platform: "AppleMusic",
+    songIds: ["573839785", "1778134959"],
+  });
+  const first = f.stored();
+  assert.equal(first.platform, "AppleMusic");
+  assert.equal(first.url, "https://music.apple.com/");
+  assert.deepEqual(first.songIds, ["573839785", "1778134959"]);
+  assert.equal(f.pages.get(first.tabId).url, "https://music.apple.com/");
+  await f.player.command({
+    requestId: 2,
+    songId: "1778134959",
+    platform: "AppleMusic",
+    songIds: ["573839785", "1778134959"],
+  });
+  const second = f.stored();
+  assert.equal(second.tabId, first.tabId);
+  assert.equal(f.pages.get(second.tabId).url, "https://music.apple.com/");
+  assert.equal(f.operations.filter((op) => op.type === "create").length, 1);
+  await f.player.handle({
+    type: "discoas-state",
+    requestId: 2,
+    songId: "1778134959",
+    playing: true,
+  }, f.sender(first.tabId));
+  const report = f.reports.at(-1);
+  assert.equal(report.platform, "AppleMusic");
+  assert.equal(report.songId, "1778134959");
+  assert.equal(report.playing, true);
 });
 
 test("one controlled tab is reused while unrelated music tabs remain untouched", async () => {

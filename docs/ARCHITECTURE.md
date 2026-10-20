@@ -32,6 +32,7 @@
 | 穿透尺寸预览、原生指针和按键观察 | `app/src-tauri/src/desktop/discovery_preview.rs`、`preview_keyboard.rs`；前端 `app/src/features/settings/useDiscoveryPreview.ts`、`app/src/features/discovery/` |
 | 导入进度、取消与网络任务提交 | `platforms::PlaylistFetcher::fetch_with_progress`、`app/src-tauri/src/services/library_jobs.rs`、`desktop/library.rs` |
 | Spotify 切歌、可选扩展安装与已有配置恢复 | `app/src-tauri/src/spotify_playback.rs`、`spotify_setup.rs`、`services/spotify_setup.rs`、`installer/`、`extensions/spotify/` |
+| Apple Music 公开来源、网页队列与选歌 | `crates/discoas-core/src/platforms/apple_music/`、`extensions/browser/apple-music-main.js`、`apple-music-bridge.js`、`app/src-tauri/src/browser_playback.rs` |
 | 浏览器播放页复用与续播 | `app/src-tauri/src/browser_playback.rs`、`services/browser_bridge.rs`、`extensions/browser/` |
 | 兼容歌单 JSON 或改变缓存存储 | `crates/discoas-core/src/platforms/storage.rs`、`core/playlist.rs` |
 | 调整歌单管理、迁移或设置保存规则 | `app/src-tauri/src/services/` |
@@ -108,11 +109,11 @@
 
 秘密歌曲的真实元数据保留在内部 `real_metadata`，Serde 双向跳过该字段；发现卡片保持隐藏，历史使用真实信息。旧记录补全最多 100 项、4 并发、单项 8 秒、总计 20 秒；网络不持有操作锁，短暂合并只修改仍与原快照一致的行，不能恢复已经清空的记录。
 
-八平台能力由核心 `supported_kinds` / `validate_kind` 约束。酷我、汽水及视频来源快照含完整 `tracks_info`，发现详情从快照读取；Bilibili 分 P 用 `BV号_pN` 标识。酷我校验官方 UTF-8 分页的来源 ID、页码、总数和进度；汽水读取官方分享页 SSR，实际歌曲数量不符时拒绝提交。Bilibili 收藏夹/合集/系列在第一页确定总数后按每批 4 页并发读取，再按页号顺序执行重复、数量与目录完整性校验。酷我、汽水与视频来源复用 `public_music.rs` 的快照与详情逻辑，不另建抽歌或封面缓存机制，核心继续不依赖 Tauri。
+九平台能力由核心 `supported_kinds` / `validate_kind` 约束。酷我、汽水及视频来源快照含完整 `tracks_info`，发现详情从快照读取；Bilibili 分 P 用 `BV号_pN` 标识。酷我校验官方 UTF-8 分页的来源 ID、页码、总数和进度；汽水读取官方分享页 SSR，实际歌曲数量不符时拒绝提交。Apple Music 读取公开歌单/专辑页的 `serialized-server-data`，用页头 `trackCount` 与实际曲目数校验完整性；用户歌单 `pl.u-…` 和编辑歌单 `pl.…` 都以 `<storefront>_…` 形式保存来源 ID，页面请求使用无 slug 的规范路径并由 Apple 重定向。Bilibili 收藏夹/合集/系列在第一页确定总数后按每批 4 页并发读取，再按页号顺序执行重复、数量与目录完整性校验。酷我、汽水、Apple Music 与视频来源复用 `public_music.rs` 的快照与详情逻辑，不另建抽歌或封面缓存机制，核心继续不依赖 Tauri。
 
 酷我原生播放 URI 在官网歌曲页取得，并核对固定协议、字段和目标 `MUSIC_<id>`，保留官方 Base64 的字面 `+`；页面读取复用共享 HTTP 连接池，已校验 URI 在 5 分钟内复用。桌面先在操作锁内验证来源并记录 `current_batch_epoch`，释放锁后联网，重新获得锁后二次核对完整来源与批次标记，再读取最新播放设置并唤起客户端。只影响预加载的 `generation` 变化不使当前可见批次失效；取消、换批、选择和来源变化仍不能让旧请求播放。汽水使用官方 Windows 客户端 `luna://luna.com/playing?track_id=...` 协议；客户端识别仅匹配 `SodaMusic.exe`，酷我匹配 `KwMusic.exe`，不把同名辅助进程作为播放器。URI 构造或元数据读取通过不能代替真实客户端切歌验收。
 
-浏览器扩展只控制绑定页面，确认首次播放后结束比较；自动续播不写入历史或触发发现事件。Spicetify 安装 / 配置在操作锁外运行，校验固定资源、保留已有配置和备份。首次安装仅由设置中的明确操作发起；启动、保存模式和选歌的自动入口必须先检查有效且未移除的 DiscoAS 安装记录，服务锁内再检查一次。NSIS 没有安装时自动部署钩子，升级保留配置，卸载仅撤销本应用内容。
+浏览器扩展只控制绑定页面，确认首次播放后结束比较；自动续播不写入历史或触发发现事件。Apple Music 由官方网页播放器的 MusicKit 驱动：Chrome / Edge 使用主世界脚本，Firefox 使用 `wrappedJSObject` + `cloneInto`/`exportFunction`；脚本把来源 `song_ids` 写成网页队列并切到选中歌曲（不能按索引跳转时把选中曲放到队首），再读取 `nowPlayingItem`/`playbackTimeDidChange` 回报；首次自动播放被浏览器拦截时由用户在该页面点击一次。两种浏览器都需要先登录 `music.apple.com`。Spicetify 安装 / 配置在操作锁外运行，校验固定资源、保留已有配置和备份。首次安装仅由设置中的明确操作发起；启动、保存模式和选歌的自动入口必须先检查有效且未移除的 DiscoAS 安装记录，服务锁内再检查一次。NSIS 没有安装时自动部署钩子，升级保留配置，卸载仅撤销本应用内容。
 
 ## 发现状态、替换与预览
 

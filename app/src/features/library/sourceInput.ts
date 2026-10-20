@@ -21,6 +21,8 @@ export function identifySource(value: string): { platform: string; kind: string 
     return { platform: "KuwoMusic", kind: /album/i.test(url.pathname + url.hash) || url.searchParams.has("albumId") || url.searchParams.has("albumid") ? "album" : "playlist" };
   if (["www.qishui.com", "qishui.com", "music.douyin.com", "www.douyin.com", "douyin.com"].includes(host) && /\/(playlist|album)(\/|$)/.test(url.pathname))
     return { platform: "QishuiMusic", kind: /\/album(\/|$)/.test(url.pathname) ? "album" : "playlist" };
+  if (host === "music.apple.com" && /\/(playlist|album)(\/|$)/.test(url.pathname))
+    return { platform: "AppleMusic", kind: /\/album(\/|$)/.test(url.pathname) ? "album" : "playlist" };
   if (["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"].includes(host))
     return { platform: "YouTube", kind: url.searchParams.has("list") ? "playlist" : "video" };
   if (["www.bilibili.com", "bilibili.com", "space.bilibili.com", "m.bilibili.com", "b23.tv"].includes(host)) {

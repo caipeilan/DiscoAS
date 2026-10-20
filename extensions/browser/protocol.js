@@ -1,6 +1,8 @@
 /* Shared identity and controlled-tab state machine. No site credentials or media URLs. */
 (() => {
   function target(platform, songId) {
+    if (platform === "AppleMusic" && /^\d{1,20}$/.test(songId))
+      return { platform, songId, url: "https://music.apple.com/" };
     if (platform === "YouTube" && /^[A-Za-z0-9_-]{11}$/.test(songId))
       return { platform, songId, url: `https://www.youtube.com/watch?v=${songId}` };
     const bili = platform === "Bilibili" && /^(BV[A-Za-z0-9]{10})_p([1-9]\d*)$/.exec(songId);
@@ -12,6 +14,7 @@
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:") return null;
+      if (parsed.hostname === "music.apple.com") return { platform: "AppleMusic" };
       if (parsed.hostname === "www.youtube.com" && parsed.pathname === "/watch") {
         const id = parsed.searchParams.get("v");
         return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? { platform: "YouTube", songId: id } : null;
@@ -48,7 +51,11 @@
       return reset;
     }
     async function command(request) {
-      const expected = target(request.platform, request.songId);
+      const songIds = Array.isArray(request.songIds)
+        ? request.songIds.filter((id) => typeof id === "string" && /^\d{1,20}$/.test(id)).slice(0, 5000)
+        : [];
+      const expected = { ...target(request.platform, request.songId), songIds };
+      const apple = expected.platform === "AppleMusic";
       if (!Number.isSafeInteger(request.requestId) || request.requestId <= 0) throw new Error("Invalid request");
       if (request.requestId <= newest) return;
       newest = request.requestId;
@@ -71,7 +78,12 @@
           binding = { tabId: tab.id, ...expected, requestId: request.requestId, confirmed: false };
           await save();
           if (!current()) return;
-          await tabs.update(tab.id, { url: expected.url, active: true });
+          if (apple) {
+            await tabs.update(tab.id, { active: true }).catch(() => {});
+            await tabs.sendMessage(tab.id, { type: "discoas-bind", binding }).catch(() => {});
+          } else {
+            await tabs.update(tab.id, { url: expected.url, active: true });
+          }
         } else {
           tab = await tabs.create({ url: expected.url, active: true });
           created = true;
@@ -93,6 +105,40 @@
       if (!binding || sender.frameId !== 0 || sender.tab?.id !== binding.tabId) return null;
       const actual = identity(sender.url || sender.tab?.url || "");
       if (!actual) return null;
+      if (binding.platform === "AppleMusic") {
+        if (actual.platform !== "AppleMusic") return null;
+        if (message.type === "discoas-ready") return binding;
+        if (message.type !== "discoas-state" && message.type !== "discoas-observation") return null;
+        if (message.requestId !== binding.requestId) return null;
+        if (message.type === "discoas-state") {
+          if (binding.confirmed) return null;
+          if (typeof message.error === "string" && message.error) {
+            report({ requestId: binding.requestId, rejected: true, error: message.error });
+            return null;
+          }
+          if (message.playing === true && message.songId === binding.songId) {
+            const accepted = binding;
+            const confirmedBinding = { ...accepted, confirmed: true };
+            binding = confirmedBinding;
+            await save();
+            if (binding === confirmedBinding && sessionEpoch === epoch)
+              report({ requestId: accepted.requestId, platform: "AppleMusic", songId: accepted.songId, playing: true });
+          }
+          return null;
+        }
+        if (!binding.confirmed) return null;
+        report({
+          requestId: binding.requestId,
+          platform: "AppleMusic",
+          songId: typeof message.songId === "string" && /^\d{1,20}$/.test(message.songId) ? message.songId : binding.songId,
+          observed: true,
+          playing: message.playing === true,
+          ended: message.ended === true,
+          position: Number.isFinite(message.position) ? message.position : null,
+          duration: Number.isFinite(message.duration) ? message.duration : null,
+        });
+        return null;
+      }
       if (message.type === "discoas-ready") return binding;
       if (message.type === "discoas-observation" && binding.confirmed && binding.requestId > 0 && message.requestId === binding.requestId) {
         // The sender's actual URL supplies identity for end/progress and SPA track changes.

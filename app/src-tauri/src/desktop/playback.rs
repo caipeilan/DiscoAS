@@ -59,12 +59,20 @@ async fn dispatch_to_platform(
             .cancel_pending();
         tauri_plugin_opener::open_path(url, None::<&str>)
             .map_err(|e| format!("错误：无法打开音频文件，请检查默认播放器：{e}"))?;
-    } else if matches!(args.platform.as_str(), "YouTube" | "Bilibili") {
+    } else if matches!(
+        args.platform.as_str(),
+        "YouTube" | "Bilibili" | "AppleMusic"
+    ) {
         crate::client_window::cancel_pending();
         app.state::<crate::spotify_playback::PlaybackService>()
             .cancel_pending();
+        let mode = if args.platform == discoas_core::platforms::names::APPLE_MUSIC {
+            "extension"
+        } else {
+            options.browser_playback_mode.as_str()
+        };
         app.state::<crate::browser_playback::BrowserPlaybackService>()
-            .invoke(app.clone(), args, url, &options.browser_playback_mode)
+            .invoke(app.clone(), args, url, mode)
             .await?;
     } else {
         app.state::<crate::browser_playback::BrowserPlaybackService>()

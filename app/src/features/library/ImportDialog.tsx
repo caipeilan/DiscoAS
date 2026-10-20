@@ -101,9 +101,15 @@ export function ImportDialog({
           <div className="import-platforms">{platforms.map(p => <button type="button" key={p.id}
             aria-pressed={platform === p.id} className={platform === p.id ? "selected" : ""}
             onClick={() => { setPlatform(p.id); setError(""); if (!sourceKinds(p.id).includes(typename)) setType(sourceKinds(p.id)[0]); }}>
-            <PlatformIcon id={p.id} /><span>{t(p.label)}</span>{platform === p.id && <Icon name="check" size={13} />}
+            <PlatformIcon id={p.id} /><span>{t(p.label)}</span>{platform === p.id && <Icon name="check" size={13} className="platform-check" />}
           </button>)}</div>
         </fieldset>
+        {["AppleMusic", "YouTube", "Bilibili"].includes(platform) && (
+          <div className="import-platform-note" role="note">
+            <Icon name="info" size={16} />
+            <span>{t("由于软件限制，Apple Music、YouTube、Bilibili 只可在网页端运行，请在设置中进行调整。")}</span>
+          </div>
+        )}
         <fieldset className="motion-fields" disabled={busy || platform === "LocalMusic"}>
         <Reveal open={platform !== "LocalMusic"}><div className="segmented import-kinds" role="group" aria-label={t("内容类型")}>
           {sourceKinds(platform).map((kind) => <button key={kind}

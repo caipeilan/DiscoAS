@@ -34,6 +34,18 @@ const FILES: &[(&str, &str)] = &[
         "content.js",
         include_str!("../../../../extensions/browser/content.js"),
     ),
+    (
+        "apple-music-main.js",
+        include_str!("../../../../extensions/browser/apple-music-main.js"),
+    ),
+    (
+        "apple-music-bridge.js",
+        include_str!("../../../../extensions/browser/apple-music-bridge.js"),
+    ),
+    (
+        "apple-music-firefox.js",
+        include_str!("../../../../extensions/browser/apple-music-firefox.js"),
+    ),
 ];
 const ICONS: &[(&str, &[u8])] = &[
     (
@@ -80,6 +92,8 @@ struct Command {
     request_id: u64,
     platform: String,
     song_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    song_ids: Vec<String>,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -160,7 +174,13 @@ impl Bridge {
                 .flatten()
         })
     }
-    pub fn dispatch(&self, request_id: u64, platform: &str, song_id: &str) -> Result<(), String> {
+    pub fn dispatch(
+        &self,
+        request_id: u64,
+        platform: &str,
+        song_id: &str,
+        song_ids: &[String],
+    ) -> Result<(), String> {
         if !self.connected() {
             return Err("错误：浏览器扩展未连接，请在设置中安装扩展或选择直接打开".into());
         }
@@ -170,6 +190,7 @@ impl Bridge {
                 request_id,
                 platform: platform.into(),
                 song_id: song_id.into(),
+                song_ids: song_ids.to_vec(),
             })
             .map_err(|_| "错误：浏览器扩展连接中断".into())
     }
@@ -346,8 +367,8 @@ fn serve(
         Ok(response)
     };
     let config = tungstenite::protocol::WebSocketConfig::default()
-        .max_message_size(Some(4096))
-        .max_frame_size(Some(4096));
+        .max_message_size(Some(256 * 1024))
+        .max_frame_size(Some(256 * 1024));
     let Ok(mut socket) = tungstenite::accept_hdr_with_config(stream, callback, Some(config)) else {
         return;
     };
@@ -482,6 +503,10 @@ fn safe_error(value: &str) -> &'static str {
         }
         "错误：播放页已关闭" => "错误：播放页已关闭",
         "错误：视频无法播放" => "错误：视频无法播放",
+        "错误：Apple Music 网页播放器未登录" => "错误：Apple Music 网页播放器未登录",
+        "错误：Apple Music 网页播放器未就绪" => "错误：Apple Music 网页播放器未就绪",
+        "错误：Apple Music 歌曲无法播放" => "错误：Apple Music 歌曲无法播放",
+        "错误：Apple Music 队列无法建立" => "错误：Apple Music 队列无法建立",
         _ => "错误：无法打开浏览器播放页",
     }
 }
@@ -585,7 +610,7 @@ mod tests {
                 ))
                 .unwrap();
             socket.read().unwrap();
-            bridge.dispatch(1, "YouTube", "abcdefghijk").unwrap();
+            bridge.dispatch(1, "YouTube", "abcdefghijk", &[]).unwrap();
             let command = socket.read().unwrap();
             assert!(command.to_text().unwrap().contains("abcdefghijk"));
             socket.send(Message::Text("{\"requestId\":1,\"platform\":\"YouTube\",\"songId\":\"abcdefghijk\",\"playing\":true}".into())).unwrap();
@@ -631,7 +656,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(150));
             assert_eq!(bridge.outcome(1), Some(Ok(())));
             newest.store(2, Ordering::SeqCst);
-            bridge.dispatch(2, "Bilibili", "BV1234567890_p2").unwrap();
+            bridge.dispatch(2, "Bilibili", "BV1234567890_p2", &[]).unwrap();
             socket.read().unwrap();
             socket.send(Message::Text("{\"requestId\":1,\"platform\":\"YouTube\",\"songId\":\"abcdefghijk\",\"playing\":true}".into())).unwrap();
             std::thread::sleep(Duration::from_millis(150));
@@ -674,7 +699,7 @@ mod tests {
             .unwrap();
         assert!(socket.read().is_err());
         assert!(!bridge.connected());
-        assert!(bridge.dispatch(1, "YouTube", "abcdefghijk").is_err());
+        assert!(bridge.dispatch(1, "YouTube", "abcdefghijk", &[]).is_err());
         drop(socket);
         drop(bridge);
         std::thread::sleep(Duration::from_millis(200));

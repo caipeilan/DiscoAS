@@ -9,7 +9,7 @@
 | 模块 | 职责 |
 |---|---|
 | `model` | 共用歌曲卡片和播放参数；保持桌面端 JSON 字段不变 |
-| `platforms` | 八个平台与本地音频的元数据、歌曲详情和播放目标；返回数据，播放器由调用者打开 |
+| `platforms` | 九个平台与本地音频的元数据、歌曲详情和播放目标；返回数据，播放器由调用者打开 |
 | `platforms::local` | 只读扫描音频路径、目录和 UTF-8 M3U/M3U8，读取标签与内嵌封面，按路径保持歌曲身份 |
 | `platforms::source` | 分享文本、链接和 ID 规范化；校验平台与歌单/专辑/视频来源类型 |
 | `storage::LibraryStore` | 用调用者传入的 `user_data` 目录读取、原子保存平台缓存 |
@@ -22,7 +22,7 @@
 | `weighting` | 发现轮次、入选/选择扣权、线性恢复和久未出现加权；与历史原子保存 |
 | `discovery_service` | 发现、取消、预加载和播放来源校验；调用者负责展示和打开播放目标 |
 
-歌曲详情只读取调用者传入的当前歌单/专辑快照，不扫描其他歌单。网易云和 QQ 的详情继续请求平台接口；酷狗、酷我、汽水、Spotify 与视频平台使用当前快照，酷狗缺封面时仍有原来的专辑元数据回退。
+歌曲详情只读取调用者传入的当前歌单/专辑快照，不扫描其他歌单。网易云和 QQ 的详情继续请求平台接口；酷狗、酷我、汽水、Spotify、Apple Music 与视频平台使用当前快照，酷狗缺封面时仍有原来的专辑元数据回退。
 
 本地音频通过 `LocalSource::new(paths)` 和 `scan(progress, cancelled)` 返回兼容来源快照，以 `LocalMusic` / `playlist` 保存在 `LibraryStore`。更新使用 `LocalSource::from_snapshot` 恢复目录、文件和播放列表路径以及已知丢失文件。导入跳过内嵌图片数据，抽到歌曲时由共用图片缓存读取封面；无标签用文件名，无封面返回默认占位。`build_scheme_url` 对可信卡片中的 `filename` 验证绝对音频路径、身份和文件存在性，返回文件路径。
 
@@ -96,6 +96,10 @@ YouTube 支持 `playlist` / `video`；Bilibili 支持 `video` / `favorites` / `c
 `MusicSetting.discovery_keybindings` 保存六个本地选歌动作的按键，默认 `up=W`、`left=A`、`down=S`、`right=D`、`select=Enter`、`replace=R`。`DiscoveryKeybindings::normalized()` 统一修饰键顺序与键名，并检查无效 / 重复按键；允许字母、数字、方向键、Enter、Space、F1–F12 与 Ctrl / Alt / Shift 组合，Esc 保留给宿主退出。旧 JSON 缺少整个对象或其中字段时使用对应默认值。
 
 核心只保存与校验按键数据，不读取键盘、不录制、不控制焦点或动画。桌面前端按实际卡片网格导航，首次方向输入选择第一张卡片，换批、加载和关闭清空选择，再通过原播放校验入口提交当前卡片。卡片反馈动画、圆形帮助、系统多语言字体枚举和批量删除来源均由相应桌面 / 前端层处理，不能为这些功能引入 Tauri 或 Windows 依赖到核心。
+
+## Apple Music
+
+`AppleMusic` 支持 `playlist` / `album`。链接必须是 `https://music.apple.com/<storefront>/...`；用户歌单 `pl.u-…` 与编辑歌单 `pl.…` 统一保存为 `<storefront>_<id>`（点号换成下划线），页面请求由核心补成无 slug 的规范地址。读取公开页的 `serialized-server-data`，要求页头 `trackCount` 与实际曲目数一致；地区重定向到首页时拒绝导入。`build_scheme_url` 只返回网页播放器地址，真正的播放由桌面层的浏览器扩展完成，核心不依赖 Tauri、WebView 或账号数据。
 
 ## 酷我与汽水
 

@@ -68,7 +68,7 @@ export function BrowserSettings({ settings, setSettings }: {
     finally { setOperation(""); }
   };
   return <section ref={section} className="settings-section">
-    <h2>{t("YouTube / Bilibili")}</h2>
+    <h2>{t("Apple Music / YouTube / Bilibili")}</h2>
     <SettingRow title={t("播放方式")} description={t("连接后会重复使用同一个播放标签页。请保持浏览器和 DiscoAS 运行。") }>
       <Select
         label={t("浏览器播放方式")}
@@ -89,7 +89,7 @@ export function BrowserSettings({ settings, setSettings }: {
         <div className="connection-status" role="status" data-connected={connected}>
           <Icon name={connected ? "check" : "info"} size={21} /><div>
             <strong>{connected ? t("浏览器已连接") : preparedPath ? t("在浏览器中加载扩展") : t("连接浏览器播放器")}</strong>
-            <p>{connected ? t("选择视频后，将在连接的浏览器中播放。") : preparedPath ? t("按照下方说明加载扩展，再刷新视频页面。连接状态会自动更新。") : t("先准备扩展文件，再到浏览器中完成加载。")}</p>
+            <p>{connected ? t("选择内容后，将在连接的浏览器中播放。") : preparedPath ? t("按照下方说明加载扩展，再刷新播放页面。连接状态会自动更新。") : t("先准备扩展文件，再到浏览器中完成加载。")}</p>
           </div>
         </div>
         <ConnectionSteps steps={["准备文件", "在浏览器中加载", "确认连接"]} current={preparedPath ? 1 : 0} complete={connected} />
@@ -118,7 +118,7 @@ export function BrowserSettings({ settings, setSettings }: {
             <li>{browser === "firefox"
               ? t("点击“临时载入附加组件”，选择第 1 步文件夹内的 manifest.json 文件。")
               : t("开启“开发者模式”，点击“加载已解压的扩展程序”（Edge 可能显示“加载解压缩的扩展”）。选择第 1 步的整个文件夹，其中应包含 manifest.json。")}</li>
-            <li>{t("重新打开或刷新 YouTube / Bilibili 页面，保持 DiscoAS 运行，再点击“检查连接”。看到“扩展已连接”即可开始选歌；首次播放如被拦截，在网页点一次播放。")}</li>
+            <li>{t("重新打开或刷新 YouTube / Bilibili / Apple Music 页面，保持 DiscoAS 运行，再点击“检查连接”。看到“扩展已连接”即可开始选歌；首次播放如被拦截，在网页点一次播放。")}</li>
           </ol>
           {browser === "firefox" && <>
             <p>{t("Firefox 需115或更新版本")}</p>

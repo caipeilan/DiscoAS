@@ -9,6 +9,7 @@
 //! `get_json` reads metadata, `card` constructs playback URLs, and `storage`
 //! writes explicitly supplied snapshots. Opening players belongs to the caller.
 
+pub mod apple_music;
 pub mod bilibili;
 pub mod kugou;
 pub mod kuwo;
@@ -30,6 +31,7 @@ pub mod names {
     pub const KUGOU: &str = "KugouMusic";
     pub const KUWO: &str = "KuwoMusic";
     pub const QISHUI: &str = "QishuiMusic";
+    pub const APPLE_MUSIC: &str = "AppleMusic";
     pub const SPOTIFY: &str = "Spotify";
     pub const YOUTUBE: &str = "YouTube";
     pub const BILIBILI: &str = "Bilibili";
@@ -58,7 +60,8 @@ pub fn supported_kinds(platform: &str) -> AppResult<&'static [TypeName]> {
         | names::KUGOU
         | names::SPOTIFY
         | names::KUWO
-        | names::QISHUI => Ok(&[TypeName::Playlist, TypeName::Album]),
+        | names::QISHUI
+        | names::APPLE_MUSIC => Ok(&[TypeName::Playlist, TypeName::Album]),
         names::YOUTUBE => Ok(&[TypeName::Playlist, TypeName::Video]),
         names::BILIBILI => Ok(&[
             TypeName::Favorites,
@@ -121,6 +124,7 @@ pub fn fetcher_for(platform: &str) -> AppResult<Box<dyn PlaylistFetcher>> {
         names::KUGOU => Ok(Box::new(kugou::KugouFetcher)),
         names::KUWO => Ok(Box::new(kuwo::KuwoFetcher)),
         names::QISHUI => Ok(Box::new(qishui::QishuiFetcher)),
+        names::APPLE_MUSIC => Ok(Box::new(apple_music::AppleMusicFetcher)),
         names::SPOTIFY => Ok(Box::new(spotify::SpotifyFetcher)),
         names::YOUTUBE => Ok(Box::new(youtube::YoutubeFetcher)),
         names::BILIBILI => Ok(Box::new(bilibili::BilibiliFetcher)),
@@ -200,6 +204,7 @@ pub fn detail_loader_for(platform: &str) -> AppResult<Box<dyn SongDetailLoader>>
         names::KUGOU => Ok(Box::new(kugou::KugouDetailLoader)),
         names::KUWO => Ok(Box::new(kuwo::KuwoDetailLoader)),
         names::QISHUI => Ok(Box::new(qishui::QishuiDetailLoader)),
+        names::APPLE_MUSIC => Ok(Box::new(apple_music::AppleMusicDetailLoader)),
         names::SPOTIFY => Ok(Box::new(spotify::SpotifyDetailLoader)),
         names::YOUTUBE | names::BILIBILI => Ok(Box::new(video::VideoDetailLoader)),
         other => Err(AppError::UnsupportedPlatform(other.to_string())),
@@ -224,6 +229,7 @@ pub fn build_scheme_url(args: &crate::model::PlaySongArgs) -> AppResult<String> 
         names::KUGOU => kugou::card::scheme_url(&args.song_id, &args.filename),
         names::KUWO => kuwo::playback_url(&args.song_id)?,
         names::QISHUI => qishui::playback_url(&args.song_id)?,
+        names::APPLE_MUSIC => apple_music::playback_url(&args.song_id)?,
         names::SPOTIFY if args.typename == "album" && !args.playlist_id.is_empty() => {
             format!(
                 "spotify:track:{}?context=spotify%3Aalbum%3A{}&play=true",
@@ -264,6 +270,7 @@ mod playback_tests {
             names::SPOTIFY,
             names::KUWO,
             names::QISHUI,
+            names::APPLE_MUSIC,
         ] {
             assert!(validate_kind(platform, TypeName::Video).is_err());
             assert!(validate_kind(platform, TypeName::Album).is_ok());
@@ -292,6 +299,12 @@ mod playback_tests {
                 "7634441185327745025",
                 "album",
                 "luna://luna.com/playing?track_id=7634441185327745025",
+            ),
+            (
+                names::APPLE_MUSIC,
+                "573839785",
+                "playlist",
+                "https://music.apple.com/",
             ),
         ] {
             assert_eq!(

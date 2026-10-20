@@ -62,6 +62,10 @@ impl BrowserPlaybackService {
         mode: &str,
     ) -> Result<(), String> {
         let request = self.newest.fetch_add(1, Ordering::SeqCst) + 1;
+        let apple = args.platform == discoas_core::platforms::names::APPLE_MUSIC;
+        if apple && mode != "extension" {
+            return Err("错误：Apple Music 需要浏览器扩展播放方式".into());
+        }
         if mode == "direct" {
             return tauri::async_runtime::spawn_blocking(move || {
                 tauri_plugin_opener::open_url(url, None::<&str>)
@@ -74,7 +78,12 @@ impl BrowserPlaybackService {
             return Err("错误：浏览器播放方式无效".into());
         }
         let bridge = self.ensure(&app)?;
-        bridge.dispatch(request, &args.platform, &args.song_id)?;
+        let song_ids = if apple {
+            apple_music_queue(&app, args)?
+        } else {
+            Vec::new()
+        };
+        bridge.dispatch(request, &args.platform, &args.song_id, &song_ids)?;
         let newest = self.newest.clone();
         let args = args.clone();
         tauri::async_runtime::spawn(async move {
@@ -117,6 +126,35 @@ impl BrowserPlaybackService {
         Ok(())
     }
 }
+fn apple_music_queue(app: &tauri::AppHandle, args: &PlaySongArgs) -> Result<Vec<String>, String> {
+    let root = crate::paths::user_data_dir(app)
+        .map_err(|_| "错误：无法读取 Apple Music 歌单缓存")?;
+    let kind = discoas_core::core::playlist::TypeName::parse(&args.typename)
+        .map_err(|_| "错误：Apple Music 来源类型无效")?;
+    let source = discoas_core::storage::LibraryStore::new(root)
+        .load_json(&args.platform, &args.playlist_id, kind)
+        .map_err(|_| "错误：Apple Music 歌单缓存缺失，请更新此歌单")?;
+    let mut ids: Vec<String> = source["song_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|id| {
+            id.as_str()
+                .map(str::to_owned)
+                .or_else(|| id.as_u64().map(|value| value.to_string()))
+        })
+        .filter(|id| !id.is_empty())
+        .take(5000)
+        .collect();
+    if ids.is_empty() {
+        ids.push(args.song_id.clone());
+    }
+    if !ids.iter().any(|id| id == &args.song_id) {
+        ids.push(args.song_id.clone());
+    }
+    Ok(ids)
+}
+
 #[tauri::command]
 pub fn export_browser_extension(
     app: tauri::AppHandle,
