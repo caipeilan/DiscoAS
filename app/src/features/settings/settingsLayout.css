@@ -85,6 +85,7 @@
   margin: 5px 0 0; color: var(--danger);
   font-size: calc(11px * var(--font-scale, 1)); line-height: 1.55;
 }
+.settings-section .setting-row.client-wait-row { border-bottom: 1px solid var(--border); }
 @media (max-width: 850px) {
   .settings-save-actions { gap: 6px; }
   .settings-save-actions .button { padding: 6px 9px; }

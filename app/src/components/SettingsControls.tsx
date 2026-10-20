@@ -113,15 +113,17 @@ export function SettingRow({
   title,
   description,
   hint,
+  className,
   children,
 }: {
   title: string;
   description?: string;
   hint?: React.ReactNode;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className={`setting-row${hint ? " has-hint" : ""}`}>
+    <div className={`setting-row${hint ? " has-hint" : ""}${className ? ` ${className}` : ""}`}>
       <div className="setting-label">
         <strong>{title}</strong>
         {description && <HelpHint label={title}>{description}</HelpHint>}

@@ -72,8 +72,8 @@ export function ClientDesktopSettings({
     if (next) {
       setMessage(
         next.configured
-          ? t("已重新检测到 DiscoAS 桌面")
-          : t("尚未找到 DiscoAS 桌面"),
+          ? t("已重新检测到 DiscoAS 独立桌面")
+          : t("尚未找到 DiscoAS 独立桌面"),
       );
     }
     setBusy("");
@@ -84,11 +84,13 @@ export function ClientDesktopSettings({
     setMessage(null);
     setError(null);
     try {
-      const count = await showLocalClient();
+      const result = await showLocalClient();
       setMessage(
-        count > 0
-          ? t("已显示客户端窗口")
-          : t("没有找到可显示的客户端窗口"),
+        result.found === 0
+          ? t("没有找到客户端窗口")
+          : result.shown === 0
+            ? t("找到客户端，但无法移动到当前桌面")
+            : t("已显示客户端窗口"),
       );
     } catch (cause) {
       setError(errorText(cause));
@@ -98,10 +100,15 @@ export function ClientDesktopSettings({
   };
 
   const supported = status?.supported !== false;
+  const moveSupported = status?.moveSupported !== false;
   const options = [
     { value: "off", label: t("关闭") },
-    { value: "temporary", label: t("临时存放"), disabled: !supported },
-    { value: "persistent", label: t("长期存放（推荐）"), disabled: !supported },
+    { value: "temporary", label: t("临时存放"), disabled: !supported || !moveSupported },
+    {
+      value: "persistent",
+      label: t("长期存放（推荐）"),
+      disabled: !supported || !moveSupported,
+    },
   ];
 
   return (
@@ -123,7 +130,7 @@ export function ClientDesktopSettings({
         <div className="client-desktop-status" role="status" aria-live="polite">
           {!status ? (
             <div className="client-desktop-line">
-              <span>{t("正在检测后台桌面…")}</span>
+              <span>{t("正在检测 DiscoAS 独立桌面…")}</span>
               <span className="client-desktop-actions">
                 <button
                   type="button"
@@ -143,12 +150,13 @@ export function ClientDesktopSettings({
             <div className="client-desktop-line">
               <span className="client-desktop-dot" aria-hidden="true" />
               <strong>{status.desktopName}</strong>
+              <span>{t("独立桌面")}</span>
               <span>{t("已就绪")}</span>
               <span className="client-desktop-actions">
                 <button
                   type="button"
                   className="button secondary"
-                  disabled={busy !== ""}
+                  disabled={busy !== "" || !status.moveSupported}
                   onClick={() => void show()}
                 >
                   {busy === "show" ? t("显示中") : t("显示客户端")}
@@ -167,7 +175,7 @@ export function ClientDesktopSettings({
             <>
               <div className="client-desktop-line">
                 <span className="client-desktop-dot muted" aria-hidden="true" />
-                <span>{t("未找到 DiscoAS 桌面")}</span>
+                <span>{t("未找到 DiscoAS 独立桌面")}</span>
                 <span className="client-desktop-actions">
                   <button
                     type="button"
@@ -191,6 +199,13 @@ export function ClientDesktopSettings({
                 {t("创建后按 Win+Tab，右键新桌面 → 重命名 → 输入 DiscoAS，再点重新检测。")}
               </p>
             </>
+          )}
+          {status && status.supported && !status.moveSupported && (
+            <p className="client-desktop-error">
+              {t(
+                "当前 Windows 版本暂不支持自动移动客户端窗口（需要 Windows 11 24H2 或更新版本）；播放后使用最小化兜底。",
+              )}
+            </p>
           )}
           {message && <p className="client-desktop-hint">{message}</p>}
           {error && <p className="client-desktop-error">{error}</p>}

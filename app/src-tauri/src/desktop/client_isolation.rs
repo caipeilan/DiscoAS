@@ -1,8 +1,9 @@
 //! Background desktop for scheme-launched local music clients.
 //!
-//! Only the verified main window is moved. The desktop name is shared with the
-//! settings UI, which guides the one-time Task View rename because Windows has
-//! no public rename API.
+//! The main window is moved before the scheme URI is opened, and a short
+//! watcher covers a client that is starting from a closed/tray state. Hidden
+//! windows are shown just long enough to become movable; the scheme then
+//! activates them on the background desktop.
 
 use crate::{
     client_window,
@@ -13,9 +14,11 @@ use crate::{
 use serde::Serialize;
 use std::{
     sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
+    thread,
+    time::{Duration, Instant},
 };
 
+static WATCH_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RESTORE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +45,7 @@ pub(crate) fn mode(settings: &DesktopPreferences) -> ClientWindowMode {
 }
 
 pub(crate) fn cancel_pending() {
+    WATCH_GENERATION.fetch_add(1, Ordering::SeqCst);
     RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
@@ -49,9 +53,17 @@ pub(crate) fn cancel_pending() {
 #[serde(rename_all = "camelCase")]
 pub struct ClientDesktopStatus {
     pub supported: bool,
+    pub move_supported: bool,
     pub configured: bool,
     pub desktop_id: Option<String>,
     pub desktop_name: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowClientResult {
+    pub found: usize,
+    pub shown: usize,
 }
 
 pub(crate) fn status() -> ClientDesktopStatus {
@@ -63,55 +75,124 @@ pub(crate) fn status() -> ClientDesktopStatus {
     };
     ClientDesktopStatus {
         supported,
+        move_supported: supported && virtual_desktop::automatic_move_supported(),
         configured: desktop.is_some(),
         desktop_id: desktop.map(|desktop| desktop.id.to_string()),
         desktop_name: BACKGROUND_NAME.into(),
     }
 }
 
-/// Move the client main window before its scheme URI is opened. Returns false
-/// when the caller should keep the existing minimize fallback.
+/// Returns true when the separate-desktop path owns this playback. A watcher
+/// covers a client that is not running yet, so the caller must not fall back to
+/// the old minimize schedule merely because no window existed at this instant.
 pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
     let mode = mode(settings);
     if !matches!(
         mode,
         ClientWindowMode::Temporary | ClientWindowMode::Persistent
     ) || !virtual_desktop::supported()
+        || !virtual_desktop::automatic_move_supported()
     {
         return false;
     }
-    cancel_pending();
     let Ok(Some(desktop)) = virtual_desktop::find_by_name(BACKGROUND_NAME) else {
         return false;
     };
-    let Some(window) = client_window::main_window(platform) else {
-        return false;
-    };
     let target = desktop.id;
-    let current = virtual_desktop::window_desktop(window.hwnd).ok();
-    if current != Some(target) {
-        if virtual_desktop::move_window(window.hwnd, target).is_err() {
-            return false;
-        }
-        // MoveWindowToDesktop can report success for a hidden window without
-        // assigning it. Verify before suppressing the minimize fallback.
-        if virtual_desktop::window_desktop(window.hwnd).ok() != Some(target) {
-            return false;
+    let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst);
+
+    let mut placed = false;
+    for window in client_window::windows(platform) {
+        if place_window(window.hwnd, target) {
+            placed = true;
         }
     }
-    if mode == ClientWindowMode::Temporary {
-        schedule_restore(
-            window.hwnd,
-            target,
-            settings.minimize_delay_seconds,
-            settings.minimize_after_playback,
-        );
+    if placed {
+        if mode == ClientWindowMode::Temporary {
+            schedule_restore(
+                platform.to_string(),
+                target,
+                settings.minimize_delay_seconds,
+                settings.minimize_after_playback,
+            );
+        }
+        return true;
     }
+
+    start_watcher(
+        platform.to_string(),
+        target,
+        mode,
+        settings.minimize_delay_seconds,
+        settings.minimize_after_playback,
+        generation,
+    );
     true
 }
 
+fn place_window(hwnd: isize, target: DesktopId) -> bool {
+    let desktop = virtual_desktop::window_desktop(hwnd);
+    if desktop.as_ref().ok() == Some(&target) {
+        return true;
+    }
+    if desktop.is_err() {
+        // Hidden/tray windows cannot be assigned until they are visible.
+        client_window::show_window(hwnd);
+    }
+    if virtual_desktop::move_window(hwnd, target).is_ok()
+        && virtual_desktop::window_desktop(hwnd).ok() == Some(target)
+    {
+        return true;
+    }
+    client_window::show_window(hwnd);
+    virtual_desktop::move_window(hwnd, target).is_ok()
+        && virtual_desktop::window_desktop(hwnd).ok() == Some(target)
+}
+
+fn start_watcher(
+    platform: String,
+    target: DesktopId,
+    mode: ClientWindowMode,
+    delay_seconds: f64,
+    minimize_after: bool,
+    generation: u64,
+) {
+    thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline && WATCH_GENERATION.load(Ordering::SeqCst) == generation {
+            let windows = client_window::windows(&platform);
+            let mut placed = false;
+            for window in &windows {
+                if place_window(window.hwnd, target) {
+                    placed = true;
+                }
+            }
+            if placed {
+                if mode == ClientWindowMode::Temporary {
+                    schedule_restore(platform.clone(), target, delay_seconds, minimize_after);
+                    return;
+                }
+                // The first top-level window can be a splash. Keep moving the
+                // real main window if the client creates it a moment later.
+                let settle = Instant::now() + Duration::from_secs(4);
+                while Instant::now() < settle
+                    && WATCH_GENERATION.load(Ordering::SeqCst) == generation
+                {
+                    for window in client_window::windows(&platform) {
+                        let _ = place_window(window.hwnd, target);
+                    }
+                    thread::sleep(Duration::from_millis(120));
+                }
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    });
+}
+
 fn schedule_restore(
-    hwnd: isize,
+    platform: String,
     target: DesktopId,
     delay_seconds: f64,
     minimize_after: bool,
@@ -131,38 +212,54 @@ fn schedule_restore(
             #[cfg(windows)]
             {
                 use windows_sys::Win32::UI::WindowsAndMessaging::{
-                    IsWindow, ShowWindowAsync, SW_MINIMIZE,
+                    ShowWindowAsync, SW_MINIMIZE,
                 };
-                if unsafe { IsWindow(hwnd as *mut core::ffi::c_void) } == 0 {
-                    return;
-                }
                 let Ok(current) = virtual_desktop::current() else {
                     return;
                 };
                 // Do not pull the client back while the user is working on the
-                // background desktop, and do not undo a manual move.
-                if current == target || virtual_desktop::window_desktop(hwnd).ok() != Some(target) {
+                // background desktop.
+                if current == target {
                     return;
                 }
-                if virtual_desktop::move_window(hwnd, current).is_ok() && minimize_after {
-                    // SAFETY: verified HWND and the move succeeded.
-                    unsafe {
-                        ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_MINIMIZE);
+                let mut main = None;
+                for window in client_window::windows(&platform) {
+                    if virtual_desktop::window_desktop(window.hwnd).ok() != Some(target) {
+                        continue;
+                    }
+                    if virtual_desktop::move_window(window.hwnd, current).is_ok() {
+                        main.get_or_insert(window.hwnd);
+                    }
+                }
+                if minimize_after {
+                    if let Some(hwnd) = main {
+                        // SAFETY: the HWND came from the client enumeration and
+                        // the move back to the current desktop succeeded.
+                        unsafe {
+                            ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_MINIMIZE);
+                        }
                     }
                 }
             }
             #[cfg(not(windows))]
             {
-                let _ = (hwnd, target, minimize_after);
+                let _ = (platform, target, minimize_after);
             }
         })
         .await;
     });
 }
 
-pub(crate) fn show_all() -> Result<usize, String> {
+pub(crate) fn show_all() -> Result<ShowClientResult, String> {
     cancel_pending();
+    if !virtual_desktop::automatic_move_supported() {
+        return Err(
+            "错误：当前 Windows 版本不支持自动移动客户端窗口（需要 Windows 11 24H2 或更新版本）"
+                .into(),
+        );
+    }
     let current = virtual_desktop::current()?;
+    let mut found = 0usize;
     let mut shown = 0usize;
     for platform in [
         names::NETEASE,
@@ -172,20 +269,34 @@ pub(crate) fn show_all() -> Result<usize, String> {
         names::QISHUI,
         names::SPOTIFY,
     ] {
-        let Some(window) = client_window::main_window(platform) else {
-            continue;
-        };
-        if virtual_desktop::window_desktop(window.hwnd).ok() == Some(current) {
-            virtual_desktop::activate_window(window.hwnd);
-            shown += 1;
-            continue;
-        }
-        if virtual_desktop::move_window(window.hwnd, current).is_ok() {
-            virtual_desktop::activate_window(window.hwnd);
-            shown += 1;
+        for window in client_window::windows(platform) {
+            found += 1;
+            let desktop = virtual_desktop::window_desktop(window.hwnd);
+            if desktop.as_ref().ok() == Some(&current) {
+                virtual_desktop::activate_window(window.hwnd);
+                shown += 1;
+                continue;
+            }
+            if desktop.is_err() {
+                client_window::show_window(window.hwnd);
+            }
+            if virtual_desktop::move_window(window.hwnd, current).is_ok()
+                && virtual_desktop::window_desktop(window.hwnd).ok() == Some(current)
+            {
+                virtual_desktop::activate_window(window.hwnd);
+                shown += 1;
+                continue;
+            }
+            client_window::show_window(window.hwnd);
+            if virtual_desktop::move_window(window.hwnd, current).is_ok()
+                && virtual_desktop::window_desktop(window.hwnd).ok() == Some(current)
+            {
+                virtual_desktop::activate_window(window.hwnd);
+                shown += 1;
+            }
         }
     }
-    Ok(shown)
+    Ok(ShowClientResult { found, shown })
 }
 
 fn create_background() -> Result<ClientDesktopStatus, String> {
@@ -218,13 +329,58 @@ pub async fn create_client_desktop() -> Result<ClientDesktopStatus, String> {
 }
 
 #[tauri::command]
-pub fn show_local_client() -> Result<usize, String> {
+pub fn show_local_client() -> Result<ShowClientResult, String> {
     show_all()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ClientWindowMode;
+    use super::{ClientWindowMode, DesktopPreferences};
+
+    #[test]
+    #[ignore = "moves the interactive NetEase client to the current desktop"]
+    fn live_show_client_finds_and_moves_the_window() {
+        let current = super::virtual_desktop::current().expect("current desktop");
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        eprintln!("current={current} windows={windows:?}");
+        if let Some(window) = windows.first() {
+            eprintln!(
+                "client desktop={:?}",
+                super::virtual_desktop::window_desktop(window.hwnd)
+            );
+            eprintln!(
+                "direct move={:?}",
+                super::virtual_desktop::move_window(window.hwnd, current)
+            );
+            eprintln!(
+                "after direct move={:?}",
+                super::virtual_desktop::window_desktop(window.hwnd)
+            );
+        }
+        let result = super::show_all().expect("show client");
+        eprintln!("show result: {result:?}");
+        assert!(result.found > 0);
+        assert!(result.shown > 0);
+    }
+
+    #[test]
+    #[ignore = "moves the interactive NetEase client to DiscoAS"]
+    fn live_persistent_isolation_moves_the_client() {
+        let settings = DesktopPreferences {
+            client_window_mode: "persistent".into(),
+            ..Default::default()
+        };
+        assert!(super::prepare(crate::platforms::names::NETEASE, &settings));
+        let target = super::virtual_desktop::find_by_name(super::BACKGROUND_NAME)
+            .expect("desktop list")
+            .expect("DiscoAS desktop");
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        assert!(!windows.is_empty());
+        assert_eq!(
+            super::virtual_desktop::window_desktop(windows[0].hwnd).expect("client desktop"),
+            target.id
+        );
+    }
 
     #[test]
     fn separate_desktop_modes_default_to_off_for_unknown_values() {

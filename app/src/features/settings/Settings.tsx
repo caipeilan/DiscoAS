@@ -254,7 +254,7 @@ export function Settings({
           <SettingRow title={t("播放后最小化客户端")}>
             <Toggle label={t("播放后最小化客户端")} value={desktopDraft.minimize_after_playback} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_after_playback: value }))} />
           </SettingRow>
-          <Reveal open={desktopDraft.minimize_after_playback || desktopDraft.client_window_mode === "temporary"}><SettingRow title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>
+          <Reveal open={desktopDraft.minimize_after_playback || desktopDraft.client_window_mode === "temporary"}><SettingRow className="client-wait-row" title={t("最小化等待时间")} description={t("为给客户端留出切歌时间，不宜设置过短，最高30秒")}>
             <NumberField decimal label={t("最小化等待时间")} value={desktopDraft.minimize_delay_seconds} min={0} max={30} suffix={t("秒")} onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_delay_seconds: value }))} />
           </SettingRow></Reveal>
           <ClientDesktopSettings

@@ -1,10 +1,13 @@
 //! Virtual desktop boundary for the background player desktop.
 //!
-//! Windows exposes query and move operations through `IVirtualDesktopManager`,
-//! but no public API for creating or naming a desktop. Creation therefore uses
-//! the system shortcut and the name is read from the Explorer registry cache,
-//! which is updated by the Task View rename UI. The registry format is
-//! deliberately kept behind this module so unsupported systems fail closed.
+//! Public `IVirtualDesktopManager` is used for querying the current desktop and
+//! a window's desktop. Moving another process's window is not permitted through
+//! that interface (`E_ACCESSDENIED`), so the client isolation path uses
+//! Explorer's private view-based manager on Windows 11 24H2+. There is no
+//! public API for creating or naming a desktop; creation uses the system
+//! shortcut and the name is read from the Explorer registry cache, which is
+//! updated by the Task View rename UI. The registry format is deliberately kept
+//! behind this module so unsupported systems fail closed.
 
 use std::fmt;
 
@@ -252,7 +255,7 @@ mod imp {
         DesktopId::from_slice(&bytes).ok_or_else(|| "错误：当前虚拟桌面数据不完整".into())
     }
 
-    pub(super) fn supported() -> bool {
+    fn build_number() -> Option<u32> {
         read_string(
             HKEY_LOCAL_MACHINE,
             r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
@@ -260,7 +263,16 @@ mod imp {
         )
         .ok()
         .and_then(|build| build.trim().parse::<u32>().ok())
-        .is_some_and(|build| build >= 22621)
+    }
+
+    pub(super) fn supported() -> bool {
+        build_number().is_some_and(|build| build >= 22621)
+    }
+
+    /// The 24H2+ Explorer interface is required to move another process's
+    /// window. The public IVirtualDesktopManager refuses cross-process moves.
+    pub(super) fn automatic_move_supported() -> bool {
+        build_number().is_some_and(|build| build >= 26100)
     }
 
     pub(super) fn find_by_name(name: &str) -> Result<Option<Desktop>, String> {
@@ -268,10 +280,203 @@ mod imp {
     }
 
     pub(super) fn move_window(hwnd: isize, target: DesktopId) -> Result<(), String> {
-        let target = id_to_guid(target);
-        with_manager(|manager| unsafe {
-            manager.MoveWindowToDesktop(HWND(hwnd as *mut core::ffi::c_void), &target)
-        })
+        internal::move_window(hwnd, id_to_guid(target))
+    }
+
+    /// Explorer's private virtual-desktop manager. The public
+    /// `IVirtualDesktopManager::MoveWindowToDesktop` returns E_ACCESSDENIED for
+    /// windows owned by another process; the shell's view-based manager is the
+    /// only supported way to relocate the music client without injection.
+    mod internal {
+        use std::{ffi::c_void, ptr};
+
+        use windows_sys::{
+            core::GUID,
+            Win32::System::Com::{
+                CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL,
+                COINIT_APARTMENTTHREADED,
+            },
+        };
+
+        const CLSID_IMMERSIVE_SHELL: GUID = GUID {
+            data1: 0xC2F03A33,
+            data2: 0x21F5,
+            data3: 0x47FA,
+            data4: [0xB4, 0xBB, 0x15, 0x63, 0x62, 0xA2, 0xF2, 0x39],
+        };
+        const IID_ISERVICE_PROVIDER: GUID = GUID {
+            data1: 0x6D5140C1,
+            data2: 0x7436,
+            data3: 0x11CE,
+            data4: [0x80, 0x34, 0x00, 0xAA, 0x00, 0x60, 0x09, 0xFA],
+        };
+        const IID_APPLICATION_VIEW_COLLECTION: GUID = GUID {
+            data1: 0x1841C6D7,
+            data2: 0x4F9D,
+            data3: 0x42C0,
+            data4: [0xAF, 0x41, 0x87, 0x47, 0x53, 0x8F, 0x10, 0xE5],
+        };
+        const CLSID_VIRTUAL_DESKTOP_MANAGER_INTERNAL: GUID = GUID {
+            data1: 0xC5E0CDCA,
+            data2: 0x7B6E,
+            data3: 0x41B2,
+            data4: [0x9F, 0xC4, 0xD9, 0x39, 0x75, 0xCC, 0x46, 0x7B],
+        };
+        const IID_VIRTUAL_DESKTOP_MANAGER_INTERNAL: GUID = GUID {
+            data1: 0x53F5CA0B,
+            data2: 0x158F,
+            data3: 0x4124,
+            data4: [0x90, 0x0C, 0x05, 0x71, 0x58, 0x06, 0x0B, 0x27],
+        };
+
+        type QueryServiceFn = unsafe extern "system" fn(
+            *mut c_void,
+            *const GUID,
+            *const GUID,
+            *mut *mut c_void,
+        ) -> i32;
+        type GetViewForHwndFn =
+            unsafe extern "system" fn(*mut c_void, *mut c_void, *mut *mut c_void) -> i32;
+        type MoveViewToDesktopFn =
+            unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void) -> i32;
+        type FindDesktopFn =
+            unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32;
+        type ReleaseFn = unsafe extern "system" fn(*mut c_void) -> u32;
+
+        fn raw_guid(guid: windows::core::GUID) -> GUID {
+            GUID {
+                data1: guid.data1,
+                data2: guid.data2,
+                data3: guid.data3,
+                data4: guid.data4,
+            }
+        }
+
+        fn error(action: &str, hr: i32) -> String {
+            format!("错误：{action}失败（0x{:08X}）", hr as u32)
+        }
+
+        pub(super) fn move_window(
+            hwnd: isize,
+            target: windows::core::GUID,
+        ) -> Result<(), String> {
+            let target = raw_guid(target);
+            // The shell's COM service is happiest on a dedicated STA. Using a
+            // separate thread also makes this safe from Tokio worker threads,
+            // which may already be MTA.
+            std::thread::spawn(move || unsafe { move_on_sta(hwnd, target) })
+                .join()
+                .map_err(|_| "错误：移动客户端窗口的线程异常".to_string())?
+        }
+
+        unsafe fn move_on_sta(hwnd: isize, target: GUID) -> Result<(), String> {
+            let hr = CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32);
+            let initialized = hr >= 0;
+            let result = (|| {
+                let mut provider = ptr::null_mut();
+                let hr = CoCreateInstance(
+                    &CLSID_IMMERSIVE_SHELL,
+                    ptr::null_mut(),
+                    CLSCTX_ALL,
+                    &IID_ISERVICE_PROVIDER,
+                    &mut provider,
+                );
+                if hr < 0 {
+                    return Err(error("连接 Explorer 虚拟桌面服务", hr));
+                }
+                let result = with_provider(provider, hwnd, &target);
+                release(provider);
+                result
+            })();
+            if initialized {
+                CoUninitialize();
+            }
+            result
+        }
+
+        unsafe fn with_provider(
+            provider: *mut c_void,
+            hwnd: isize,
+            target: &GUID,
+        ) -> Result<(), String> {
+            let view_collection = query_service(
+                provider,
+                &IID_APPLICATION_VIEW_COLLECTION,
+                &IID_APPLICATION_VIEW_COLLECTION,
+            )?;
+            let manager = match query_service(
+                provider,
+                &CLSID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
+                &IID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
+            ) {
+                Ok(manager) => manager,
+                Err(failure) => {
+                    release(view_collection);
+                    return Err(failure);
+                }
+            };
+
+            let result = (|| {
+                let get_view: GetViewForHwndFn = method(view_collection, 6);
+                let mut view = ptr::null_mut();
+                let hr = get_view(view_collection, hwnd as *mut c_void, &mut view);
+                if hr < 0 {
+                    return Err(error("获取客户端窗口视图", hr));
+                }
+
+                let find_desktop: FindDesktopFn = method(manager, 14);
+                let mut desktop = ptr::null_mut();
+                let hr = find_desktop(manager, target, &mut desktop);
+                if hr < 0 {
+                    release(view);
+                    return Err(error("查找目标虚拟桌面", hr));
+                }
+
+                let move_view: MoveViewToDesktopFn = method(manager, 4);
+                let hr = move_view(manager, view, desktop);
+                release(view);
+                release(desktop);
+                if hr < 0 {
+                    Err(error("移动客户端窗口", hr))
+                } else {
+                    Ok(())
+                }
+            })();
+
+            release(view_collection);
+            release(manager);
+            result
+        }
+
+        unsafe fn query_service(
+            provider: *mut c_void,
+            service: &GUID,
+            interface: &GUID,
+        ) -> Result<*mut c_void, String> {
+            let query: QueryServiceFn = method(provider, 3);
+            let mut result = ptr::null_mut();
+            let hr = query(provider, service, interface, &mut result);
+            if hr < 0 {
+                return Err(error("获取虚拟桌面服务接口", hr));
+            }
+            if result.is_null() {
+                return Err("错误：虚拟桌面服务返回空接口".into());
+            }
+            Ok(result)
+        }
+
+        unsafe fn method<T: Copy>(this: *mut c_void, index: usize) -> T {
+            let vtable = *(this as *mut *mut usize);
+            let function = *vtable.add(index);
+            std::mem::transmute_copy(&function)
+        }
+
+        unsafe fn release(this: *mut c_void) {
+            if !this.is_null() {
+                let release: ReleaseFn = method(this, 2);
+                release(this);
+            }
+        }
     }
 
     pub(super) fn window_desktop(hwnd: isize) -> Result<DesktopId, String> {
@@ -357,8 +562,8 @@ mod imp {
             };
             assert!(!hwnd.is_null());
             unsafe {
-                // The public manager only assigns visible top-level windows to
-                // a virtual desktop; a 1x1 non-activating popup is enough.
+                // The internal view collection needs a visible top-level
+                // window; a 1x1 non-activating popup is enough.
                 ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
             let before = super::current().expect("current desktop");
@@ -419,6 +624,11 @@ pub(crate) fn supported() -> bool {
 }
 
 #[cfg(windows)]
+pub(crate) fn automatic_move_supported() -> bool {
+    imp::automatic_move_supported()
+}
+
+#[cfg(windows)]
 pub(crate) fn find_by_name(name: &str) -> Result<Option<Desktop>, String> {
     imp::find_by_name(name)
 }
@@ -450,6 +660,11 @@ pub(crate) fn current() -> Result<DesktopId, String> {
 
 #[cfg(not(windows))]
 pub(crate) fn supported() -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+pub(crate) fn automatic_move_supported() -> bool {
     false
 }
 

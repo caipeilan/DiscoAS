@@ -75,17 +75,35 @@ pub(crate) struct MainWindow {
     pub(crate) hwnd: isize,
 }
 
-/// The verified main window, including minimized/tray clients, for the
-/// background-desktop isolation path.
-pub(crate) fn main_window(platform: &str) -> Option<MainWindow> {
+/// All plausible client windows, largest first, for the explicit "show client"
+/// action. It intentionally includes hidden/tray windows.
+pub(crate) fn windows(platform: &str) -> Vec<MainWindow> {
     #[cfg(windows)]
     {
-        windows::client_main_window(Client::from_platform(platform)?)
+        let Some(client) = Client::from_platform(platform) else {
+            return Vec::new();
+        };
+        windows::client_windows(client)
     }
     #[cfg(not(windows))]
     {
         let _ = platform;
-        None
+        Vec::new()
+    }
+}
+
+pub(crate) fn show_window(hwnd: isize) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_SHOWNOACTIVATE};
+        // SAFETY: the caller obtained this HWND from the client enumeration.
+        unsafe {
+            let _ = ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_SHOWNOACTIVATE);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
     }
 }
 
@@ -241,8 +259,15 @@ mod windows {
             let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
             let mut class = [0u16; 256];
             let class_len = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32);
-            let dialog =
-                class_len > 0 && String::from_utf16_lossy(&class[..class_len as usize]) == "#32770";
+            let class_name = if class_len > 0 {
+                String::from_utf16_lossy(&class[..class_len as usize])
+            } else {
+                String::new()
+            };
+            if is_auxiliary_class(&class_name) {
+                return None;
+            }
+            let dialog = class_name == "#32770";
             if !is_main_window(
                 style & WS_CHILD != 0,
                 ex_style & WS_EX_TOOLWINDOW != 0,
@@ -257,6 +282,15 @@ mod windows {
             }
             let image = image_for_pid(pid)?;
             let minimized = IsIconic(hwnd) != 0;
+            let mut title = [0u16; 512];
+            let title_len =
+                GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32);
+            // Hidden Chromium/console helper windows can be large and
+            // non-toolwindow; an empty title excludes them without hiding a
+            // minimized/tray main window, which keeps its song/app title.
+            if title_len == 0 && !minimized {
+                return None;
+            }
             let mut rect = RECT::default();
             if GetWindowRect(hwnd, &mut rect) == 0 {
                 return None;
@@ -315,13 +349,26 @@ mod windows {
         Some(find_main_with_visibility(client, true)?.image)
     }
 
-    /// Reuse the same verified main-window selection as the minimize fallback.
-    pub(super) fn client_main_window(client: Client) -> Option<super::MainWindow> {
-        let window = find_main_with_visibility(client, true)?;
-        Some(super::MainWindow {
-            hwnd: window.hwnd as isize,
-        })
+    pub(super) fn client_windows(client: Client) -> Vec<super::MainWindow> {
+        let mut context = Enumeration {
+            client,
+            include_hidden: true,
+            windows: Vec::new(),
+        };
+        if unsafe { EnumWindows(Some(collect), (&mut context as *mut Enumeration) as isize) } == 0 {
+            return Vec::new();
+        }
+        context.windows.sort_by_key(|window| (window.minimizable, window.area));
+        context
+            .windows
+            .into_iter()
+            .rev()
+            .map(|window| super::MainWindow {
+                hwnd: window.hwnd as isize,
+            })
+            .collect()
     }
+
     /// Reuse the verified main HWND, including while minimized or hidden in the tray.
     pub(crate) struct TitleReader {
         client: Client,
@@ -466,9 +513,16 @@ mod windows {
         !child && !tool && !owned && !dialog
     }
 
+    fn is_auxiliary_class(class_name: &str) -> bool {
+        matches!(
+            class_name,
+            "ConsoleWindowClass" | "IME" | "MSCTFIME UI" | "tooltips_class32"
+        )
+    }
+
     #[cfg(test)]
     mod tests {
-        use super::{choose_main, is_main_window, Window};
+        use super::{choose_main, is_auxiliary_class, is_main_window, Window};
 
         #[test]
         fn main_window_filter_excludes_auxiliary_windows() {
@@ -477,6 +531,16 @@ mod windows {
             assert!(!is_main_window(false, true, false, false));
             assert!(!is_main_window(false, false, true, false));
             assert!(!is_main_window(false, false, false, true));
+        }
+
+        #[test]
+        fn auxiliary_window_classes_never_become_the_client() {
+            assert!(is_auxiliary_class("ConsoleWindowClass"));
+            assert!(is_auxiliary_class("IME"));
+            assert!(is_auxiliary_class("MSCTFIME UI"));
+            assert!(is_auxiliary_class("tooltips_class32"));
+            assert!(!is_auxiliary_class("OrpheusBrowserHost"));
+            assert!(!is_auxiliary_class("Chrome_WidgetWin_1"));
         }
 
         fn window(hwnd: usize, area: i64, minimizable: bool) -> Window {
@@ -560,6 +624,14 @@ mod tests {
         assert!(!Client::Netease.matches_image(r"C:\cloudmusic-helper.exe"));
         assert!(!Client::Netease.matches_image(r"C:\fakecloudmusic.exe"));
         assert!(!Client::Netease.matches_image(r"C:\cloudmusic.exe.bak"));
+    }
+
+    #[test]
+    #[ignore = "reads the interactive NetEase client window"]
+    fn live_netease_isolation_windows_are_discoverable() {
+        let windows = super::windows(crate::platforms::names::NETEASE);
+        eprintln!("netease isolation windows: {windows:?}");
+        assert!(!windows.is_empty());
     }
 
     #[test]

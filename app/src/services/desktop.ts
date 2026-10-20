@@ -91,13 +91,18 @@ export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 
 export interface ClientDesktopStatus {
   supported: boolean;
+  moveSupported: boolean;
   configured: boolean;
   desktopId: string | null;
   desktopName: string;
 }
 export const getClientDesktopStatus = () => call<ClientDesktopStatus>("get_client_desktop_status");
 export const createClientDesktop = () => call<ClientDesktopStatus>("create_client_desktop");
-export const showLocalClient = () => call<number>("show_local_client");
+export interface ShowClientResult {
+  found: number;
+  shown: number;
+}
+export const showLocalClient = () => call<ShowClientResult>("show_local_client");
 
 export interface DisplayMonitor {
   id: string;
