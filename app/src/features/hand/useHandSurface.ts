@@ -32,6 +32,7 @@ export function useHandSurface(context: SurfaceContext) {
   const regionQueue = useRef<LatestRegionUpdate | null>(null);
   if (!regionQueue.current) regionQueue.current = new LatestRegionUpdate(() => regionWork.current());
   const boundsCache = useRef(new HandBoundsCache());
+  const lastActive = useRef(active);
   const toCanvas = (x: number, y: number): DockPoint => {
     const surface = renderedSurface.current;
     return { x: (surface?.left ?? 0) + x / (surface?.scale ?? 1), y: (surface?.top ?? 0) + y / (surface?.scale ?? 1) };
@@ -104,10 +105,10 @@ export function useHandSurface(context: SurfaceContext) {
       measuring = true; dirty = false;
       await commitRegions.current().catch((e) => { if (!cancelled) setError(errorText(e)); });
       measuring = false;
-      // Animated geometry is committed by the state change that starts it and
-      // by the transition/animation-end hooks. Polling every animation frame
-      // forced a DOM read plus native region IPC exactly while the game was
-      // competing for the same frame budget.
+      // Structural changes commit here; active-only pose changes reuse the
+      // static cards' boxes and read the moving ones on the next frame.
+      // Polling every animation frame would force a DOM read plus native
+      // region IPC exactly while the game was competing for the frame budget.
       if (!cancelled && dirty) schedule();
     };
     scheduleRegions.current = schedule;
@@ -117,7 +118,18 @@ export function useHandSurface(context: SurfaceContext) {
     return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); if (scheduleRegions.current === schedule) scheduleRegions.current = () => {}; };
   }, [snapshot.generation, snapshot.preview, snapshot.expanded, snapshot.cards, snapshot.settings, snapshot.gui.font_size,
     snapshot.workArea, snapshot.surface?.left, snapshot.surface?.top, snapshot.surface?.width, snapshot.surface?.height, snapshot.surface?.scale,
-    phase, active, drag?.id, drag?.index, drag?.intake, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving, layoutKey]);
+    phase, drag?.id, drag?.index, drag?.intake, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving, layoutKey]);
+
+  useLayoutEffect(() => {
+    if (lastActive.current === active) return;
+    lastActive.current = active;
+    if (!snapshot.generation || hidden) return;
+    // Hover and keyboard selection only move the old/new active cards (and
+    // any cards between them). Keep the static cards' cached boxes; the next
+    // frame reads only the moving cards.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) boundsCache.current.reset();
+    scheduleRegions.current();
+  }, [active, hidden, snapshot.generation]);
 
   useLayoutEffect(() => () => {
     surfaceLayout.current?.complete(); surfaceLayout.current = null;

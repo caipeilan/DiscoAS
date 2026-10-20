@@ -8,6 +8,7 @@ import { groupSettings } from "./handLayout";
 import { HandDock } from "./HandDock";
 import { HandCardContent } from "./HandCardContent";
 import { useHandController } from "./useHandController";
+import { isHandRegionAnimation, isHandRegionTransition } from "./handRegionEvents";
 import { useAppearance } from "../settings/useAppearance";
 import "../../App.css";
 import "./hand.css";
@@ -37,8 +38,8 @@ export function HandWindow() {
       "--hand-glass-opacity": `${100 - .54 * liquid}%`, "--hand-glass-highlight": `${.7 * liquid}%`,
       transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties}
     onContextMenu={(e) => e.preventDefault()}
-    onTransitionEnd={(event) => { if (event.target !== event.currentTarget) scheduleRegions.current(); }}
-    onAnimationEnd={(event) => { if (event.target !== event.currentTarget) scheduleRegions.current(); }}>
+    onTransitionEnd={(event) => { if (isHandRegionTransition(event)) scheduleRegions.current(); }}
+    onAnimationEnd={(event) => { if (isHandRegionAnimation(event)) scheduleRegions.current(); }}>
     {(!desktop || snapshot.preview) && <HandDock element={toolbarElement} point={dockPosition} areas={dockAreas} expanded={snapshot.expanded} preview={snapshot.preview}
       diameter={diameter} count={ordinaryCount} capacity={snapshot.settings.capacity} busy={!!busy} confirm={clearConfirm}
       handEnabled={snapshot.settings.enabled || snapshot.preview && !snapshot.discoverySettings?.enabled} discovery={snapshot.discovery} refresh={refreshDiscovery}

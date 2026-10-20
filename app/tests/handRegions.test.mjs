@@ -6,6 +6,10 @@ const source = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { LatestRegionUpdate, HandBoundsCache } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const regionEventsSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handRegionEvents.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
+}).outputText;
+const { isHandRegionAnimation, isHandRegionTransition } = await import(`data:text/javascript;base64,${Buffer.from(regionEventsSource).toString("base64")}`);
 const boundsSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handDrawingBounds.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
@@ -62,6 +66,27 @@ test("static cards reuse bounds while hover, drag and final animation frames rem
   position = 6; assert.equal(cache.read(card).left, 6);
   cache.reset(); position = 7; assert.equal(cache.read(card).left, 7);
   assert.equal(reads, 7);
+});
+
+test("only transitions and animations that change hit boxes request a region scan", () => {
+  const target = (selector) => ({ matches: (value) => value === selector });
+  const current = {};
+  const card = target("[data-hand-id]"), dock = target(".hand-dock");
+  const transition = (propertyName, element) => ({ propertyName, target: element, currentTarget: current });
+  assert.equal(isHandRegionTransition(transition("transform", card)), true);
+  assert.equal(isHandRegionTransition(transition("border-color", card)), false);
+  assert.equal(isHandRegionTransition(transition("box-shadow", card)), false);
+  assert.equal(isHandRegionTransition(transition("opacity", card)), false);
+  assert.equal(isHandRegionTransition(transition("transform", target(".hand-flip"))), false);
+  assert.equal(isHandRegionTransition(transition("width", dock)), true);
+  assert.equal(isHandRegionTransition(transition("translate", dock)), true);
+  assert.equal(isHandRegionTransition(transition("opacity", dock)), false);
+  assert.equal(isHandRegionTransition({ propertyName: "transform", target: current, currentTarget: current }), false);
+  const animation = (animationName, element) => ({ animationName, target: element, currentTarget: current });
+  for (const name of ["hand-refill", "hand-entering", "hand-leave", "hand-play", "hand-discard"])
+    assert.equal(isHandRegionAnimation(animation(name, card)), true);
+  assert.equal(isHandRegionAnimation(animation("hand-unknown", card)), false);
+  assert.equal(isHandRegionAnimation(animation("hand-refill", target(".hand-flip"))), false);
 });
 
 const compile = file => ts.transpileModule(fs.readFileSync(new URL(file, import.meta.url), "utf8"), {
