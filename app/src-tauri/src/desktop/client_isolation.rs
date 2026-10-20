@@ -141,14 +141,17 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
 }
 
 fn place_window(hwnd: isize, target: DesktopId) -> bool {
-    // Do not show or activate a hidden/tray client while relocating it. Doing
-    // so is what makes Explorer follow the window to the target desktop.
-    // A successful internal move is enough; the public desktop query can fail
-    // for hidden windows even after a successful move.
-    if virtual_desktop::window_desktop(hwnd).ok() == Some(target) {
-        return true;
+    // Restore the client on the target desktop without activating it. A
+    // minimized client is the case where the URI handler tends to restore and
+    // foreground itself; leaving it visible on the isolated desktop avoids
+    // that. SW_SHOWNOACTIVATE must never be replaced with SW_RESTORE or
+    // SetForegroundWindow here.
+    let placed = virtual_desktop::window_desktop(hwnd).ok() == Some(target)
+        || virtual_desktop::move_window(hwnd, target).is_ok();
+    if placed {
+        client_window::show_window(hwnd);
     }
-    virtual_desktop::move_window(hwnd, target).is_ok()
+    placed
 }
 
 fn start_watcher(

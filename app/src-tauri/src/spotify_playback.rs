@@ -163,6 +163,7 @@ impl PlaybackService {
         card: Option<&SongCardDto>,
         validated_url: String,
         mode: &str,
+        no_activate: bool,
     ) -> Result<(), String> {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let _serial = self.invocation.lock().await;
@@ -170,7 +171,7 @@ impl PlaybackService {
             return Err("错误：播放请求已更新".into());
         }
         if args.platform != crate::platforms::names::SPOTIFY {
-            return open_scheme(validated_url).await;
+            return open_scheme(validated_url, no_activate).await;
         }
         let uri = track_uri(&args.song_id)?;
         let bridge = if mode == "extension" {
@@ -201,7 +202,7 @@ impl PlaybackService {
             }
             // A single track URI avoids playlist offsets/context choosing a
             // different item. Opening is only acceptance, never confirmation.
-            open_scheme(format!("{uri}?play=true")).await?;
+            open_scheme(format!("{uri}?play=true"), no_activate).await?;
             None
         };
         let expected = card
@@ -374,11 +375,58 @@ impl PlaybackService {
     }
 }
 
-async fn open_scheme(url: String) -> Result<(), String> {
+async fn open_scheme(url: String, no_activate: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    if no_activate {
+        return tauri::async_runtime::spawn_blocking(move || open_url_no_activate(&url))
+            .await
+            .map_err(|_| "错误：无法打开音乐客户端".to_string())?;
+    }
     tauri::async_runtime::spawn_blocking(move || tauri_plugin_opener::open_url(url, None::<&str>))
         .await
         .map_err(|_| "错误：无法打开音乐客户端".to_string())?
         .map_err(|_| "错误：无法打开音乐客户端".to_string())
+}
+
+/// The regular opener uses `SW_SHOWNORMAL`, which asks the shell and the URI
+/// handler to activate the client. When the client is isolated on a background
+/// desktop that activation would bring the user's desktop along with it.
+#[cfg(windows)]
+fn open_url_no_activate(url: &str) -> Result<(), String> {
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        UI::{
+            Shell::{ShellExecuteExW, SHELLEXECUTEINFOW},
+            WindowsAndMessaging::SW_SHOWNOACTIVATE,
+        },
+    };
+
+    fn wide(value: &str) -> Vec<u16> {
+        value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    let file = wide(url);
+    let verb = wide("open");
+    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    info.lpVerb = verb.as_ptr();
+    info.lpFile = file.as_ptr();
+    info.nShow = SW_SHOWNOACTIVATE;
+    // SAFETY: all strings outlive the call and the filled structure is valid.
+    let opened = unsafe { ShellExecuteExW(&mut info) };
+    if opened == 0 {
+        return Err(format!(
+            "错误：无法打开音乐客户端（{}）",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if !info.hProcess.is_null() {
+        // SAFETY: ShellExecuteEx returned this process handle to us.
+        unsafe {
+            let _ = CloseHandle(info.hProcess);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -95,7 +95,14 @@ async fn dispatch_to_platform(
             false
         };
         app.state::<crate::spotify_playback::PlaybackService>()
-            .invoke(app.clone(), args, card, url, &options.spotify_playback_mode)
+            .invoke(
+                app.clone(),
+                args,
+                card,
+                url,
+                &options.spotify_playback_mode,
+                isolated,
+            )
             .await?;
         if !isolated {
             crate::client_window::schedule(
