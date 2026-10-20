@@ -88,7 +88,7 @@ mod imp {
         },
         UI::{
             Input::KeyboardAndMouse::{
-                keybd_event, KEYEVENTF_KEYUP, VK_CONTROL, VK_D, VK_LEFT, VK_LWIN, VK_RIGHT,
+                keybd_event, KEYEVENTF_KEYUP, VK_CONTROL, VK_D, VK_LEFT, VK_LWIN,
             },
             WindowsAndMessaging::{SetForegroundWindow, ShowWindowAsync, SW_RESTORE},
         },
@@ -283,27 +283,6 @@ mod imp {
 
     pub(super) fn move_window(hwnd: isize, target: DesktopId) -> Result<(), String> {
         internal::move_window(hwnd, id_to_guid(target))
-    }
-
-    pub(super) fn switch_to(target: DesktopId) -> Result<(), String> {
-        let desktops = list()?;
-        let current = current()?;
-        let from = desktops
-            .iter()
-            .position(|desktop| desktop.id == current)
-            .ok_or_else(|| "错误：当前虚拟桌面不在桌面列表中".to_string())?;
-        let to = desktops
-            .iter()
-            .position(|desktop| desktop.id == target)
-            .ok_or_else(|| "错误：目标虚拟桌面不在桌面列表中".to_string())?;
-        if from == to {
-            return Ok(());
-        }
-        let direction = if to > from { VK_RIGHT } else { VK_LEFT };
-        for _ in 0..from.abs_diff(to) {
-            combo(direction);
-        }
-        Ok(())
     }
 
     /// Explorer's private virtual-desktop manager. The public
@@ -771,11 +750,6 @@ pub(crate) fn window_desktop(hwnd: isize) -> Result<DesktopId, String> {
 }
 
 #[cfg(windows)]
-pub(crate) fn switch_to(target: DesktopId) -> Result<(), String> {
-    imp::switch_to(target)
-}
-
-#[cfg(windows)]
 pub(crate) fn activate_window(hwnd: isize) {
     imp::activate_window(hwnd);
 }
@@ -812,11 +786,6 @@ pub(crate) fn move_window(_hwnd: isize, _target: DesktopId) -> Result<(), String
 
 #[cfg(not(windows))]
 pub(crate) fn window_desktop(_hwnd: isize) -> Result<DesktopId, String> {
-    Err("错误：当前系统不支持虚拟桌面".into())
-}
-
-#[cfg(not(windows))]
-pub(crate) fn switch_to(_target: DesktopId) -> Result<(), String> {
     Err("错误：当前系统不支持虚拟桌面".into())
 }
 

@@ -104,13 +104,6 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
     let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst);
 
-    // Activating or launching the client on DiscoAS makes Explorer switch to
-    // that desktop. Restore the desktop the user was on before playback, so the
-    // client stays isolated without taking the user's screen with it.
-    if let Ok(original) = virtual_desktop::current() {
-        watch_playback_desktop(original, target, generation);
-    }
-
     let windows = client_window::windows(platform);
     let had_window = !windows.is_empty();
     let mut placed = false;
@@ -147,45 +140,15 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> bool {
     true
 }
 
-fn watch_playback_desktop(original: DesktopId, target: DesktopId, generation: u64) {
-    if original == target {
-        return;
-    }
-    thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(12);
-        while Instant::now() < deadline && WATCH_GENERATION.load(Ordering::SeqCst) == generation {
-            if let Ok(current) = virtual_desktop::current() {
-                if current == target {
-                    // Switching with the system shortcut works on 22H2
-                    // through 25H2 and does not depend on the per-build
-                    // SwitchDesktop vtable signature.
-                    let _ = virtual_desktop::switch_to(original);
-                    thread::sleep(Duration::from_millis(500));
-                    continue;
-                }
-            }
-            thread::sleep(Duration::from_millis(120));
-        }
-    });
-}
-
 fn place_window(hwnd: isize, target: DesktopId) -> bool {
-    let desktop = virtual_desktop::window_desktop(hwnd);
-    if desktop.as_ref().ok() == Some(&target) {
+    // Do not show or activate a hidden/tray client while relocating it. Doing
+    // so is what makes Explorer follow the window to the target desktop.
+    // A successful internal move is enough; the public desktop query can fail
+    // for hidden windows even after a successful move.
+    if virtual_desktop::window_desktop(hwnd).ok() == Some(target) {
         return true;
     }
-    if desktop.is_err() {
-        // Hidden/tray windows cannot be assigned until they are visible.
-        client_window::show_window(hwnd);
-    }
-    if virtual_desktop::move_window(hwnd, target).is_ok()
-        && virtual_desktop::window_desktop(hwnd).ok() == Some(target)
-    {
-        return true;
-    }
-    client_window::show_window(hwnd);
     virtual_desktop::move_window(hwnd, target).is_ok()
-        && virtual_desktop::window_desktop(hwnd).ok() == Some(target)
 }
 
 fn start_watcher(
@@ -374,10 +337,6 @@ pub fn show_local_client() -> Result<ShowClientResult, String> {
 #[cfg(test)]
 mod tests {
     use super::{ClientWindowMode, DesktopPreferences};
-    use std::{
-        thread,
-        time::{Duration, Instant},
-    };
 
     #[test]
     #[ignore = "moves the interactive NetEase client to the current desktop"]
@@ -406,6 +365,41 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "moves the interactive NetEase client and checks the current desktop"]
+    fn live_prepare_does_not_switch_desktop() {
+        let original = super::virtual_desktop::current().expect("current desktop");
+        let target = super::virtual_desktop::find_by_name(super::BACKGROUND_NAME)
+            .expect("desktop list")
+            .expect("DiscoAS desktop")
+            .id;
+        if original == target {
+            return;
+        }
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        if windows.is_empty() {
+            return;
+        }
+        for window in &windows {
+            let _ = super::virtual_desktop::move_window(window.hwnd, original);
+        }
+        let settings = DesktopPreferences {
+            client_window_mode: "persistent".into(),
+            ..Default::default()
+        };
+        assert!(super::prepare(crate::platforms::names::NETEASE, &settings));
+        assert_eq!(
+            super::virtual_desktop::current().expect("current desktop"),
+            original
+        );
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        assert!(!windows.is_empty());
+        assert_eq!(
+            super::virtual_desktop::window_desktop(windows[0].hwnd).expect("client desktop"),
+            target
+        );
+    }
+
+    #[test]
     #[ignore = "moves the interactive NetEase client to DiscoAS"]
     fn live_persistent_isolation_moves_the_client() {
         let settings = DesktopPreferences {
@@ -421,36 +415,6 @@ mod tests {
         assert_eq!(
             super::virtual_desktop::window_desktop(windows[0].hwnd).expect("client desktop"),
             target.id
-        );
-    }
-
-    #[test]
-    #[ignore = "switches the interactive desktop and checks the playback desktop guard"]
-    fn live_playback_switches_are_restored() {
-        let original = super::virtual_desktop::current().expect("current desktop");
-        let target = super::virtual_desktop::find_by_name(super::BACKGROUND_NAME)
-            .expect("desktop list")
-            .expect("DiscoAS desktop")
-            .id;
-        if original == target {
-            return;
-        }
-        let settings = DesktopPreferences {
-            client_window_mode: "persistent".into(),
-            ..Default::default()
-        };
-        assert!(super::prepare(crate::platforms::names::NETEASE, &settings));
-        super::virtual_desktop::switch_to(target).expect("switch to DiscoAS");
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < deadline {
-            if super::virtual_desktop::current().ok() == Some(original) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        assert_eq!(
-            super::virtual_desktop::current().expect("current desktop"),
-            original
         );
     }
 
