@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import type { HandRect, DiscoveryState } from "../../types";
 import { appLogo } from "../../assets";
 import { Icon } from "../../Icon";
 import { t } from "../../i18n";
+import { getClientHideEnabled, onDesktopEvent, showLocalClient } from "../../services/desktop";
 import { floatingDockRect, settleDockPoint, type DockPoint, type DockDirection } from "./floatingDock";
 
 interface Props {
@@ -28,6 +29,40 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
   const animationFrame = useRef(0);
   const content = useRef<HTMLDivElement>(null);
   const [expandedWidth, setExpandedWidth] = useState(diameter);
+  const [hideClientEnabled, setHideClientEnabled] = useState(false);
+  const [clientBusy, setClientBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    const refresh = () => {
+      void getClientHideEnabled()
+        .then((enabled) => { if (!cancelled) setHideClientEnabled(enabled); })
+        .catch(() => { if (!cancelled) setHideClientEnabled(false); });
+    };
+    void refresh();
+    void onDesktopEvent("desktop-changed", refresh).then((unsubscribe) => {
+      stop = unsubscribe;
+      if (cancelled) unsubscribe();
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, []);
+
+  const revealClient = async () => {
+    if (clientBusy) return;
+    setClientBusy(true);
+    try {
+      await showLocalClient();
+    } catch {
+      // The settings panel owns detailed feedback; this is a one-click shortcut.
+    } finally {
+      setClientBusy(false);
+    }
+  };
+
   useLayoutEffect(() => {
     const node = content.current;
     if (!node) return;
@@ -152,6 +187,10 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
         </div>}
         {handEnabled && <span className="hand-dock-count">{t("手牌 {p0}／{p1}", { p0: count, p1: capacity })}</span>}
       </>}
+      {!preview && hideClientEnabled && <button type="button" className="hand-show-client" disabled={clientBusy}
+        aria-label={clientBusy ? t("显示中") : t("显示客户端")} onClick={() => { void revealClient(); }}>
+        {clientBusy ? t("显示中") : t("显示客户端")}
+      </button>}
       {preview ? <button className="hand-clear" aria-label={t("退出预览")} data-hand-close onClick={toggle}><Icon name="close" size={16} /></button>
         : handEnabled && <button className={`hand-clear${confirm ? " hand-clear-confirm" : ""}`} disabled={!count || busy}
           aria-label={confirm ? t("确认清空") : t("清空手牌")} onClick={clear}><Icon name={confirm ? "check" : "remove"} size={16} /></button>}

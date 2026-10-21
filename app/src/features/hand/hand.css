@@ -22,6 +22,11 @@
 .hand-dock[data-dock-expanded="false"] .hand-dock-actions, .hand-dock[data-folding] .hand-dock-actions { opacity: 0; pointer-events: none; transition-duration: 80ms; transition-delay: 0ms; }
 .hand-dock-count { flex: 0 0 auto; text-align: center; overflow: hidden; text-overflow: ellipsis; font-size: calc(13px * var(--font-scale)); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 .hand-dock-count[role="alert"] { max-width: calc(360px * var(--font-scale)); }
+.hand-dock .hand-show-client { flex: 0 0 auto; height: calc(28px * var(--font-scale)); padding: 0 calc(9px * var(--font-scale));
+  border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); background: var(--surface-subtle);
+  font-size: calc(11px * var(--font-scale)); font-weight: 500; white-space: nowrap; }
+.hand-dock .hand-show-client:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-border); }
+.hand-dock .hand-show-client:disabled { opacity: .55; cursor: default; }
 .hand-dock .hand-clear { flex-shrink: 0; width: calc(30px * var(--font-scale)); height: calc(30px * var(--font-scale)); border-radius: 50%; }
 .hand-dock .hand-clear svg { display: block; width: calc(16px * var(--font-scale)); height: calc(16px * var(--font-scale)); }
 .hand-dock .hand-clear:hover, .hand-dock .hand-clear-confirm { color: var(--danger); background: var(--danger-soft); }

@@ -61,6 +61,7 @@ export function ClientDesktopSettings({
       </SettingRow>
       <div className="client-desktop-status" role="status" aria-live="polite">
         <div className="client-desktop-line">
+          {message && <span className="client-desktop-message">{message}</span>}
           <span className="client-desktop-actions">
             <button
               type="button"
@@ -72,7 +73,6 @@ export function ClientDesktopSettings({
             </button>
           </span>
         </div>
-        {message && <p className="client-desktop-hint">{message}</p>}
         {error && <p className="client-desktop-error">{error}</p>}
       </div>
     </>

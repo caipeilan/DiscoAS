@@ -68,6 +68,7 @@ export type DesktopCommand =
   | "show_discover"
   | "show_main"
   | "show_local_client"
+  | "get_client_hide_enabled"
   | "get_display_monitors"
   | "set_shortcut_recording"
   | "finish_startup"
@@ -92,6 +93,7 @@ export interface ShowClientResult {
   shown: number;
 }
 export const showLocalClient = () => call<ShowClientResult>("show_local_client");
+export const getClientHideEnabled = () => call<boolean>("get_client_hide_enabled");
 
 export interface DisplayMonitor {
   id: string;

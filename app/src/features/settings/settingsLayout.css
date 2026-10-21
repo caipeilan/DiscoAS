@@ -76,6 +76,7 @@
 .client-desktop-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
 .client-desktop-dot.muted { background: var(--text-tertiary); }
 .client-desktop-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.client-desktop-message { min-width: 0; color: var(--text-tertiary); font-size: calc(11px * var(--font-scale, 1)); line-height: 1.55; }
 .client-desktop-actions .button { min-height: 26px; padding: 4px 9px; font-size: calc(11px * var(--font-scale, 1)); }
 .client-desktop-hint {
   margin: 5px 0 0; color: var(--text-tertiary);

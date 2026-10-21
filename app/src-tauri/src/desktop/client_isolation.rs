@@ -374,6 +374,18 @@ pub fn show_local_client() -> Result<ShowClientResult, String> {
     show_all()
 }
 
+#[tauri::command]
+pub fn get_client_hide_enabled(app: tauri::AppHandle) -> bool {
+    crate::desktop_preferences::DesktopPreferences::load(&app)
+        .map(|settings| {
+            matches!(
+                mode(&settings),
+                ClientWindowMode::Temporary | ClientWindowMode::Persistent
+            )
+        })
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ClientWindowMode, DesktopPreferences};

@@ -395,6 +395,7 @@ pub fn run() {
             desktop::client_isolation::get_client_desktop_status,
             desktop::client_isolation::create_client_desktop,
             desktop::client_isolation::show_local_client,
+            desktop::client_isolation::get_client_hide_enabled,
             desktop::monitors::get_display_monitors,
             library::get_app_state,
             library::import_playlist,
