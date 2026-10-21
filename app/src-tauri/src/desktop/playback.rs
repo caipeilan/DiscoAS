@@ -94,10 +94,9 @@ async fn dispatch_to_platform(
         } else {
             None
         };
-        let isolated = isolation.is_some();
-        // Even if prepare fails (transient COM/desktop probe, missing window,
-        // etc.), the separate-desktop feature must never fall back to the
-        // normal activating opener: that is what made the user's desktop jump.
+        // Hide mode must never fall back to the normal activating opener: that
+        // is what made the user's desktop jump. The client is already on the
+        // current desktop, so even a failed hide cannot switch desktops.
         let prevent_activation = !spotify_extension
             && matches!(
                 mode,
@@ -120,14 +119,6 @@ async fn dispatch_to_platform(
             _ => {}
         }
         result?;
-        if !isolated {
-            crate::client_window::schedule(
-                app.clone(),
-                args.platform.clone(),
-                options.minimize_after_playback,
-                options.minimize_delay_seconds,
-            );
-        }
     }
     Ok(())
 }

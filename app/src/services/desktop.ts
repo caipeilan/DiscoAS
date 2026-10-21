@@ -67,8 +67,6 @@ export type DesktopCommand =
   | "play_song"
   | "show_discover"
   | "show_main"
-  | "get_client_desktop_status"
-  | "create_client_desktop"
   | "show_local_client"
   | "get_display_monitors"
   | "set_shortcut_recording"
@@ -89,16 +87,6 @@ export interface UpdateInfo {
 }
 export const checkForUpdates = () => call<UpdateInfo>("check_for_updates");
 
-export interface ClientDesktopStatus {
-  supported: boolean;
-  moveSupported: boolean;
-  configured: boolean;
-  desktopId: string | null;
-  desktopName: string;
-}
-export const getClientDesktopStatus = (refresh = false) =>
-  call<ClientDesktopStatus>("get_client_desktop_status", refresh ? { refresh: true } : undefined);
-export const createClientDesktop = () => call<ClientDesktopStatus>("create_client_desktop");
 export interface ShowClientResult {
   found: number;
   shown: number;

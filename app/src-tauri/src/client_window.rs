@@ -107,32 +107,52 @@ pub(crate) fn show_window(hwnd: isize) {
     }
 }
 
-/// Hide a client window on its isolated desktop and wait briefly for the
-/// asynchronous `ShowWindowAsync` to take effect. A visible or minimized
-/// client lets the scheme handler foreground itself and switch the user's
-/// desktop; a hidden client does not (live-tested against NetEase).
-pub(crate) fn ensure_hidden(hwnd: isize) -> bool {
+pub(crate) fn is_visible(hwnd: isize) -> bool {
     #[cfg(windows)]
     {
-        use std::time::{Duration, Instant};
-        use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindowVisible, ShowWindowAsync, SW_HIDE};
+        use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+        // SAFETY: the caller obtained this HWND from the client enumeration.
+        unsafe { IsWindowVisible(hwnd as *mut core::ffi::c_void) != 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        false
+    }
+}
 
-        let hidden = || unsafe { IsWindowVisible(hwnd as *mut core::ffi::c_void) == 0 };
-        if hidden() {
-            return true;
-        }
+pub(crate) fn hide_window(hwnd: isize) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_HIDE};
         // SAFETY: the caller obtained this HWND from the client enumeration.
         unsafe {
             let _ = ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_HIDE);
         }
-        let deadline = Instant::now() + Duration::from_millis(300);
-        while Instant::now() < deadline {
-            if hidden() {
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+    }
+}
+
+/// Hide a client window and wait briefly for the asynchronous
+/// `ShowWindowAsync` to take effect.
+pub(crate) fn ensure_hidden(hwnd: isize) -> bool {
+    #[cfg(windows)]
+    {
+        if !is_visible(hwnd) {
+            return true;
+        }
+        hide_window(hwnd);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+        while std::time::Instant::now() < deadline {
+            if !is_visible(hwnd) {
                 return true;
             }
-            std::thread::sleep(Duration::from_millis(20));
+            std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        hidden()
+        !is_visible(hwnd)
     }
     #[cfg(not(windows))]
     {

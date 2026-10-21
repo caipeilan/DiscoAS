@@ -823,15 +823,6 @@ mod tests {
     #[ignore = "opens a real NetEase scheme and verifies the current desktop"]
     fn live_isolated_netease_uri_does_not_switch_desktop() {
         let original = crate::desktop::virtual_desktop::current().expect("current desktop");
-        let target = crate::desktop::virtual_desktop::find_by_name(
-            crate::desktop::virtual_desktop::BACKGROUND_NAME,
-        )
-        .expect("desktop list")
-        .expect("DiscoAS desktop")
-        .id;
-        if original == target {
-            return;
-        }
         let log_root = std::env::temp_dir().join(format!(
             "discoas-uri-test-{}",
             std::process::id()
@@ -848,13 +839,45 @@ mod tests {
         .expect("isolation prepared");
         let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
         open_url_no_activate(&url).expect("scheme opened");
+        crate::desktop::client_isolation::playback_started(handle);
         std::thread::sleep(Duration::from_secs(2));
         let after = crate::desktop::virtual_desktop::current().expect("current desktop");
         if let Ok(log) = std::fs::read_to_string(log_root.join("client-isolation.log")) {
             eprintln!("diagnostics:\n{log}");
         }
         assert_eq!(after, original);
-        crate::desktop::client_isolation::playback_started(handle);
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+            let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+            assert!(!windows.is_empty());
+            assert_eq!(
+                unsafe { IsWindowVisible(windows[0].hwnd as *mut core::ffi::c_void) },
+                0
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "opens a real NetEase scheme with the client hidden on the current desktop"]
+    fn live_uri_with_client_hidden_on_current_desktop_does_not_switch_desktop() {
+        let original = crate::desktop::virtual_desktop::current().expect("current desktop");
+        for window in crate::client_window::windows(crate::platforms::names::NETEASE) {
+            crate::client_window::show_window(window.hwnd);
+            std::thread::sleep(Duration::from_millis(60));
+            let _ = crate::desktop::virtual_desktop::move_window(window.hwnd, original);
+        }
+        for window in crate::client_window::windows(crate::platforms::names::NETEASE) {
+            assert!(crate::client_window::ensure_hidden(window.hwnd));
+        }
+        let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
+        open_url_no_activate(&url).expect("scheme opened");
+        std::thread::sleep(Duration::from_secs(2));
+        assert_eq!(
+            crate::desktop::virtual_desktop::current().expect("current desktop"),
+            original
+        );
     }
 
     #[cfg(windows)]
