@@ -227,11 +227,10 @@ pub(crate) fn abort(handle: IsolationHandle) {
 }
 
 fn place_window(hwnd: isize, target: DesktopId) -> bool {
-    // Restore the client on the target desktop without activating it. A
-    // minimized client is the case where the URI handler tends to restore and
-    // foreground itself; leaving it visible on the isolated desktop avoids
-    // that. SW_SHOWNOACTIVATE must never be replaced with SW_RESTORE or
-    // SetForegroundWindow here.
+    // Leave the client hidden on the target desktop. Live tests show that a
+    // visible OR minimized client lets the NetEase scheme handler foreground
+    // itself and switch the user's desktop, while a hidden client does not.
+    // The hidden state is removed only by the explicit "show client" action.
     let on_target = virtual_desktop::window_desktop(hwnd).ok() == Some(target);
     let mut placed = on_target || virtual_desktop::move_window(hwnd, target).is_ok();
     let mut revealed = false;
@@ -245,20 +244,18 @@ fn place_window(hwnd: isize, target: DesktopId) -> bool {
         placed = virtual_desktop::window_desktop(hwnd).ok() == Some(target)
             || virtual_desktop::move_window(hwnd, target).is_ok();
     }
-    let restored = if placed {
-        // Wait (bounded) for the non-activating restore; the URI must see a
-        // visible, non-minimized client or its handler may foreground it.
-        client_window::ensure_restored(hwnd)
+    let hidden = if placed {
+        client_window::ensure_hidden(hwnd)
     } else {
         false
     };
     diagnostics::log_isolation(
         "place",
         &format!(
-            "hwnd=0x{hwnd:X} target={target} on_target={on_target} revealed={revealed} placed={placed} restored={restored}"
+            "hwnd=0x{hwnd:X} target={target} on_target={on_target} revealed={revealed} placed={placed} hidden={hidden}"
         ),
     );
-    placed && restored
+    placed && hidden
 }
 
 fn start_watcher(platform: String, target: DesktopId, generation: u64) {
@@ -339,7 +336,18 @@ fn schedule_restore(
                 }
                 let mut main = None;
                 for window in client_window::windows(&platform) {
-                    if virtual_desktop::window_desktop(window.hwnd).ok() != Some(target) {
+                    let mut on_target =
+                        virtual_desktop::window_desktop(window.hwnd).ok() == Some(target);
+                    if !on_target {
+                        // Isolated clients are kept hidden, so the public query
+                        // can fail. Reveal without activation just long enough
+                        // to obtain the view for the return move.
+                        client_window::show_window(window.hwnd);
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                        on_target =
+                            virtual_desktop::window_desktop(window.hwnd).ok() == Some(target);
+                    }
+                    if !on_target {
                         continue;
                     }
                     if virtual_desktop::move_window(window.hwnd, current).is_ok() {
@@ -539,10 +547,17 @@ mod tests {
         );
         let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
         assert!(!windows.is_empty());
-        assert_eq!(
-            super::virtual_desktop::window_desktop(windows[0].hwnd).expect("client desktop"),
-            target
-        );
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+            // Hidden windows do not expose a public IApplicationView; the
+            // isolation contract is now "hidden on DiscoAS", not "restored".
+            assert_eq!(
+                unsafe { IsWindowVisible(windows[0].hwnd as *mut core::ffi::c_void) },
+                0
+            );
+        }
+        let _ = target;
     }
 
     #[test]
@@ -553,15 +568,16 @@ mod tests {
             ..Default::default()
         };
         assert!(super::prepare(crate::platforms::names::NETEASE, &settings).is_some());
-        let target = super::virtual_desktop::find_by_name(super::BACKGROUND_NAME)
-            .expect("desktop list")
-            .expect("DiscoAS desktop");
         let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
         assert!(!windows.is_empty());
-        assert_eq!(
-            super::virtual_desktop::window_desktop(windows[0].hwnd).expect("client desktop"),
-            target.id
-        );
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+            assert_eq!(
+                unsafe { IsWindowVisible(windows[0].hwnd as *mut core::ffi::c_void) },
+                0
+            );
+        }
     }
 
     #[test]
