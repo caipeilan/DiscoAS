@@ -471,9 +471,9 @@ export const translations: Record<string, [string, string]> = {
   "临时隐藏（不推荐）": ["暫時隱藏（不推薦）", "Temporarily hide (not recommended)"],
   "长期隐藏（推荐）": ["長期隱藏（推薦）", "Always hide (recommended)"],
   "临时隐藏时长": ["暫時隱藏時長", "Temporary hide duration"],
-  "临时隐藏结束后会重新显示客户端；长期隐藏不会自动显示": [
-    "暫時隱藏結束後會重新顯示用戶端；長期隱藏不會自動顯示",
-    "The client is shown again when temporary hiding ends; long-term hiding never shows it automatically",
+  "临时隐藏结束后会恢复到播放前的显示状态；长期隐藏不会自动恢复": [
+    "暫時隱藏結束後會恢復到播放前的顯示狀態；長期隱藏不會自動恢復",
+    "Temporary hiding restores the pre-playback visibility; long-term hiding never restores it automatically",
   ],
   "客户端单独桌面": ["用戶端獨立桌面", "Separate desktop for client"],
   "长期存放客户端时会留在 DiscoAS，不使用此最小化设置": ["長期存放用戶端時會留在 DiscoAS，不使用此最小化設定", "With long-term storage, the client stays on DiscoAS and this minimize setting is not used"],

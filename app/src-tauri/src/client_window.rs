@@ -107,6 +107,152 @@ pub(crate) fn show_window(hwnd: isize) {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WindowRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WindowState {
+    pub rect: WindowRect,
+    pub visible: bool,
+    pub iconic: bool,
+}
+
+pub(crate) fn window_state(hwnd: isize) -> Option<WindowState> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic};
+        let mut rect = RECT::default();
+        // SAFETY: the caller obtained this HWND from the client enumeration.
+        if unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut rect) } == 0 {
+            return None;
+        }
+        Some(WindowState {
+            rect: WindowRect {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+            },
+            visible: is_visible(hwnd),
+            iconic: unsafe { IsIconic(hwnd as *mut core::ffi::c_void) != 0 },
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        None
+    }
+}
+
+pub(crate) fn is_offscreen(hwnd: isize) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut rect) } == 0 {
+            return false;
+        }
+        rect.left <= -30_000 || rect.top <= -30_000
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        false
+    }
+}
+
+fn move_window(hwnd: isize, left: i32, top: i32, width: i32, height: i32) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
+        };
+        // SAFETY: the caller obtained this HWND from the client enumeration.
+        unsafe {
+            SetWindowPos(
+                hwnd as *mut core::ffi::c_void,
+                std::ptr::null_mut(),
+                left,
+                top,
+                width.max(1),
+                height.max(1),
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            ) != 0
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (hwnd, left, top, width, height);
+        false
+    }
+}
+
+pub(crate) fn move_offscreen(hwnd: isize) -> bool {
+    if is_offscreen(hwnd) {
+        return true;
+    }
+    let Some(state) = window_state(hwnd) else {
+        return false;
+    };
+    let width = state.rect.right - state.rect.left;
+    let height = state.rect.bottom - state.rect.top;
+    move_window(hwnd, -32_000, -32_000, width, height)
+}
+
+pub(crate) fn restore_window(hwnd: isize, rect: WindowRect) -> bool {
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    move_window(hwnd, rect.left, rect.top, width, height)
+}
+
+pub(crate) fn center_window(hwnd: isize) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        let Some(state) = window_state(hwnd) else {
+            return false;
+        };
+        let width = (state.rect.right - state.rect.left).max(320);
+        let height = (state.rect.bottom - state.rect.top).max(240);
+        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        move_window(
+            hwnd,
+            ((screen_width - width) / 2).max(0),
+            ((screen_height - height) / 2).max(0),
+            width,
+            height,
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        false
+    }
+}
+
+pub(crate) fn minimize_window(hwnd: isize) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_MINIMIZE};
+        // SAFETY: the caller obtained this HWND from the client enumeration.
+        unsafe {
+            let _ = ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_MINIMIZE);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+    }
+}
+
 pub(crate) fn is_visible(hwnd: isize) -> bool {
     #[cfg(windows)]
     {

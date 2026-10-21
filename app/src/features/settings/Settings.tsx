@@ -255,7 +255,7 @@ export function Settings({
             <SettingRow
               className="client-wait-row"
               title={t("临时隐藏时长")}
-              description={t("临时隐藏结束后会重新显示客户端；长期隐藏不会自动显示")}
+              description={t("临时隐藏结束后会恢复到播放前的显示状态；长期隐藏不会自动恢复")}
             >
               <NumberField
                 decimal

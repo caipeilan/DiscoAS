@@ -860,6 +860,70 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    #[ignore = "opens a real NetEase scheme with the window offscreen"]
+    fn live_offscreen_client_does_not_switch_or_render() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowRect, SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
+        };
+
+        let original = crate::desktop::virtual_desktop::current().expect("current desktop");
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        assert!(!windows.is_empty());
+        let hwnd = windows[0].hwnd;
+        crate::client_window::show_window(hwnd);
+        std::thread::sleep(Duration::from_millis(100));
+        let _ = crate::desktop::virtual_desktop::move_window(hwnd, original);
+        let mut before = windows_sys::Win32::Foundation::RECT::default();
+        assert!(unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut before) } != 0);
+        let width = before.right - before.left;
+        let height = before.bottom - before.top;
+        assert!(unsafe {
+            SetWindowPos(
+                hwnd as *mut core::ffi::c_void,
+                std::ptr::null_mut(),
+                -32000,
+                -32000,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            )
+        } != 0);
+        let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
+        open_url_no_activate(&url).expect("scheme opened");
+        std::thread::sleep(Duration::from_secs(2));
+        let after = crate::desktop::virtual_desktop::current().expect("current desktop");
+        let mut rect = windows_sys::Win32::Foundation::RECT::default();
+        assert!(unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut rect) } != 0);
+        eprintln!(
+            "current_same={} rect={},{} visible={} iconic={}",
+            after == original,
+            rect.left,
+            rect.top,
+            crate::client_window::is_visible(hwnd),
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::IsIconic(
+                    hwnd as *mut core::ffi::c_void,
+                ) != 0
+            }
+        );
+        assert_eq!(after, original);
+        assert!(rect.left <= -30000);
+        assert!(unsafe {
+            SetWindowPos(
+                hwnd as *mut core::ffi::c_void,
+                std::ptr::null_mut(),
+                before.left,
+                before.top,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            )
+        } != 0);
+        crate::client_window::show_window(hwnd);
+    }
+
+    #[cfg(windows)]
+    #[test]
     #[ignore = "opens a real NetEase scheme with the client hidden on the current desktop"]
     fn live_uri_with_client_hidden_on_current_desktop_does_not_switch_desktop() {
         let original = crate::desktop::virtual_desktop::current().expect("current desktop");
