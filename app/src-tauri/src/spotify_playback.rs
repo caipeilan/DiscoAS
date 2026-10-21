@@ -396,7 +396,6 @@ async fn open_scheme(url: String, no_activate: bool) -> Result<(), String> {
     .await
     .map_err(|_| "错误：无法打开音乐客户端".to_string())?
     .map_err(|_| "错误：无法打开音乐客户端".to_string());
-    tokio::time::sleep(Duration::from_millis(300)).await;
     crate::desktop::diagnostics::log_isolation(
         "open_scheme",
         &format!(

@@ -92,6 +92,24 @@ pub(crate) fn windows(platform: &str) -> Vec<MainWindow> {
     }
 }
 
+/// Every top-level window owned by the client's process image, including
+/// auxiliary/tool/dialog windows that the main-window selector intentionally
+/// excludes. Used only for hiding during playback.
+pub(crate) fn process_windows(platform: &str) -> Vec<isize> {
+    #[cfg(windows)]
+    {
+        let Some(client) = Client::from_platform(platform) else {
+            return Vec::new();
+        };
+        windows::all_client_windows(client)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = platform;
+        Vec::new()
+    }
+}
+
 pub(crate) fn show_window(hwnd: isize) {
     #[cfg(windows)]
     {
@@ -119,14 +137,13 @@ pub(crate) struct WindowRect {
 pub(crate) struct WindowState {
     pub rect: WindowRect,
     pub visible: bool,
-    pub iconic: bool,
 }
 
 pub(crate) fn window_state(hwnd: isize) -> Option<WindowState> {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::RECT;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic};
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
         let mut rect = RECT::default();
         // SAFETY: the caller obtained this HWND from the client enumeration.
         if unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut rect) } == 0 {
@@ -140,7 +157,6 @@ pub(crate) fn window_state(hwnd: isize) -> Option<WindowState> {
                 bottom: rect.bottom,
             },
             visible: is_visible(hwnd),
-            iconic: unsafe { IsIconic(hwnd as *mut core::ffi::c_void) != 0 },
         })
     }
     #[cfg(not(windows))]
@@ -241,10 +257,12 @@ pub(crate) fn center_window(hwnd: isize) -> bool {
 pub(crate) fn minimize_window(hwnd: isize) {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_MINIMIZE};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWMINNOACTIVE};
         // SAFETY: the caller obtained this HWND from the client enumeration.
+        // ShowWindow is synchronous here so the taskbar state is committed
+        // before the temporary-hide watchdog exits.
         unsafe {
-            let _ = ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_MINIMIZE);
+            let _ = ShowWindow(hwnd as *mut core::ffi::c_void, SW_SHOWMINNOACTIVE);
         }
     }
     #[cfg(not(windows))]
@@ -567,6 +585,42 @@ mod windows {
                 hwnd: window.hwnd as isize,
             })
             .collect()
+    }
+
+    struct AllWindows {
+        client: Client,
+        hwnds: Vec<isize>,
+    }
+
+    unsafe extern "system" fn collect_all(hwnd: HWND, param: LPARAM) -> i32 {
+        // SAFETY: EnumWindows calls synchronously while the stack context is alive.
+        let context = &mut *(param as *mut AllWindows);
+        if IsWindow(hwnd) == 0 {
+            return 1;
+        }
+        let mut pid = 0;
+        if GetWindowThreadProcessId(hwnd, &mut pid) == 0 {
+            return 1;
+        }
+        let Some(image) = image_for_pid(pid) else {
+            return 1;
+        };
+        if context.client.matches_image(&image) {
+            context.hwnds.push(hwnd as isize);
+        }
+        1
+    }
+
+    pub(super) fn all_client_windows(client: Client) -> Vec<isize> {
+        let mut context = AllWindows {
+            client,
+            hwnds: Vec::new(),
+        };
+        if unsafe { EnumWindows(Some(collect_all), (&mut context as *mut AllWindows) as isize) } == 0
+        {
+            return Vec::new();
+        }
+        context.hwnds
     }
 
     /// Reuse the verified main HWND, including while minimized or hidden in the tray.

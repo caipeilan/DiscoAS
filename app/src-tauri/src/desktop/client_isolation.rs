@@ -135,11 +135,20 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<I
             offscreen += 1;
         }
     }
+    // Main windows are not the only possible flash: clients can create small
+    // auxiliary/tool/dialog windows of the same process image. Hide every
+    // top-level window of the client image too.
+    let all_windows = client_window::process_windows(platform);
+    for hwnd in &all_windows {
+        client_window::hide_window(*hwnd);
+        let _ = client_window::move_offscreen(*hwnd);
+    }
     diagnostics::log_isolation(
         "prepare",
         &format!(
-            "platform={platform} mode={mode:?} current={current:?} windows={} hidden={hidden} offscreen={offscreen}",
-            windows.len()
+            "platform={platform} mode={mode:?} current={current:?} windows={} all_windows={} hidden={hidden} offscreen={offscreen}",
+            windows.len(),
+            all_windows.len()
         ),
     );
     Some(IsolationHandle {
@@ -228,20 +237,20 @@ fn start_hide_watchdog(
                 diagnostics::log_isolation("watchdog_cancelled", "generation_changed");
                 return;
             }
-            let windows = client_window::windows(&platform);
+            let windows = client_window::process_windows(&platform);
             let mut hidden = 0usize;
-            for window in &windows {
+            for hwnd in &windows {
                 if WATCH_GENERATION.load(Ordering::SeqCst) != generation {
                     diagnostics::log_isolation("watchdog_cancelled", "show_or_new_playback");
                     return;
                 }
-                if client_window::is_visible(window.hwnd) {
-                    client_window::hide_window(window.hwnd);
+                if client_window::is_visible(*hwnd) {
+                    client_window::hide_window(*hwnd);
                     hidden += 1;
                 }
                 // If the URI handler restores the window on-screen, put it back
                 // off-screen before the next frame is visible.
-                let _ = client_window::move_offscreen(window.hwnd);
+                let _ = client_window::move_offscreen(*hwnd);
             }
             if hidden > 0 {
                 diagnostics::log_isolation(
@@ -252,7 +261,7 @@ fn start_hide_watchdog(
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 break;
             }
-            thread::sleep(Duration::from_millis(40));
+            thread::sleep(Duration::from_millis(15));
         }
         // Temporary mode intentionally brings the client back after the
         // configured delay; this is why it is marked "not recommended".
@@ -273,10 +282,10 @@ fn start_hide_watchdog(
                         client_window::restore_window(window.hwnd, saved.rect);
                     }
                     if saved.visible {
-                        client_window::show_window(window.hwnd);
-                        if saved.iconic {
-                            client_window::minimize_window(window.hwnd);
-                        }
+                        // Temporary hiding must not flash the window back on
+                        // screen. Restore it to the taskbar minimized; hidden
+                        // clients stay hidden.
+                        client_window::minimize_window(window.hwnd);
                     }
                 } else if client_window::is_offscreen(window.hwnd) {
                     client_window::center_window(window.hwnd);
@@ -414,6 +423,47 @@ mod tests {
         }
         if let Ok(log) = std::fs::read_to_string(log_root.join("client-isolation.log")) {
             eprintln!("diagnostics:\n{log}");
+        }
+    }
+
+    #[test]
+    #[ignore = "verifies temporary hiding minimizes a visible client without showing it"]
+    fn live_temporary_restore_minimizes_visible_client() {
+        let original = super::virtual_desktop::current().expect("current desktop");
+        for window in crate::client_window::windows(crate::platforms::names::NETEASE) {
+            crate::client_window::show_window(window.hwnd);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let settings = DesktopPreferences {
+            client_window_mode: "temporary".into(),
+            minimize_delay_seconds: 0.2,
+            ..Default::default()
+        };
+        let handle = super::prepare(crate::platforms::names::NETEASE, &settings)
+            .expect("temporary prepare");
+        super::playback_started(handle);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(
+            super::virtual_desktop::current().expect("current desktop"),
+            original
+        );
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        assert!(!windows.is_empty());
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::IsIconic;
+            let iconic = unsafe {
+                IsIconic(windows[0].hwnd as *mut core::ffi::c_void) != 0
+            };
+            eprintln!(
+                "temporary visible={} iconic={}",
+                crate::client_window::is_visible(windows[0].hwnd),
+                iconic
+            );
+            assert!(iconic || !crate::client_window::is_visible(windows[0].hwnd));
+        }
+        for window in &windows {
+            crate::client_window::show_window(window.hwnd);
         }
     }
 
