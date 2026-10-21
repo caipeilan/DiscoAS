@@ -80,6 +80,7 @@ pub struct ShowClientResult {
 pub(crate) struct IsolationHandle {
     generation: u64,
     platform: String,
+    pids: Vec<u32>,
     mode: ClientWindowMode,
     delay_seconds: f64,
 }
@@ -115,6 +116,7 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<I
     let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let current = virtual_desktop::current().ok();
     let windows = client_window::windows(platform);
+    let pids: Vec<u32> = windows.iter().map(|window| window.pid).collect();
     let mut hidden = 0usize;
     let mut offscreen = 0usize;
     for window in &windows {
@@ -138,7 +140,7 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<I
     // Main windows are not the only possible flash: clients can create small
     // auxiliary/tool/dialog windows of the same process image. Hide every
     // top-level window of the client image too.
-    let all_windows = client_window::process_windows(platform);
+    let all_windows = client_window::windows_for_pids(&pids);
     for hwnd in &all_windows {
         client_window::hide_window(*hwnd);
         let _ = client_window::move_offscreen(*hwnd);
@@ -154,6 +156,7 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<I
     Some(IsolationHandle {
         generation,
         platform: platform.to_string(),
+        pids,
         mode,
         delay_seconds: settings.minimize_delay_seconds,
     })
@@ -197,6 +200,7 @@ pub(crate) fn playback_started(handle: IsolationHandle) {
     );
     start_hide_watchdog(
         handle.platform,
+        handle.pids,
         handle.generation,
         handle.mode,
         handle.delay_seconds,
@@ -215,11 +219,13 @@ pub(crate) fn abort(handle: IsolationHandle) {
 /// cannot switch desktops, but this watchdog suppresses the popup as well.
 fn start_hide_watchdog(
     platform: String,
+    mut pids: Vec<u32>,
     generation: u64,
     mode: ClientWindowMode,
     delay_seconds: f64,
 ) {
     thread::spawn(move || {
+        let mut pids_checked = Instant::now();
         let deadline = match mode {
             ClientWindowMode::Persistent => None,
             ClientWindowMode::Temporary => Some(
@@ -237,7 +243,15 @@ fn start_hide_watchdog(
                 diagnostics::log_isolation("watchdog_cancelled", "generation_changed");
                 return;
             }
-            let windows = client_window::process_windows(&platform);
+            if pids.is_empty() || pids_checked.elapsed() > Duration::from_secs(2) {
+                pids = client_window::process_ids(&platform);
+                pids_checked = Instant::now();
+            }
+            let windows = if pids.is_empty() {
+                client_window::process_windows(&platform)
+            } else {
+                client_window::windows_for_pids(&pids)
+            };
             let mut hidden = 0usize;
             for hwnd in &windows {
                 if WATCH_GENERATION.load(Ordering::SeqCst) != generation {
@@ -246,11 +260,11 @@ fn start_hide_watchdog(
                 }
                 if client_window::is_visible(*hwnd) {
                     client_window::hide_window(*hwnd);
+                    // If the URI handler restores the window on-screen, put it
+                    // back off-screen before the next frame is visible.
+                    let _ = client_window::move_offscreen(*hwnd);
                     hidden += 1;
                 }
-                // If the URI handler restores the window on-screen, put it back
-                // off-screen before the next frame is visible.
-                let _ = client_window::move_offscreen(*hwnd);
             }
             if hidden > 0 {
                 diagnostics::log_isolation(
@@ -261,7 +275,7 @@ fn start_hide_watchdog(
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 break;
             }
-            thread::sleep(Duration::from_millis(15));
+            thread::sleep(Duration::from_millis(20));
         }
         // Temporary mode intentionally brings the client back after the
         // configured delay; this is why it is marked "not recommended".

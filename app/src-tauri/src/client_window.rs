@@ -73,6 +73,7 @@ impl Client {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MainWindow {
     pub(crate) hwnd: isize,
+    pub(crate) pid: u32,
 }
 
 /// All plausible client windows, largest first, for the explicit "show client"
@@ -106,6 +107,22 @@ pub(crate) fn process_windows(platform: &str) -> Vec<isize> {
     #[cfg(not(windows))]
     {
         let _ = platform;
+        Vec::new()
+    }
+}
+
+pub(crate) fn process_ids(platform: &str) -> Vec<u32> {
+    windows(platform).into_iter().map(|window| window.pid).collect()
+}
+
+pub(crate) fn windows_for_pids(pids: &[u32]) -> Vec<isize> {
+    #[cfg(windows)]
+    {
+        windows::windows_for_pids(pids)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pids;
         Vec::new()
     }
 }
@@ -175,7 +192,7 @@ pub(crate) fn is_offscreen(hwnd: isize) -> bool {
         if unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut rect) } == 0 {
             return false;
         }
-        rect.left <= -30_000 || rect.top <= -30_000
+        rect.left <= -10_000 || rect.top <= -10_000 || rect.right <= 0 || rect.bottom <= 0
     }
     #[cfg(not(windows))]
     {
@@ -583,6 +600,7 @@ mod windows {
             .rev()
             .map(|window| super::MainWindow {
                 hwnd: window.hwnd as isize,
+                pid: window.pid,
             })
             .collect()
     }
@@ -617,6 +635,42 @@ mod windows {
             hwnds: Vec::new(),
         };
         if unsafe { EnumWindows(Some(collect_all), (&mut context as *mut AllWindows) as isize) } == 0
+        {
+            return Vec::new();
+        }
+        context.hwnds
+    }
+
+    struct PidWindows {
+        pids: Vec<u32>,
+        hwnds: Vec<isize>,
+    }
+
+    unsafe extern "system" fn collect_pids(hwnd: HWND, param: LPARAM) -> i32 {
+        // SAFETY: EnumWindows calls synchronously while the stack context is alive.
+        let context = &mut *(param as *mut PidWindows);
+        if IsWindow(hwnd) == 0 {
+            return 1;
+        }
+        let mut pid = 0;
+        if GetWindowThreadProcessId(hwnd, &mut pid) == 0 {
+            return 1;
+        }
+        if context.pids.contains(&pid) {
+            context.hwnds.push(hwnd as isize);
+        }
+        1
+    }
+
+    pub(super) fn windows_for_pids(pids: &[u32]) -> Vec<isize> {
+        if pids.is_empty() {
+            return Vec::new();
+        }
+        let mut context = PidWindows {
+            pids: pids.to_vec(),
+            hwnds: Vec::new(),
+        };
+        if unsafe { EnumWindows(Some(collect_pids), (&mut context as *mut PidWindows) as isize) } == 0
         {
             return Vec::new();
         }

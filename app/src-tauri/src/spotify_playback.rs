@@ -831,13 +831,21 @@ mod tests {
             client_window_mode: "persistent".into(),
             ..Default::default()
         };
+        let prepare_started = std::time::Instant::now();
         let handle = crate::desktop::client_isolation::prepare(
             crate::platforms::names::NETEASE,
             &settings,
         )
         .expect("isolation prepared");
+        let prepare_elapsed = prepare_started.elapsed();
         let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
+        let open_started = std::time::Instant::now();
         open_url_no_activate(&url).expect("scheme opened");
+        eprintln!(
+            "prepare_ms={} open_scheme_ms={}",
+            prepare_elapsed.as_millis(),
+            open_started.elapsed().as_millis()
+        );
         crate::desktop::client_isolation::playback_started(handle);
         std::thread::sleep(Duration::from_secs(2));
         let after = crate::desktop::virtual_desktop::current().expect("current desktop");
@@ -888,7 +896,9 @@ mod tests {
             )
         } != 0);
         let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
+        let open_started = std::time::Instant::now();
         open_url_no_activate(&url).expect("scheme opened");
+        eprintln!("direct_open_ms={}", open_started.elapsed().as_millis());
         std::thread::sleep(Duration::from_secs(2));
         let after = crate::desktop::virtual_desktop::current().expect("current desktop");
         let mut rect = windows_sys::Win32::Foundation::RECT::default();
