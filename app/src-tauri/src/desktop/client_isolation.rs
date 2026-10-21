@@ -80,7 +80,7 @@ pub struct ShowClientResult {
 pub(crate) struct IsolationHandle {
     generation: u64,
     platform: String,
-    pids: Vec<u32>,
+    main_hwnd: Option<isize>,
     mode: ClientWindowMode,
     delay_seconds: f64,
 }
@@ -116,10 +116,12 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<I
     let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let current = virtual_desktop::current().ok();
     let windows = client_window::windows(platform);
-    let pids: Vec<u32> = windows.iter().map(|window| window.pid).collect();
     let mut hidden = 0usize;
     let mut offscreen = 0usize;
-    for window in &windows {
+    // Match the legacy minimize option: only the main client window is put
+    // away. Auxiliary windows such as desktop lyrics and the mini player must
+    // keep their own visibility and position.
+    if let Some(window) = windows.first() {
         let state = client_window::window_state(window.hwnd);
         if let Some(state) = state {
             if let Ok(mut saved) = saved_windows().lock() {
@@ -137,26 +139,17 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<I
             offscreen += 1;
         }
     }
-    // Main windows are not the only possible flash: clients can create small
-    // auxiliary/tool/dialog windows of the same process image. Hide every
-    // top-level window of the client image too.
-    let all_windows = client_window::windows_for_pids(&pids);
-    for hwnd in &all_windows {
-        client_window::hide_window(*hwnd);
-        let _ = client_window::move_offscreen(*hwnd);
-    }
     diagnostics::log_isolation(
         "prepare",
         &format!(
-            "platform={platform} mode={mode:?} current={current:?} windows={} all_windows={} hidden={hidden} offscreen={offscreen}",
-            windows.len(),
-            all_windows.len()
+            "platform={platform} mode={mode:?} current={current:?} windows={} hidden={hidden} offscreen={offscreen}",
+            windows.len()
         ),
     );
     Some(IsolationHandle {
         generation,
         platform: platform.to_string(),
-        pids,
+        main_hwnd: windows.first().map(|window| window.hwnd),
         mode,
         delay_seconds: settings.minimize_delay_seconds,
     })
@@ -200,7 +193,7 @@ pub(crate) fn playback_started(handle: IsolationHandle) {
     );
     start_hide_watchdog(
         handle.platform,
-        handle.pids,
+        handle.main_hwnd,
         handle.generation,
         handle.mode,
         handle.delay_seconds,
@@ -219,13 +212,12 @@ pub(crate) fn abort(handle: IsolationHandle) {
 /// cannot switch desktops, but this watchdog suppresses the popup as well.
 fn start_hide_watchdog(
     platform: String,
-    mut pids: Vec<u32>,
+    mut main_hwnd: Option<isize>,
     generation: u64,
     mode: ClientWindowMode,
     delay_seconds: f64,
 ) {
     thread::spawn(move || {
-        let mut pids_checked = Instant::now();
         let deadline = match mode {
             ClientWindowMode::Persistent => None,
             ClientWindowMode::Temporary => Some(
@@ -243,33 +235,30 @@ fn start_hide_watchdog(
                 diagnostics::log_isolation("watchdog_cancelled", "generation_changed");
                 return;
             }
-            if pids.is_empty() || pids_checked.elapsed() > Duration::from_secs(2) {
-                pids = client_window::process_ids(&platform);
-                pids_checked = Instant::now();
+            if main_hwnd.map_or(true, |hwnd| !client_window::exists(hwnd)) {
+                main_hwnd = client_window::windows(&platform)
+                    .into_iter()
+                    .next()
+                    .map(|window| window.hwnd);
             }
-            let windows = if pids.is_empty() {
-                client_window::process_windows(&platform)
-            } else {
-                client_window::windows_for_pids(&pids)
-            };
             let mut hidden = 0usize;
-            for hwnd in &windows {
+            if let Some(hwnd) = main_hwnd {
                 if WATCH_GENERATION.load(Ordering::SeqCst) != generation {
                     diagnostics::log_isolation("watchdog_cancelled", "show_or_new_playback");
                     return;
                 }
-                if client_window::is_visible(*hwnd) {
-                    client_window::hide_window(*hwnd);
+                if client_window::is_visible(hwnd) {
+                    client_window::hide_window(hwnd);
                     // If the URI handler restores the window on-screen, put it
                     // back off-screen before the next frame is visible.
-                    let _ = client_window::move_offscreen(*hwnd);
-                    hidden += 1;
+                    let _ = client_window::move_offscreen(hwnd);
+                    hidden = 1;
                 }
             }
             if hidden > 0 {
                 diagnostics::log_isolation(
                     "watchdog_hide",
-                    &format!("platform={platform} windows={} hidden={hidden}", windows.len()),
+                    &format!("platform={platform} hidden={hidden}"),
                 );
             }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {

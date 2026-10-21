@@ -73,7 +73,6 @@ impl Client {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MainWindow {
     pub(crate) hwnd: isize,
-    pub(crate) pid: u32,
 }
 
 /// All plausible client windows, largest first, for the explicit "show client"
@@ -89,40 +88,6 @@ pub(crate) fn windows(platform: &str) -> Vec<MainWindow> {
     #[cfg(not(windows))]
     {
         let _ = platform;
-        Vec::new()
-    }
-}
-
-/// Every top-level window owned by the client's process image, including
-/// auxiliary/tool/dialog windows that the main-window selector intentionally
-/// excludes. Used only for hiding during playback.
-pub(crate) fn process_windows(platform: &str) -> Vec<isize> {
-    #[cfg(windows)]
-    {
-        let Some(client) = Client::from_platform(platform) else {
-            return Vec::new();
-        };
-        windows::all_client_windows(client)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = platform;
-        Vec::new()
-    }
-}
-
-pub(crate) fn process_ids(platform: &str) -> Vec<u32> {
-    windows(platform).into_iter().map(|window| window.pid).collect()
-}
-
-pub(crate) fn windows_for_pids(pids: &[u32]) -> Vec<isize> {
-    #[cfg(windows)]
-    {
-        windows::windows_for_pids(pids)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = pids;
         Vec::new()
     }
 }
@@ -285,6 +250,20 @@ pub(crate) fn minimize_window(hwnd: isize) {
     #[cfg(not(windows))]
     {
         let _ = hwnd;
+    }
+}
+
+pub(crate) fn exists(hwnd: isize) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
+        // SAFETY: Win32 validates the handle; no ownership is transferred.
+        unsafe { IsWindow(hwnd as *mut core::ffi::c_void) != 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        false
     }
 }
 
@@ -600,81 +579,8 @@ mod windows {
             .rev()
             .map(|window| super::MainWindow {
                 hwnd: window.hwnd as isize,
-                pid: window.pid,
             })
             .collect()
-    }
-
-    struct AllWindows {
-        client: Client,
-        hwnds: Vec<isize>,
-    }
-
-    unsafe extern "system" fn collect_all(hwnd: HWND, param: LPARAM) -> i32 {
-        // SAFETY: EnumWindows calls synchronously while the stack context is alive.
-        let context = &mut *(param as *mut AllWindows);
-        if IsWindow(hwnd) == 0 {
-            return 1;
-        }
-        let mut pid = 0;
-        if GetWindowThreadProcessId(hwnd, &mut pid) == 0 {
-            return 1;
-        }
-        let Some(image) = image_for_pid(pid) else {
-            return 1;
-        };
-        if context.client.matches_image(&image) {
-            context.hwnds.push(hwnd as isize);
-        }
-        1
-    }
-
-    pub(super) fn all_client_windows(client: Client) -> Vec<isize> {
-        let mut context = AllWindows {
-            client,
-            hwnds: Vec::new(),
-        };
-        if unsafe { EnumWindows(Some(collect_all), (&mut context as *mut AllWindows) as isize) } == 0
-        {
-            return Vec::new();
-        }
-        context.hwnds
-    }
-
-    struct PidWindows {
-        pids: Vec<u32>,
-        hwnds: Vec<isize>,
-    }
-
-    unsafe extern "system" fn collect_pids(hwnd: HWND, param: LPARAM) -> i32 {
-        // SAFETY: EnumWindows calls synchronously while the stack context is alive.
-        let context = &mut *(param as *mut PidWindows);
-        if IsWindow(hwnd) == 0 {
-            return 1;
-        }
-        let mut pid = 0;
-        if GetWindowThreadProcessId(hwnd, &mut pid) == 0 {
-            return 1;
-        }
-        if context.pids.contains(&pid) {
-            context.hwnds.push(hwnd as isize);
-        }
-        1
-    }
-
-    pub(super) fn windows_for_pids(pids: &[u32]) -> Vec<isize> {
-        if pids.is_empty() {
-            return Vec::new();
-        }
-        let mut context = PidWindows {
-            pids: pids.to_vec(),
-            hwnds: Vec::new(),
-        };
-        if unsafe { EnumWindows(Some(collect_pids), (&mut context as *mut PidWindows) as isize) } == 0
-        {
-            return Vec::new();
-        }
-        context.hwnds
     }
 
     /// Reuse the verified main HWND, including while minimized or hidden in the tray.
