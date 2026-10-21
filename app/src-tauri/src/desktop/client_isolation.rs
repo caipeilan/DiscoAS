@@ -105,16 +105,39 @@ pub(crate) fn status() -> ClientDesktopStatus {
 /// dispatch.
 pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Option<IsolationHandle> {
     let mode = mode(settings);
-    if !matches!(
+    let mode_ok = matches!(
         mode,
         ClientWindowMode::Temporary | ClientWindowMode::Persistent
-    ) || !virtual_desktop::supported()
-        || !virtual_desktop::automatic_move_supported()
-    {
+    );
+    let supported = virtual_desktop::supported();
+    // Playback deliberately bypasses the status-page cache and retries a
+    // transient COM failure once. A stale negative cache made real playback
+    // fall back to the activating opener the next day.
+    let automatic = if mode_ok && supported {
+        virtual_desktop::automatic_move_supported_fresh()
+    } else {
+        false
+    };
+    diagnostics::log_isolation(
+        "prepare_gate",
+        &format!(
+            "platform={platform} mode={mode:?} mode_ok={mode_ok} supported={supported} automatic={automatic}"
+        ),
+    );
+    if !mode_ok || !supported || !automatic {
+        diagnostics::log_isolation("prepare_rejected", "gate");
         return None;
     }
-    let Ok(Some(desktop)) = virtual_desktop::find_by_name(BACKGROUND_NAME) else {
-        return None;
+    let desktop = match virtual_desktop::find_by_name(BACKGROUND_NAME) {
+        Ok(Some(desktop)) => desktop,
+        Ok(None) => {
+            diagnostics::log_isolation("prepare_rejected", "desktop_missing");
+            return None;
+        }
+        Err(error) => {
+            diagnostics::log_isolation("prepare_rejected", &format!("desktop_error={error}"));
+            return None;
+        }
     };
     let target = desktop.id;
     let generation = WATCH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
@@ -344,7 +367,7 @@ fn schedule_restore(
 
 pub(crate) fn show_all() -> Result<ShowClientResult, String> {
     cancel_pending();
-    if !virtual_desktop::automatic_move_supported() {
+    if !virtual_desktop::automatic_move_supported_fresh() {
         return Err("错误：当前 Windows 版本不支持自动移动客户端窗口".into());
     }
     let current = virtual_desktop::current()?;

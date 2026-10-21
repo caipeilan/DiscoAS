@@ -279,15 +279,23 @@ mod imp {
     impl MoveCapabilityCache {
         fn get_or_probe(&self, probe: impl FnOnce() -> bool) -> bool {
             let mut cached = self.0.lock().unwrap_or_else(|error| error.into_inner());
-            if let Some((checked_at, supported)) = *cached {
+            if let Some((checked_at, true)) = *cached {
                 if checked_at.elapsed() < MOVE_CAPABILITY_TTL {
-                    return supported;
+                    return true;
                 }
             }
-            // Keep concurrent cache misses on a single probe.
+            // Keep concurrent cache misses on a single probe. A negative probe
+            // is deliberately NOT cached: Explorer can be temporarily busy, and
+            // caching that answer for 15 seconds made playback fall back to the
+            // activating opener after a transient probe failure.
             let supported = probe();
-            *cached = Some((Instant::now(), supported));
+            *cached = supported.then(|| (Instant::now(), true));
             supported
+        }
+
+        fn store(&self, supported: bool) {
+            let mut cached = self.0.lock().unwrap_or_else(|error| error.into_inner());
+            *cached = supported.then(|| (Instant::now(), true));
         }
 
         fn invalidate(&self) {
@@ -301,6 +309,22 @@ mod imp {
     /// probe or falls back instead of failing silently.
     pub(super) fn automatic_move_supported() -> bool {
         MOVE_CAPABILITY.get_or_probe(internal::available)
+    }
+
+    /// Playback must not trust a stale/negative UI cache. Probe afresh, retry
+    /// once after a short pause because Explorer COM activation can be briefly
+    /// busy, and only then fall back.
+    pub(super) fn automatic_move_supported_fresh() -> bool {
+        MOVE_CAPABILITY.invalidate();
+        let first = internal::available();
+        if first {
+            MOVE_CAPABILITY.store(true);
+            return true;
+        }
+        thread::sleep(Duration::from_millis(80));
+        let second = internal::available();
+        MOVE_CAPABILITY.store(second);
+        second
     }
 
     pub(super) fn invalidate_move_capability() {
@@ -679,26 +703,43 @@ mod imp {
         use windows::core::GUID;
 
         #[test]
-        fn move_capability_caches_positive_and_negative_results() {
-            for supported in [true, false] {
-                let cache = MoveCapabilityCache::default();
-                assert_eq!(cache.get_or_probe(|| supported), supported);
-                assert_eq!(
-                    cache.get_or_probe(|| panic!("cached result expected")),
-                    supported
-                );
-            }
+        fn move_capability_caches_positive_results() {
+            let cache = MoveCapabilityCache::default();
+            assert!(cache.get_or_probe(|| true));
+            assert!(cache.get_or_probe(|| panic!("cached result expected")));
         }
 
         #[test]
-        fn move_capability_refreshes_expired_results() {
-            for supported in [true, false] {
-                let cache = MoveCapabilityCache(Mutex::new(Some((
-                    Instant::now() - MOVE_CAPABILITY_TTL,
-                    supported,
-                ))));
-                assert_eq!(cache.get_or_probe(|| !supported), !supported);
-            }
+        fn move_capability_does_not_cache_transient_negative_results() {
+            let cache = MoveCapabilityCache::default();
+            let calls = AtomicUsize::new(0);
+            assert!(!cache.get_or_probe(|| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                false
+            }));
+            assert!(cache.get_or_probe(|| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                true
+            }));
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+        }
+
+        #[test]
+        fn move_capability_refreshes_expired_positive_result() {
+            let cache = MoveCapabilityCache(Mutex::new(Some((
+                Instant::now() - MOVE_CAPABILITY_TTL,
+                true,
+            ))));
+            assert!(!cache.get_or_probe(|| false));
+        }
+
+        #[test]
+        fn move_capability_store_cannot_reintroduce_negative_cache() {
+            let cache = MoveCapabilityCache::default();
+            cache.store(false);
+            assert!(cache.get_or_probe(|| true));
+            cache.store(true);
+            assert!(cache.get_or_probe(|| panic!("cached positive result expected")));
         }
 
         #[test]
@@ -830,6 +871,11 @@ pub(crate) fn automatic_move_supported() -> bool {
 }
 
 #[cfg(windows)]
+pub(crate) fn automatic_move_supported_fresh() -> bool {
+    imp::automatic_move_supported_fresh()
+}
+
+#[cfg(windows)]
 pub(crate) fn invalidate_move_capability() {
     imp::invalidate_move_capability();
 }
@@ -871,6 +917,11 @@ pub(crate) fn supported() -> bool {
 
 #[cfg(not(windows))]
 pub(crate) fn automatic_move_supported() -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+pub(crate) fn automatic_move_supported_fresh() -> bool {
     false
 }
 

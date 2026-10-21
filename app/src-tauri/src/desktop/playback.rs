@@ -95,6 +95,14 @@ async fn dispatch_to_platform(
             None
         };
         let isolated = isolation.is_some();
+        // Even if prepare fails (transient COM/desktop probe, missing window,
+        // etc.), the separate-desktop feature must never fall back to the
+        // normal activating opener: that is what made the user's desktop jump.
+        let prevent_activation = !spotify_extension
+            && matches!(
+                mode,
+                ClientWindowMode::Temporary | ClientWindowMode::Persistent
+            );
         let result = app
             .state::<crate::spotify_playback::PlaybackService>()
             .invoke(
@@ -103,7 +111,7 @@ async fn dispatch_to_platform(
                 card,
                 url,
                 &options.spotify_playback_mode,
-                isolated,
+                prevent_activation,
             )
             .await;
         match (result.as_ref(), isolation) {
