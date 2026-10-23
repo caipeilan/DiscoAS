@@ -7,6 +7,21 @@ import { canPlayDrag, reorderHandGroups, reorderIndex, hoverGroupedHandIndex, gr
 import { releaseHandMotion } from "./handMotion";
 import { readPose, type Drag, type HandInputContext } from "./handControllerTypes";
 
+const instantHolds = new WeakMap<HTMLElement, number>();
+/** Runs the next committed style change without fading, then restores transitions. */
+function holdInstant(element: HTMLElement) {
+  const token = (instantHolds.get(element) ?? 0) + 1;
+  instantHolds.set(element, token);
+  element.dataset.handInstant = "";
+  setTimeout(() => {
+    if (instantHolds.get(element) !== token) return;
+    instantHolds.delete(element);
+    // Flush the committed state while transitions are still suspended, then restore.
+    void element.offsetWidth;
+    delete element.dataset.handInstant;
+  }, 0);
+}
+
 /** Owns pointer gestures, hover mode and keyboard selection; card rendering stays declarative. */
 export function useHandInput(context: HandInputContext) {
   const { snapshot, current, mounted, dockMoving, stage, busyRef, selectedRef, hoverRef, inputRef, pointer,
@@ -50,6 +65,8 @@ export function useHandInput(context: HandInputContext) {
   const finishNativeDrag = (held: Drag) => {
     cancelAnimationFrame(dragFrame.current); dragFrame.current = 0;
     if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
+    // The source card returns from opacity 0; revealing it must not fade in.
+    holdInstant(held.element);
     dragRef.current = null; dragIntentAt.current = 0; setDrag(null);
   };
   const cancelDrag = () => {
@@ -151,6 +168,9 @@ export function useHandInput(context: HandInputContext) {
   };
   const onCardPointerDown = (card: HandCard, e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || snapshot.preview || busyRef.current || dragRef.current || card.placeholder || (e.target as HTMLElement).closest("button")) return;
+    // A press may be the first activation; finish its highlight instead of fading it.
+    holdInstant(e.currentTarget);
+    e.currentTarget.querySelector(".hand-discard")?.getAnimations().forEach((animation) => animation.cancel());
     e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
     const visualPose = readPose(e.currentTarget);
     e.currentTarget.focus({ preventScroll: true }); releaseHandMotion(e.currentTarget); e.currentTarget.getAnimations().forEach((animation) => animation.cancel());

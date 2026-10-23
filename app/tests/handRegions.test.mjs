@@ -104,7 +104,7 @@ test("a fast drag starts the native drag surface and drops without painting the 
   const calls = [], operations = [], dragStates = [], values = new Map();
   const pose = { x: 200, y: 400, width: 156, height: 220, angle: 7, scale: 1.06 };
   const element = { style: { setProperty: (name, value) => values.set(name, value), removeProperty: name => values.delete(name) },
-    focus() {}, getAnimations: () => [], setPointerCapture() {}, hasPointerCapture: () => false };
+    dataset: {}, querySelector: () => null, focus() {}, getAnimations: () => [], setPointerCapture() {}, hasPointerCapture: () => false };
   const card = { id: "one" };
   const snapshot = { generation: 1, expanded: true, preview: false, cards: [card], settings: { side: "bottom", scale: 1 }, workArea: { left: 0, top: 0, width: 1000, height: 700 }, gui: { font_size: 14 } };
   const context = { snapshot, current: { current: snapshot }, mounted: { current: true }, dockMoving: false, stage: { current: null }, busyRef: { current: "" },
@@ -153,7 +153,7 @@ test("pointer bursts use one calculation per frame and drop with the latest coor
       const workArea = { left: 0, top: 0, width: 1400, height: 900 };
       const poses = layout.groupedHandLayout(cards, settings, discoverySettings, workArea, -1, 14);
       const card = cards[discovery ? 0 : 1], pose = poses[discovery ? 0 : 1];
-      const element = { style: { setProperty() {}, removeProperty() {} }, focus() {}, getAnimations: () => [], setPointerCapture() {}, hasPointerCapture: () => false };
+      const element = { style: { setProperty() {}, removeProperty() {} }, dataset: {}, querySelector: () => null, focus() {}, getAnimations: () => [], setPointerCapture() {}, hasPointerCapture: () => false };
       const snapshot = { generation: 1, expanded: true, preview: false, cards, settings, discoverySettings, workArea, gui: { font_size: 14 } };
       const context = { snapshot, current: { current: snapshot }, mounted: { current: true }, dockMoving: false, stage: { current: null }, busyRef: { current: "" },
         selectedRef: { current: null }, hoverRef: { current: null }, inputRef: { current: "pointer" }, pointer: { current: null }, toolbarBounds: { current: null },
