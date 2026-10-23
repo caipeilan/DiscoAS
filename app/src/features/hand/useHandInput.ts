@@ -62,11 +62,24 @@ export function useHandInput(context: HandInputContext) {
       selectedRef.current = state.cards[next].id; setSelected(state.cards[next].id);
     }
   };
-  const finishNativeDrag = (held: Drag) => {
+  const finishNativeDrag = (held: Drag, reveal = true) => {
     cancelAnimationFrame(dragFrame.current); dragFrame.current = 0;
     if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
-    // The source card returns from opacity 0; revealing it must not fade in.
-    holdInstant(held.element);
+    if (reveal) {
+      // The hidden source card sits at its pickup pose. Re-anchor it to the release
+      // point so clearing the drag state transitions it back instead of snapping.
+      const element = held.element;
+      element.style.setProperty("--hand-x", `${held.pose.x}px`);
+      element.style.setProperty("--hand-y", `${held.pose.y}px`);
+      element.style.setProperty("--card-x", `${held.dx}px`);
+      element.style.setProperty("--card-y", `${held.dy}px`);
+      element.style.setProperty("--hand-card-scale", "1.12");
+      element.style.setProperty("--hand-angle", "0deg");
+      void element.offsetWidth;
+    } else {
+      // Played or collected cards must not flash back at the source position.
+      holdInstant(held.element);
+    }
     dragRef.current = null; dragIntentAt.current = 0; setDrag(null);
   };
   const cancelDrag = () => {
@@ -142,13 +155,13 @@ export function useHandInput(context: HandInputContext) {
     if (card.discovery && held.intake !== null) {
       finishNative();
       await operation("collect_hand_discovery_card", card, undefined, held.intake);
-      if (dragRef.current === held) finishNativeDrag(held);
+      if (dragRef.current === held) finishNativeDrag(held, false);
       return;
     }
     if (valid) {
       finishNative();
       await operation("play_hand_card", card);
-      if (dragRef.current === held) finishNativeDrag(held);
+      if (dragRef.current === held) finishNativeDrag(held, false);
       return;
     }
     const from = state.cards.findIndex((c) => c.id === held.id);
@@ -168,9 +181,6 @@ export function useHandInput(context: HandInputContext) {
   };
   const onCardPointerDown = (card: HandCard, e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || snapshot.preview || busyRef.current || dragRef.current || card.placeholder || (e.target as HTMLElement).closest("button")) return;
-    // A press may be the first activation; finish its highlight instead of fading it.
-    holdInstant(e.currentTarget);
-    e.currentTarget.querySelector(".hand-discard")?.getAnimations().forEach((animation) => animation.cancel());
     e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
     const visualPose = readPose(e.currentTarget);
     e.currentTarget.focus({ preventScroll: true }); releaseHandMotion(e.currentTarget); e.currentTarget.getAnimations().forEach((animation) => animation.cancel());
