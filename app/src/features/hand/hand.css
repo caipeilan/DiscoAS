@@ -35,8 +35,13 @@
 .hand-dock button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -4px; }
 .hand-dock-dragging { transition: width var(--dock-morph-duration) var(--ease-out), border-radius 260ms var(--ease-out); cursor: grabbing; will-change: translate; }
 .hand-dock-dragging .hand-dock-logo { cursor: grabbing; }
-.hand-card { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) translate(var(--card-x, 0px), var(--card-y, 0px)) rotate(var(--drag-angle, var(--hand-angle, 0deg))) scale(var(--hand-card-scale, 1)); transform-origin: center; transition: transform 300ms cubic-bezier(.2,.85,.25,1.15), opacity 220ms ease; pointer-events: auto; touch-action: none; cursor: grab; }
-.hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease, border-color 180ms ease; backface-visibility: hidden; }
+.hand-card { --hand-hover-duration: 300ms; --hand-hover-ease: cubic-bezier(.2,.85,.25,1.15); position: absolute; left: 0; top: 0; transform: translate(-50%, -50%) translate(var(--hand-x, 0px), var(--hand-y, 0px)) translate(var(--card-x, 0px), var(--card-y, 0px)) rotate(var(--drag-angle, var(--hand-angle, 0deg))) scale(var(--hand-card-scale, 1)); transform-origin: center; transition: transform var(--hand-hover-duration) var(--hand-hover-ease), opacity 220ms ease; pointer-events: auto; touch-action: none; cursor: grab; }
+/* Neighbours make room faster than the raised card; dragging keeps the original hand feel. */
+.hand-stage:has(.hand-active):not(:has(.hand-dragging)) .hand-card:not(.hand-active) { --hand-hover-duration: 180ms; --hand-hover-ease: cubic-bezier(.2,.8,.3,1); }
+/* The highlight ring fades as its own layer instead of repainting the card face each frame. */
+.hand-card::after { content: ""; position: absolute; inset: 0; border: calc(1px * var(--hand-base-scale, 1)) solid var(--accent-focus); border-radius: calc(13px * var(--hand-base-scale, 1)); opacity: 0; transition: opacity 140ms ease; pointer-events: none; }
+.hand-card.hand-discovery.hand-active::after, .hand-card.hand-discovery.hand-playable::after { opacity: 1; }
+.hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease; backface-visibility: hidden; }
 .hand-art { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
 .hand-flip { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
 .hand-card-back { position: absolute; inset: 0; transform: rotateY(180deg); backface-visibility: hidden; }
@@ -78,7 +83,6 @@
 .hand-discovery .hand-card-face > span, .hand-discovery .hand-release-label { color: var(--hand-glass-text); }
 .hand-discovery .hand-card-face > strong, .hand-discovery .hand-card-face > span, .hand-discovery .hand-release-label { -webkit-text-stroke: calc(var(--hand-glass-outline, 1px) * var(--font-scale, 1)) var(--hand-glass-outline-color); paint-order: stroke fill; }
 .hand-discovery .hand-release-label svg { color: var(--text-secondary); }
-.hand-discovery.hand-active .hand-card-face, .hand-discovery.hand-playable .hand-card-face { border-color: var(--accent-focus); }
 .hand-discovery .hand-flip { transition: transform 340ms cubic-bezier(.25,.8,.25,1); }
 .hand-discovery.hand-refreshing .hand-flip { transform: rotateY(180deg); }
 .hand-discovery-back .hand-card-face { justify-content: center; align-items: center; }
@@ -122,4 +126,4 @@
   from { transform: translate(-50%, -50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
   to { transform: translate(-50%, -50%) translate(var(--hand-x), calc(var(--hand-y) + 14px)) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .65)); opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }
+@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card::after, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }
