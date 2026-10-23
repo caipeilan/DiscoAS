@@ -65,7 +65,7 @@ export function useHandInput(context: HandInputContext) {
   const finishNativeDrag = (held: Drag, reveal = true) => {
     cancelAnimationFrame(dragFrame.current); dragFrame.current = 0;
     if (held.element.hasPointerCapture(held.pointerId)) held.element.releasePointerCapture(held.pointerId);
-    if (reveal) {
+    if (reveal && held.presented) {
       // The hidden source card sits at its pickup pose. Re-anchor it to the release
       // point so clearing the drag state transitions it back instead of snapping.
       const element = held.element;
@@ -98,7 +98,14 @@ export function useHandInput(context: HandInputContext) {
       generation: state.generation, card: held.card, settings: state.settings,
       discoverySettings: state.discoverySettings!, gui: state.gui,
       pointer: { x: held.startX, y: held.startY }, pose: held.pose,
-    }).then(() => {}).catch((error) => {
+    }).then(() => {
+      // Do not wait forever for the drag surface acknowledgement.
+      setTimeout(() => {
+        if (dragRef.current === held && held.nativeStarted && !held.presented) {
+          held.presented = true; setDrag({ ...held });
+        }
+      }, 300);
+    }).catch((error) => {
       held.nativeStarted = false;
       void call("end_hand_drag", { generation: state.generation, cancelled: true }).catch(() => {});
       if (!held.ending && dragRef.current === held) cancelDrag();
@@ -187,7 +194,7 @@ export function useHandInput(context: HandInputContext) {
     const point = toCanvas(e.clientX, e.clientY);
     const discoveryCount = snapshot.cards.filter(c => c.discovery).length;
     const held: Drag = { id: card.id, index: snapshot.cards.findIndex((c) => c.id === card.id), playable: false, pointerId: e.pointerId, startX: point.x, startY: point.y, dx: 0, dy: 0, pose: visualPose, element: e.currentTarget,
-      intake: null, restPoses: [...restPosesRef.current], ready: true, ending: false, prepared: Promise.resolve(), nativeStarted: false,
+      intake: null, restPoses: [...restPosesRef.current], ready: true, ending: false, prepared: Promise.resolve(), nativeStarted: false, presented: false,
       card, groupPoses: card.discovery ? restPosesRef.current.slice(0, discoveryCount) : restPosesRef.current.slice(discoveryCount), groupOffset: card.discovery ? 0 : discoveryCount, positionDirty: false };
     dragRef.current = held; setDrag(held); setInputMode("pointer"); setHover(card.id); setSelected(card.id);
   };
@@ -228,6 +235,15 @@ export function useHandInput(context: HandInputContext) {
       onDesktopEvent("hand-pointer", (value) => pointerHandlerRef.current(value)),
       onDesktopEvent("hand-key", (value) => keyboardRef.current(value)),
       onDesktopEvent("hand-escape", () => escapeRef.current()),
+      onDesktopEvent("hand-drag-presented", (generation) => {
+        const held = dragRef.current;
+        if (!held || !held.nativeStarted || held.presented || generation !== current.current.generation) return;
+        // Let the drag surface paint one frame before the source disappears.
+        requestAnimationFrame(() => {
+          if (dragRef.current !== held || held.presented) return;
+          held.presented = true; setDrag({ ...held });
+        });
+      }),
     ]).then((removers) => { if (active) stops.push(...removers); else removers.forEach((stop) => stop()); })
       .catch((e) => { if (active) setError(errorText(e)); });
     const key = (e: KeyboardEvent) => keyboardRef.current(e);

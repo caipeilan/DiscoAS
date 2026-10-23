@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useState, type CSSProperties } from "react";
 import type { HandDragIntent, HandDragSnapshot } from "../../types";
 import { defaultGuiSettings } from "../../types";
 import { call, onDesktopEvent } from "../../services/desktop";
@@ -32,10 +32,18 @@ export function HandDragWindow() {
         setDropping(false);
       }),
       subscribe("hand-drag-intent", setIntent),
-      subscribe("hand-drag-end", (value) => { if (!value.cancelled) setDropping(true); }),
+      subscribe("hand-drag-end", (value) => {
+        if (!value.cancelled) { setDropping(true); return; }
+        setSnapshot(null); setDropping(false);
+      }),
     ]).then(() => { if (!cancelled) void call("hand_drag_ready").catch(() => {}); });
     return () => { cancelled = true; stops.forEach(stop => stop()); };
   }, []);
+
+  // Show the surface only once the new card is in the DOM, so its first frame is correct.
+  useLayoutEffect(() => {
+    if (snapshot) void call("present_hand_drag", { generation: snapshot.generation }).catch(() => {});
+  }, [snapshot]);
 
   if (!snapshot) return null;
   const { card, settings, discoverySettings, gui, pose } = snapshot;

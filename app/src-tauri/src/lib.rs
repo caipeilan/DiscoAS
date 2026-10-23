@@ -356,6 +356,7 @@ pub fn run() {
             desktop::hand_dock::set_hand_dock_hit_regions,
             desktop::hand_dock::save_hand_dock,
             desktop::hand_drag::begin_hand_drag,
+            desktop::hand_drag::present_hand_drag,
             desktop::hand_drag::set_hand_drag_intent,
             desktop::hand_drag::end_hand_drag,
             desktop::hand_drag::hand_drag_ready,

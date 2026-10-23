@@ -7,7 +7,7 @@ export interface Drag {
   id: string; index: number; playable: boolean; pointerId: number;
   startX: number; startY: number; dx: number; dy: number; pose: CardPose; element: HTMLElement;
   intake: number | null; restPoses: CardPose[]; ready: boolean; ending: boolean; prepared: Promise<unknown>;
-  card: HandCard; groupPoses: CardPose[]; groupOffset: number; positionDirty: boolean; nativeStarted: boolean;
+  card: HandCard; groupPoses: CardPose[]; groupOffset: number; positionDirty: boolean; nativeStarted: boolean; presented: boolean;
 }
 export type Flying = { card: HandCard; pose: CardPose; complete: () => void; collecting?: boolean };
 export type Discarding = { card: HandCard; pose: CardPose; delay: number; complete: () => void };

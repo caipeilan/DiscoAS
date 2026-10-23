@@ -50,7 +50,7 @@
 .hand-card strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; flex-shrink: 0; font-size: calc(12px * var(--font-scale)); line-height: 1.35; margin: 8px 4px 2px; }
 .hand-card-face > span { margin: 1px 4px; flex-shrink: 0; font-size: calc(10px * var(--font-scale)); line-height: 1.5; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hand-active .hand-card-face { border-color: var(--accent-focus); box-shadow: var(--shadow-floating), 0 0 0 1px var(--accent-focus); }
-.hand-dragging { cursor: grabbing; transition: none; will-change: transform; }
+.hand-dragging { cursor: grabbing; transition: none; }
 /* The source card keeps pointer capture but the dedicated drag surface owns
    the pixels while the pointer moves. */
 .hand-card.hand-drag-source { opacity: 0 !important; transition: none; }

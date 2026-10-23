@@ -69,6 +69,7 @@ pub struct DragState {
     active: AtomicBool,
     generation: AtomicU64,
     ready: AtomicBool,
+    shown: AtomicBool,
     start: Mutex<Option<DragStart>>,
     pending: Mutex<Option<Snapshot>>,
     creating: tokio::sync::Mutex<()>,
@@ -79,6 +80,7 @@ impl Default for DragState {
             active: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             ready: AtomicBool::new(false),
+            shown: AtomicBool::new(false),
             start: Mutex::new(None),
             pending: Mutex::new(None),
             creating: tokio::sync::Mutex::new(()),
@@ -230,6 +232,7 @@ pub async fn begin_hand_drag(
         pose,
     };
     state.generation.store(generation, Ordering::Release);
+    state.shown.store(false, Ordering::Release);
     *state.start.lock().unwrap() = Some(DragStart { hwnd, size, offset });
     state.active.store(true, Ordering::Release);
     *state.pending.lock().unwrap() = Some(snapshot.clone());
@@ -237,14 +240,45 @@ pub async fn begin_hand_drag(
         *state.pending.lock().unwrap() = None;
         emit_snapshot(&app, &snapshot);
     }
+    // The drag surface stays hidden until the frontend has rendered the card;
+    // showing it first would flash an empty or previous card for one frame.
+    // A timer covers a hidden WebView that never runs the acknowledgement.
+    let fallback = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let state = fallback.state::<DragState>();
+        if state.active.load(Ordering::Acquire)
+            && state.generation.load(Ordering::Acquire) == generation
+        {
+            let _ = show_surface(&fallback, generation);
+        }
+    });
+    Ok(())
+}
+
+fn show_surface(app: &tauri::AppHandle, generation: u64) -> Result<(), String> {
+    let state = app.state::<DragState>();
+    if !state.active.load(Ordering::Acquire)
+        || state.generation.load(Ordering::Acquire) != generation
+        || state.shown.swap(true, Ordering::AcqRel)
+    {
+        return Ok(());
+    }
+    let window = app
+        .get_webview_window(LABEL)
+        .ok_or("错误：拖拽窗口不可用")?;
     if let Err(error) = floating_window::show(&window, true) {
-        state.active.store(false, Ordering::Release);
-        *state.start.lock().unwrap() = None;
-        *state.pending.lock().unwrap() = None;
+        state.shown.store(false, Ordering::Release);
         return Err(error);
     }
     let _ = floating_window::raise_topmost(&window);
+    let _ = app.emit_to("hand", "hand-drag-presented", generation);
     Ok(())
+}
+
+#[tauri::command]
+pub fn present_hand_drag(app: tauri::AppHandle, generation: u64) -> Result<(), String> {
+    show_surface(&app, generation)
 }
 
 #[tauri::command]

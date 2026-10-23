@@ -16,7 +16,7 @@ export type DesktopCommand =
   | "begin_hand_dock_drag" | "save_hand_dock"
   | "hand_dock_ready" | "position_hand_dock" | "set_hand_dock_hit_regions"
   | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
-  | "begin_hand_drag" | "set_hand_drag_intent" | "end_hand_drag" | "hand_drag_ready"
+  | "begin_hand_drag" | "present_hand_drag" | "set_hand_drag_intent" | "end_hand_drag" | "hand_drag_ready"
   | "refresh_hand_discovery" | "hand_discovery_displayed" | "replace_hand_discovery_card" | "collect_hand_discovery_card" | "play_hand_discovery_card" | "reorder_hand_discovery"
   | "tray_menu_ready"
   | "present_tray_menu"
@@ -120,6 +120,7 @@ export interface DesktopEvents {
   "hand-drag-state": HandDragSnapshot;
   "hand-drag-intent": HandDragIntent;
   "hand-drag-end": HandDragEnd;
+  "hand-drag-presented": number;
   "hand-error": string;
   "hand-discovery-play-requested": string;
   "hand-discovery-refresh-requested": void;
