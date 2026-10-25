@@ -29,7 +29,7 @@
     return null;
   }
   function controller(tabs, storage, report) {
-    let binding = null, newest = 0, tail = Promise.resolve(), persistenceTail = Promise.resolve(), sessionEpoch = 0;
+    let binding = null, newest = 0, tail = Promise.resolve(), persistenceTail = Promise.resolve(), sessionEpoch = 0, observing = false;
     const ready = storage.get("discoasBinding").then((value) => {
       if (Number.isInteger(value.discoasBinding?.tabId)) binding = value.discoasBinding;
     });
@@ -49,6 +49,15 @@
       });
       tail = reset.catch(() => {});
       return reset;
+    }
+    async function setObserving(enabled) {
+      observing = enabled === true;
+      await ready;
+      if (binding) {
+        binding = { ...binding, observing };
+        await save();
+        await tabs.sendMessage(binding.tabId, { type: "discoas-observe", enabled: observing }).catch(() => {});
+      }
     }
     async function command(request) {
       const songIds = Array.isArray(request.songIds)
@@ -75,7 +84,7 @@
           // Only the bound page is paused. Never query or pause unrelated tabs.
           await tabs.sendMessage(tab.id, { type: "discoas-pause" }).catch(() => {});
           if (!current()) return;
-          binding = { tabId: tab.id, ...expected, requestId: request.requestId, confirmed: false };
+          binding = { tabId: tab.id, ...expected, requestId: request.requestId, confirmed: false, observing };
           await save();
           if (!current()) return;
           if (apple) {
@@ -87,7 +96,7 @@
         } else {
           tab = await tabs.create({ url: expected.url, active: true });
           created = true;
-          binding = { tabId: tab.id, ...expected, requestId: request.requestId, confirmed: false };
+          binding = { tabId: tab.id, ...expected, requestId: request.requestId, confirmed: false, observing };
           await save();
         }
         // A fast page may have asked for its binding before tabs.create resolved.
@@ -98,6 +107,25 @@
       });
       tail = work.catch(() => {});
       return work.catch(() => { if (current()) report({ requestId: request.requestId, rejected: true, error: "错误：无法打开浏览器播放页" }); });
+    }
+    async function pause(requestId) {
+      const epoch = sessionEpoch;
+      const work = tail.then(async () => {
+        await ready;
+        if (!binding || binding.requestId !== requestId || newest !== requestId || sessionEpoch !== epoch) return;
+        let paused = false;
+        try {
+          const tab = await tabs.get(binding.tabId);
+          if (identity(tab.pendingUrl || tab.url || "")?.platform === binding.platform) {
+            const result = await tabs.sendMessage(binding.tabId, { type: "discoas-pause", requestId });
+            paused = result?.paused === true;
+          }
+        } catch { /* Report the failed handoff to the app. */ }
+        if (newest === requestId && sessionEpoch === epoch)
+          report({ requestId, pauseComplete: true, pauseSuccess: paused });
+      });
+      tail = work.catch(() => {});
+      return work;
     }
     async function handle(message, sender) {
       await ready;
@@ -126,7 +154,7 @@
           }
           return null;
         }
-        if (!binding.confirmed) return null;
+        if (!binding.confirmed || !binding.observing) return null;
         report({
           requestId: binding.requestId,
           platform: "AppleMusic",
@@ -140,7 +168,7 @@
         return null;
       }
       if (message.type === "discoas-ready") return binding;
-      if (message.type === "discoas-observation" && binding.confirmed && binding.requestId > 0 && message.requestId === binding.requestId) {
+      if (message.type === "discoas-observation" && binding.confirmed && binding.observing && binding.requestId > 0 && message.requestId === binding.requestId) {
         // The sender's actual URL supplies identity for end/progress and SPA track changes.
         report({ requestId: binding.requestId, platform: actual.platform, songId: actual.songId,
           observed: true, playing: message.playing === true, ended: message.ended === true,
@@ -173,7 +201,7 @@
         binding = null; await save();
       }
     }
-    return { command, handle, removed, beginSession };
+    return { command, pause, setObserving, handle, removed, beginSession };
   }
   globalThis.DiscoASBrowser = { target, identity, controller };
 })();

@@ -12,7 +12,7 @@ pub async fn dispatch(
 ) -> Result<(), String> {
     dispatch_with_origin(app, args, card, url, None).await
 }
-pub(super) async fn dispatch_automatically(
+pub(super) async fn dispatch_reserved(
     app: &tauri::AppHandle,
     args: &PlaySongArgs,
     card: &SongCardDto,

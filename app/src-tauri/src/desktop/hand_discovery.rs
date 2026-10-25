@@ -281,6 +281,7 @@ pub async fn play_hand_discovery_card(
     args: PlaySongArgs,
     batch_epoch: u64,
 ) -> Result<(), String> {
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     let cache = cache(&app);
     let service = service(&app)?;
     let prepared = if args.platform == discoas_core::platforms::names::KUWO {
@@ -318,7 +319,6 @@ pub async fn play_hand_discovery_card(
         })
         .cloned()
         .ok_or("歌曲来源已改变，请重新发现歌曲")?;
-    super::hand_actions::clear_pending(&app);
     super::playback::dispatch(&app, &args, Some(&song), prepared.unwrap_or(url)).await?;
     service.record_selection(&args).await?;
     let remaining = cache

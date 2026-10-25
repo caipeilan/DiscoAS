@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const AUTO_PLAY_AVAILABLE: bool = false;
+pub const AUTO_PLAY_AVAILABLE: bool = true;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -262,6 +262,8 @@ pub struct StoredHandCard {
     pub id: String,
     /// Canonical name, artists and cover are persisted here, independently of discovery's mask.
     pub song: SongCardDto,
+    #[serde(default)]
+    pub playback_metadata: crate::model::PlaybackMetadata,
     pub revealed: bool,
     pub collected_at: u64,
 }
@@ -313,7 +315,14 @@ impl HandStore {
     }
     pub fn load(&self) -> Result<StoredHand, String> {
         match std::fs::read(&self.path) {
-            Ok(data) => serde_json::from_slice(&data).map_err(|_| "错误：手牌数据读取失败".into()),
+            Ok(data) => {
+                let mut hand: StoredHand = serde_json::from_slice(&data)
+                    .map_err(|_| "错误：手牌数据读取失败".to_string())?;
+                for card in &mut hand.cards {
+                    card.song.playback_metadata = card.playback_metadata.clone();
+                }
+                Ok(hand)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(StoredHand::default()),
             Err(_) => Err("错误：手牌数据读取失败".into()),
         }
@@ -350,6 +359,7 @@ impl HandStore {
         hand.next_id += 1;
         let card = StoredHandCard {
             id: format!("hand-{}", hand.next_id),
+            playback_metadata: song.playback_metadata.clone(),
             song,
             revealed: settings.reveal_mystery,
             collected_at: SystemTime::now()
@@ -465,8 +475,10 @@ mod tests {
             artist_names: vec!["Canonical artist".into()],
         });
         secret.real_cover_url = Some("real-cover.png".into());
+        secret.playback_metadata = crate::model::PlaybackMetadata { title: "Original title".into(), album: "Original album".into(), ..Default::default() };
         let card = store.add(secret.clone(), &HandSettings::default()).unwrap();
         let restored = f.store().get(&card.id).unwrap().1;
+        assert_eq!(restored.song.playback_metadata, secret.playback_metadata);
         assert_eq!(restored.playback_args().filename, "Trusted filename");
         assert_eq!(restored.playback_args().playlist_id, "old-source");
         let hidden = restored.project("new-question.png");
@@ -475,6 +487,7 @@ mod tests {
         assert!(!serde_json::to_string(&hidden)
             .unwrap()
             .contains("Canonical"));
+        assert!(!serde_json::to_string(&hidden).unwrap().contains("Original"));
         assert!(!std::fs::read_to_string(&store.path)
             .unwrap()
             .contains("base64"));

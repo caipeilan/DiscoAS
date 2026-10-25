@@ -39,7 +39,10 @@
 /* Neighbours make room faster than the raised card; dragging keeps the original hand feel. */
 .hand-stage:has(.hand-active):not(:has(.hand-dragging)) .hand-card:not(.hand-active) { --hand-hover-duration: 180ms; --hand-hover-ease: cubic-bezier(.2,.8,.3,1); }
 /* The highlight ring stays a separate layer, so the card face never repaints for it. */
-.hand-card::after { content: ""; position: absolute; inset: 0; border: calc(1px * var(--hand-base-scale, 1)) solid var(--accent-focus); border-radius: calc(13px * var(--hand-base-scale, 1)); opacity: 0; pointer-events: none; }
+.hand-card::after { content: ""; position: absolute; inset: 0; z-index: 5; border: calc(1px * var(--hand-base-scale, 1)) solid var(--accent-focus); border-radius: calc(13px * var(--hand-base-scale, 1)); opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-out); }
+.hand-card:not(.hand-discovery)::after { border-width: calc(2px * var(--hand-base-scale, 1)); border-color: #c55300; }
+:root[data-theme="dark"] .hand-card:not(.hand-discovery)::after { border-color: #ff9230; }
+.hand-card[data-auto-next]::after { opacity: 1; }
 .hand-card.hand-discovery.hand-active::after, .hand-card.hand-discovery.hand-playable::after { opacity: 1; }
 .hand-card[data-hand-instant] { transition: none !important; }
 .hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease; backface-visibility: hidden; }
@@ -88,6 +91,12 @@
 .hand-discovery.hand-refreshing .hand-flip { transform: rotateY(180deg); }
 .hand-discovery-back .hand-card-face { justify-content: center; align-items: center; }
 .hand-discovery-back img { width: 78px; height: 78px; opacity: .65; }
+.hand-auto-lock { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; border-radius: calc(13px * var(--hand-base-scale, 1)); background: rgb(224 225 228 / 64%); color: #444950; opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-out); }
+.hand-auto-lock svg { position: absolute; left: 50%; top: calc(78px * var(--hand-base-scale, 1)); width: calc(78px * var(--hand-base-scale, 1)); height: calc(78px * var(--hand-base-scale, 1)); transform: translate(-50%, -50%) scale(.94); transition: transform 200ms var(--ease-out); }
+.hand-auto-lock[data-locked] { opacity: 1; }
+.hand-auto-lock[data-locked] svg { transform: translate(-50%, -50%) scale(1); }
+:root[data-theme="dark"] .hand-auto-lock { background: rgb(46 48 53 / 66%); color: #e3e5e9; }
+.hand-card[data-auto-locked] { cursor: default; }
 .hand-discovery .hand-discard:hover, .hand-dock .hand-refresh:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-focus); }
 .hand-transferring { pointer-events: none; transition: none; }
 .hand-intake-boundary { position: absolute; width: 0; height: 24px; border-left: 1px dashed var(--text-secondary); opacity: .6; pointer-events: none; transition: left 300ms var(--ease-out), top 300ms var(--ease-out); }
@@ -127,4 +136,4 @@
   from { transform: translate(-50%, -50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
   to { transform: translate(-50%, -50%) translate(var(--hand-x), calc(var(--hand-y) + 14px)) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .65)); opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card::after, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }
+@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card::after, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary, .hand-auto-lock, .hand-auto-lock svg { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }

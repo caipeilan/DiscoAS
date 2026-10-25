@@ -2,8 +2,8 @@
 use crate::services::browser_bridge::{self, Bridge, ExtensionBrowser, ExtensionPaths};
 use discoas_core::model::PlaySongArgs;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    mpsc, Arc, Mutex,
 };
 use tauri::{Emitter, Manager};
 
@@ -11,6 +11,8 @@ use tauri::{Emitter, Manager};
 pub struct BrowserPlaybackService {
     newest: Arc<AtomicU64>,
     bridge: Mutex<Option<Arc<Bridge>>>,
+    observer: Mutex<Option<mpsc::Sender<()>>>,
+    observing: AtomicBool,
 }
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +23,39 @@ pub struct BrowserBridgeStatus {
     extension_paths: Option<ExtensionPaths>,
 }
 impl BrowserPlaybackService {
+    pub fn set_observing(&self, enabled: bool) {
+        self.observing.store(enabled, Ordering::Release);
+        if let Some(bridge) = self.bridge.lock().unwrap().as_ref() {
+            bridge.set_observing(enabled);
+        }
+    }
+    pub fn set_observer(&self, wake: mpsc::Sender<()>) {
+        *self.observer.lock().unwrap() = Some(wake.clone());
+        if let Some(bridge) = self.bridge.lock().unwrap().as_ref() {
+            bridge.set_observer(wake);
+        }
+    }
+    pub async fn pause(&self) -> Result<(), String> {
+        let bridge = self
+            .bridge
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("错误：浏览器扩展未连接")?;
+        let request = self.newest.load(Ordering::SeqCst);
+        bridge.pause(request)?;
+        let started = std::time::Instant::now();
+        while started.elapsed() < std::time::Duration::from_millis(1800) {
+            if self.newest.load(Ordering::SeqCst) != request {
+                return Err("错误：播放请求已更新".into());
+            }
+            if let Some(result) = bridge.pause_outcome(request) {
+                return result;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+        }
+        Err("错误：浏览器暂停确认超时".into())
+    }
     pub fn observation(&self) -> Option<discoas_core::auto_hand::Observation> {
         self.bridge
             .lock()
@@ -48,6 +83,10 @@ impl BrowserPlaybackService {
         }
         let root = crate::paths::app_root(app).map_err(|_| "错误：无法读取浏览器扩展目录")?;
         let bridge = browser_bridge::start(&root, self.newest.clone())?;
+        bridge.set_observing(self.observing.load(Ordering::Acquire));
+        if let Some(wake) = self.observer.lock().unwrap().as_ref() {
+            bridge.set_observer(wake.clone());
+        }
         *slot = Some(bridge.clone());
         Ok(bridge)
     }
@@ -127,8 +166,8 @@ impl BrowserPlaybackService {
     }
 }
 fn apple_music_queue(app: &tauri::AppHandle, args: &PlaySongArgs) -> Result<Vec<String>, String> {
-    let root = crate::paths::user_data_dir(app)
-        .map_err(|_| "错误：无法读取 Apple Music 歌单缓存")?;
+    let root =
+        crate::paths::user_data_dir(app).map_err(|_| "错误：无法读取 Apple Music 歌单缓存")?;
     let kind = discoas_core::core::playlist::TypeName::parse(&args.typename)
         .map_err(|_| "错误：Apple Music 来源类型无效")?;
     let source = discoas_core::storage::LibraryStore::new(root)

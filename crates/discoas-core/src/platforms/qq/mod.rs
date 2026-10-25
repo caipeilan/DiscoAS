@@ -124,6 +124,12 @@ fn detail_from_track(
         mystery_pic_url
     };
     Ok(SongDetail {
+        playback_metadata: crate::model::PlaybackMetadata {
+            title: base_name.into(),
+            album: track["album"]["name"].as_str().unwrap_or("").into(),
+            track_number: track["index_album"].as_u64().unwrap_or(0) as u32,
+            duration_ms: track["interval"].as_u64().unwrap_or(0) * 1000,
+        },
         name: if mystery_mode { "???".into() } else { name },
         artist_names: if mystery_mode {
             vec!["???".into()]
@@ -149,6 +155,7 @@ mod tests {
         let track = json!({"name":"原曲","title":"原曲 (译名)","subtitle":"现场版",
             "singer":[{"name":"歌手A"},{"name":"歌手B"}],"album":{"mid":"abcd"}});
         let detail = detail_from_track(&track, false, "").unwrap();
+        assert_eq!(detail.playback_metadata.title, "原曲");
         assert_eq!(detail.name, "原曲 (译名) (现场版)");
         assert_eq!(detail.real_window_name, "原曲 - 歌手A/歌手B");
         let hidden = detail_from_track(&track, true, "").unwrap();

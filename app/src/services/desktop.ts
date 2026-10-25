@@ -10,7 +10,10 @@ import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch,
 
 export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
 
+import type { AutoHandState } from "../features/hand/autoHandState";
+
 export type DesktopCommand =
+  | "get_auto_hand_state"
   | "hand_ready" | "present_hand" | "hand_arrival_ready" | "set_hand_hit_regions" | "collect_hand_card" | "show_collected_hand_card" | "play_hand_card"
   | "discard_hand_card" | "clear_hand" | "reorder_hand" | "toggle_hand" | "hide_hand" | "toggle_hand_expanded"
   | "begin_hand_dock_drag" | "save_hand_dock"
@@ -103,6 +106,7 @@ export interface DisplayMonitor {
 export const getDisplayMonitors = () => call<DisplayMonitor[]>("get_display_monitors");
 
 export interface DesktopEvents {
+  "auto-hand-state-changed": AutoHandState;
   "open-settings-requested": { category: "playback" };
   "hand-dock-state-changed": HandDockSnapshot;
   "hand-dock-moved": { generation: number; point: HandPoint; surface: HandSurface };

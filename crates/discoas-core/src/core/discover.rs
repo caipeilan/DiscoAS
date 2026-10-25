@@ -410,6 +410,7 @@ fn assemble_card(
     song.detail_error = None;
     match detail {
         Ok(detail) => {
+            song.playback_metadata = detail.playback_metadata;
             song.real_metadata = Some(CanonicalSongMetadata {
                 name: detail.name.clone(),
                 artist_names: detail.artist_names.clone(),
@@ -674,6 +675,7 @@ mod tests {
                     (
                         id.clone(),
                         Ok(platforms::SongDetail {
+                            playback_metadata: Default::default(),
                             name: format!("real {id}"),
                             artist_names: vec!["Artist".into()],
                             album_pic_url: String::new(),
@@ -814,6 +816,7 @@ mod tests {
                     return Err(AppError::Http("错误：网络连接超时".into()));
                 }
                 Ok(platforms::SongDetail {
+                    playback_metadata: Default::default(),
                     name: id.into(),
                     artist_names: vec![],
                     album_pic_url: String::new(),
@@ -864,6 +867,7 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
             self.active.fetch_sub(1, Ordering::SeqCst);
             Ok(platforms::SongDetail {
+                playback_metadata: Default::default(),
                 name: if mystery_mode {
                     "???".into()
                 } else {

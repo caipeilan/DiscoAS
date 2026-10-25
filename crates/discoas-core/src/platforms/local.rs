@@ -362,6 +362,7 @@ impl SongDetailLoader for LocalDetailLoader {
             .map(String::from)
             .collect();
         Ok(SongDetail {
+            playback_metadata: Default::default(),
             name: if mystery { "???".into() } else { title.into() },
             artist_names: if mystery {
                 vec!["???".into()]

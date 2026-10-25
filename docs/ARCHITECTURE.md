@@ -27,7 +27,7 @@
 | 历史记录、近期排除、固定记录保留与加权 | `crates/discoas-core/src/history.rs`、`weighting.rs`、`discovery_service.rs`；前端 `app/src/features/history/`、`app/src/features/settings/WeightingSettings.tsx`、`weightingCalculator.ts` |
 | 单卡替换、每批预算、状态 DTO 与信息条 | `crates/discoas-core/src/model.rs`、`discovery_service.rs`、`core/cache.rs`；前端 `app/src/features/discovery/` |
 | 手牌保存、收牌、持有排除与打出 | `crates/discoas-core/src/hand.rs`、`discovery_service.rs`；桌面 `app/src-tauri/src/desktop/hand.rs`、`hand_drag.rs`、`playback.rs`；前端 `app/src/features/hand/`、`HandDragWindow.tsx`、`features/settings/HandSettings.tsx` |
-| 自动打出手牌（已隐藏停用，保留代码） | 核心 `auto_hand.rs` 的观察状态、去重与提前量；桌面 `desktop/auto_hand.rs`、`auto_hand_native.rs`；普通手牌 `hand_actions.rs` 与共用 `playback.rs`；网页 `services/browser_bridge.rs`、`extensions/browser/` |
+| 自动打出手牌（实验） | 核心 `auto_hand.rs` 的换曲观察、去重与操作锁；桌面 `desktop/auto_hand.rs`、`auto_hand_native.rs`；普通手牌 `hand_actions.rs` 与共用 `playback.rs`；网页 `services/browser_bridge.rs`、`extensions/browser/` |
 | 迷你发现 | `HandDiscoverySettings`、`DiscoveryService::for_hand`、`Cache::independent`；桌面 `desktop/hand_discovery.rs`；共享手牌窗口、Logo 浮窗和设置预览 |
 | 穿透尺寸预览、原生指针和按键观察 | `app/src-tauri/src/desktop/discovery_preview.rs`、`preview_keyboard.rs`；前端 `app/src/features/settings/useDiscoveryPreview.ts`、`app/src/features/discovery/` |
 | 导入进度、取消与网络任务提交 | `platforms::PlaylistFetcher::fetch_with_progress`、`app/src-tauri/src/services/library_jobs.rs`、`desktop/library.rs` |
@@ -42,7 +42,7 @@
 | 紧凑下拉框、隐藏帮助及缩放定位 | `app/src/components/Select.tsx`、`Popover.tsx`、`SettingsControls.tsx`、`popoverPlacement.ts` |
 | 键盘选歌、按键录制与卡片选中反馈 | `app/src/features/discovery/keyboardSelection.ts`、`useKeyboardSelection.ts`、`app/src/features/settings/KeyboardSettings.tsx`、`discoveryKeybindings.ts` |
 | 窗口、托盘、快捷键、系统对话框、自启、客户端最小化或单独桌面 | `app/src-tauri/src/desktop/`、`lib.rs`、`client_window.rs`、`client_isolation.rs`、`virtual_desktop.rs`、`monitors.rs` |
-| 快捷打出（前九张） | 设置位于「快捷键」的 `HandPlayShortcuts`；`hand::HandSettings.play_shortcuts` 由 `desktop/shortcuts.rs` 注册并按住抑制，`desktop/hand_actions.rs` 优先读取普通手牌，手牌模式关闭时才读取迷你发现；沿用 `play_hand_card` 的失败保留／回牌 |
+| 快捷打出（前九张） | 设置位于「快捷键」的 `HandPlayShortcuts`；`hand::HandSettings.play_shortcuts` 由 `desktop/shortcuts.rs` 注册并按住抑制，`desktop/hand_actions.rs` 优先读取普通手牌，手牌模式关闭时才读取迷你发现；沿用 `play_hand_card` 的失败丢牌和自动操作锁 |
 | 应用风格的托盘右键菜单 | `app/src-tauri/src/desktop/tray_menu.rs`、`app/src/features/tray/`、`app/src-tauri/capabilities/tray-menu.json` |
 | Windows 安装兼容检查与 WebView2 准备 | `app/src-tauri/installer/installer.nsi`、`hooks.nsh`、`app/src-tauri/tauri.conf.json`、`app/scripts/` |
 | 关于页的项目、作者链接与更新入口 | `app/src/features/about/`、`app/src/About.tsx`、`app/src/features/updates/` |
@@ -163,17 +163,23 @@ Windows 预览让卡片和背景穿透；右上退出按钮是唯一临时接受
 
 `MusicSetting.hand` 缺失时使用关闭、底部、10 张、非驻留、Alt+H、不揭晓神秘信息的默认值。发现确认在开启模式时调用 `collect_hand_card`，验证当前完整身份和批次 epoch，写入 `HandStore` 并记录一次选择，返回手牌 ID 与发现状态。默认先淡出其余发现内容，保留选中卡片，过渡完成后调用 `show_collected_hand_card`。手牌窗口先将收牌动画暂停在来源位置，解码封面并显示；下一帧通过 `hand_arrival_ready` 确认接住卡片，再隐藏发现浮窗并继续收牌动画。该确认只作用于对应 generation，收纳或关闭会结束等待。开启 `keep_discovery_open` 后直接收牌，只移走选中的卡片，保留本轮历史和替换预算。手牌满额不消费当前卡片。
 
-`hand/cards.json` 保存独立身份、原平台播放参数和真实元数据，不存封面 data URI；前端投影按收牌时的揭晓选项隐藏信息。切换或删除来源、重新启动或关闭模式均保留手牌。持有身份按平台 / 歌曲排除发现和替补，收牌使旧预加载准备失效；打出和弃牌重新计算持有集合。历史排除继续独立生效。打出通过共用 `desktop/playback.rs` 唤起客户端，不再记录选择或重复减权。明确播放失败将卡片放回原位置；普通协议的唤起成功沿用现有播放接口含义。
+`hand/cards.json` 保存独立身份、原平台播放参数和真实元数据，不存封面 data URI；前端投影按收牌时的揭晓选项隐藏信息。切换或删除来源、重新启动或关闭模式均保留手牌。持有身份按平台 / 歌曲排除发现和替补，收牌使旧预加载准备失效；打出和弃牌重新计算持有集合。历史排除继续独立生效。打出通过共用 `desktop/playback.rs` 唤起客户端，不再记录选择或重复减权。普通手牌尝试播放后消耗，失败直接丢牌；普通协议的唤起成功沿用现有播放接口含义。
 
-自动打出手牌现已对全部平台关闭，设置中的开关、首／末张和检测方式整组隐藏。Rust 与前端的 AUTO_PLAY_AVAILABLE 固定为 false；启动时 services/preferences.rs 只将旧 JSON 中 hand.auto_play=true 原子写回 false，其它字段保留。设置加载、保存及旧草稿提交统一归为关闭，AutoHandService 不启动观察线程，直接构造的开启设置也不能启用它。普通手动打出沿用原流程。以下保留实现说明，供后续恢复代码时参考。
+自动打出手牌作为实验功能恢复，Rust 与前端的 AUTO_PLAY_AVAILABLE 为 true，设置加载、保存和启动保留 hand.auto_play。默认关闭，普通手牌开启后可设置首／末张及 system / window / mixed 检测方式；迷你发现卡不参与自动选牌，Spotify 也可作为观察来源或目标。
 
-2.0.8 的 `hand.auto_play` 默认为关闭，仅在普通手牌开启时工作；`auto_play_position` 为 `first` / `last`，读取已保存的普通手牌顺序，合并布局中的迷你发现不参与选择。Spotify 暂停适用自动打出：启用 Spotify 来源时停止观察线程的轮询，保留用户已保存的开关；手动切入 Spotify 清除原有自动请求，Spotify 的播放变化不触发自动出牌。首／末张为 Spotify 时保留该牌并消费本次信号，不跳过选牌顺序，仍可手动打出。`auto_play_detection` 为 `system` / `window` / `mixed`，旧配置默认 `mixed`。网易云、QQ、酷狗可选三种方式；酷我仅窗口名，汽水、网页和本地仅系统接口。设置页禁用当前启用歌单平台不适用的选项，保存设置和切换来源时也按同一规则纠正选择。QQ、汽水的有效进度用于曲终前切歌，初始提前约 1 秒，随后按本次运行中请求到新曲确认的延迟调整，范围 0.5–4 秒；网易云、酷狗在当前客户端只提供曲目变化。暂停不触发，重复曲目通知不连续出牌。原平台直接切歌同样触发自动打出。启动或重新开启后先建立当前播放基线，空手牌消费当前信号但不反复重试。
+开启后，下一张普通手牌以橙色内边框提示，浅色 #C55300、深色 #FF9230；200ms 透明度过渡沿用已有独立边框层，不改变卡牌尺寸或原生命中区域。标记按快照中的普通手牌顺序计算，收牌、弃牌、打出和首／末设置变化均重新选择；拖动与设置预览期间隐藏，退出卡与补位卡不保留标记。悬停／键盘反馈继续使用蓝色，自动锁灰层覆盖橙框。
 
-窗口名和混合方式读取已验证客户端主窗口的曲名，忽略应用名称、空标题等过渡状态；酷我循环滚动的长标题按应用后缀还原，滚动不视为切歌，酷狗和 Spotify 按歌手在前的标题布局匹配。首次有效窗口变化先临时静音该平台的全部已识别音频会话，再屏蔽触发并打出；读取仍继续，确认目标曲目的第二次有效变化后立即恢复原静音状态并建立基线。酷我包含同一安装目录下真正出声的 `KwService.exe`。混合方式为接口与窗口分别保存观察基线，等待另一路追上同一次打出，防止延迟通知重复消费手牌。曲名匹配仅去掉末尾的媒体用途注释，保留演唱者及录音版本括号。共用播放入口为发现、手牌、迷你发现及快捷键请求设置来源标记，所有 DiscoAS 自身切歌均被屏蔽。失败、关闭功能、预览、退出及确认超时释放临时静音；自动播放未确认时沿用失败回牌并暂停自动打出，下一次手动播放恢复。普通确认窗口 20 秒，网页广告延长等待但总计不超过 120 秒。
+自动策略只由非 DiscoAS 自身请求造成的有效曲目变化触发，开启后先建立基线；重复通知、暂停恢复、曲终进度、ended 与同曲循环回零均不触发。窗口标题继续忽略空白、应用名称和酷我标题滚动；接口身份同时比较曲名与可用歌手，目标确认保留媒体用途注释兼容。媒体属性／状态事件直接唤醒专用线程，250ms 轮询补足窗口观察；空手牌消费当前信号并继续观察。
 
-观察线程平时每 250ms 采样，接近结尾和临时静音期间每 100ms 采样；未启用时等待唤醒。媒体会话枚举缓存 1 秒，媒体属性变化事件与每秒刷新共同更新曲名；客户端主窗口缓存 HWND/PID，并在句柄失效后重新查找。系统接口方式不读取窗口名，窗口方式不读取媒体会话元数据。
+有牌时立即建立自动请求并发布锁定状态，暂停触发换曲的对应客户端会话，确认安静后再获取目标链接、调用共用播放入口。先使用 TryPauseAsync；客户端接受但持续播放时，只对仍处于播放状态的同一会话补一次 TryTogglePlayPauseAsync，并等待稳定暂停。准备手牌期间维持该会话暂停；暂停与目标派发串行交接，迟到操作不能暂停目标歌曲。Windows 调用位于 desktop/auto_hand_native.rs；核心继续只接收观察值和时钟。全局操作锁只保护手牌和发现提交，不跨整个播放确认窗口持有。临时静音、音频会话恢复和曲终提前量已移除。
 
-浏览器扩展 0.4.0 在首次播放确认后继续报告主视频进度、`ended` 和受控标签页内的曲目变化，保留首次选择的确认结果；通知绑定请求代次、标签页、顶层 frame 和浏览器提供的 URL，旧页面和 DiscoAS 发出的暂停不产生自动出牌信号。复用标签页切歌时由新文档主动取得绑定，避免尚未卸载的旧文档使用新请求编号上报曲终进度。YouTube / Bilibili 的自动打出需要扩展播放方式，升级后重新加载扩展与已有播放页。本地音频继续使用系统关联播放器；先以请求歌曲的标题确认媒体会话，再持续跟踪该会话，避免将仍存在的浏览器会话当作本地播放器。连续观察取决于默认播放器是否公开可匹配的 Windows 媒体会话。
+发现、普通手牌、迷你发现与快捷键共用播放入口登记自身目标与请求代次。手动与自动出牌均锁定全部卡片，拒绝新的播放、弃牌、清空与重排；原生拖牌入口同样校验，已有拖动立即取消。普通手牌手动请求在详情／链接准备前预留代次，随后续接同一请求；准备失败也释放锁并丢牌。关闭自动打出时仍短暂观察手动目标直到确认、失败或超时，观察完成后停止，不触发自动出牌。自动开关变化保留在途手动请求。auto-hand-state-changed 与 get_auto_hand_state 使用 token / busy 同步全部手牌的锁定状态，迟到初始快照不能重新上锁，旧完成不能解除新请求。原生暂停尚在途时保留交接保护，完成后再允许新的手动播放。锁 SVG 在正方形封面中心，以 78px 设计尺寸随卡牌缩放；灰色遮罩覆盖整张卡，200ms 淡入淡出并遵循减弱动画。
+
+普通手牌的手动／自动打出统一在尝试后消耗：链接准备、派发失败和播放确认超时均丢牌，不再保存回牌槽或播放飞回动画；被自动锁拒绝的手动请求不消耗牌。自动播放失败或超时结束本轮请求，保留最近观察基线，下一次外部换曲继续自动出牌；迟到的自身目标仍按观察来源去重。普通确认窗口为 20 秒，网页广告可延长但不超过 120 秒。 播放确认使用独立的原始歌名、主要歌手、可用的专辑／轨号／时长，显示译名与别名不参与比较。该元数据在内部歌曲和手牌持久记录中保留，发现 IPC 不暴露；旧网易云／QQ 手牌在派发前按歌曲 ID 补齐。网页沿用精确歌曲 ID；原生同名同作者歌曲补充比较媒体会话封面指纹，窗口检测同样借用可用的会话信息。客户端不提供任何不同元数据且封面相同时，系统媒体会话无法区分两个歌曲 ID。
+
+本程序歌曲确认后，每个原生观察来源继续关联本次封面补齐：空封面与派发前旧封面不会结算，新封面持续至少 500ms 后才恢复封面单独触发换曲。歌名、作者及已知专辑／轨号／时长变化立即穿透此过程。此状态不占自动播放锁，确认歌曲后即可解锁；高频相同通知不缩短稳定时间。若客户端仅用封面区分同名同作者版本，补齐期间的立即外部换曲可能与补齐本身无法区分，此时优先避免额外消耗手牌。所有歌曲使用同一规则。
+
+浏览器扩展 0.5.1 通过已有认证通道接收观察开关与独立暂停命令；只操作已绑定标签页，使用请求编号排除旧页。YouTube / Bilibili 主视频暂停后回报确认，Apple Music 通过 MusicKit 暂停；关闭自动功能后停止已确认页面的 250ms 轮询及媒体监听，手动播放确认保留。更新后需重新准备、重载扩展并刷新播放页。本地音频保持系统默认播放器，以请求标题绑定媒体会话，后续只暂停该会话。
 
 手牌使用三个独立的原生窗口：`hand` 只绘制卡牌，`hand-dock` 只显示 Logo、数量和清空操作，`hand-drag` 只承载正在拖动的单张卡片。布局沿用桌面画布坐标，卡牌原生窗口按静止／动画路径调整尺寸，但不再为任意拖动扩展到整个桌面；收纳或最后一张牌消失后隐藏。隐藏后再次打开可重新定位。`hand-drag` 由手牌窗口设为 owner，尺寸只覆盖当前卡片和阴影，原生指针观察以 8ms 间隔移动该窗口；拖拽窗口穿透、非激活，不抢鼠标捕获。松手后窗口淡出隐藏，手牌窗口保持紧凑。浮窗根据内容宽度预留左右伸展空间，伸缩只改变内容和绘制区域，拖动使用 Windows 原生窗口移动。`desktop/hand_dock.rs` 与 `HandDockWindow.tsx` 负责浮窗，不接收歌曲封面；`desktop/hand.rs` 与 `HandWindow.tsx` 处理卡牌、持有状态和播放；`desktop/hand_drag.rs` 与 `HandDragWindow.tsx` 处理拖拽状态、位置和单卡渲染。`desktop/floating_window.rs` 统一透明窗口的框架可见性与原生无边框处理，过滤底层框架重加的标题栏样式，并禁止非客户区绘制。手牌、拖拽与 Logo 浮窗采用非激活交互，显示和鼠标操作保留外部程序焦点。前端 `surface` 描述窗口相对桌面画布的偏移与 DPI 比例，改变后先提交布局，再显示。卡牌原生裁剪范围覆盖完整绘制路径，去掉保留窗口原点产生的空白；仅绘制包围范围变化时更新裁剪，逐帧命中矩形不参与裁剪。唯一的指针观察任务按卡牌命中范围切换穿透，并在拖拽期间改为移动 `hand-drag`；鼠标捕获负责区域外拖动。已显示的窗口更新卡牌时不再次显示；定位等待原生线程执行完成，再通过命令回复同步实际坐标，前端提交布局后显示卡牌。`handDrawingBounds.ts` 提前计算静止、悬停、收纳与完整入手路径，避免逐帧调整原生窗口尺寸；入手动画开始、结束和取消时均主动更新区域。
 
@@ -290,7 +296,7 @@ npm run tauri dev
 | 托盘、更新、安装器 | 按修改选择 `test:tray`、`test:updates`、`test:installer` |
 | 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
 | Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |
-| 自动打出手牌停用 | 核心音乐设置加载／保存与保留策略测试；桌面 `services::preferences`、`desktop::auto_hand`、`services::browser_bridge`；`test:browser`、`test:preferences`；Windows 独立旧配置启动迁移及整组设置隐藏 |
+| 自动打出手牌 | 核心 `auto_hand`、音乐设置加载／保存；桌面 `desktop::auto_hand`、`services::preferences`、`services::browser_bridge`；`test:auto-hand`、`test:browser`、`test:preferences` 及手牌动画／区域检查；Windows 独立数据下的定向暂停、连续出牌、自身切歌去重、失败丢牌、锁定与解锁 |
 
 `test:hand` 组合手牌布局、动画与区域提交测试。`test:preferences` 包含分组保存、部分失败与迟到快照合并。主窗口自绘控制单独验证最小化、最大化／还原、拖动、边缘缩放和关闭收至托盘；原生窗口改动核验任务栏、显示缩放、焦点与透明区域穿透。性能对比只覆盖被改动的交互和静止状态。完整交付前编译 Windows NSIS 安装包，复用已经完成的相关检查。
 

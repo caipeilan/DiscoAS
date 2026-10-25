@@ -29,7 +29,8 @@
     "test:hand:layout": "node --test tests/handLayout.test.mjs",
     "test:hand:motion": "node --test tests/handMotion.test.mjs",
     "test:installer": "node --test tests/installerPolicy.test.mjs",
-    "test:startup": "node --test tests/startupMotion.test.mjs"
+    "test:startup": "node --test tests/startupMotion.test.mjs",
+    "test:auto-hand": "node --test tests/autoHandDetection.test.mjs tests/autoHandState.test.mjs tests/autoHandNext.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.1",

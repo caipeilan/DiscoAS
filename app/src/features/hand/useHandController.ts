@@ -13,6 +13,9 @@ import { useHandSurface } from "./useHandSurface";
 import { useHandMotion } from "./useHandMotion";
 import { readPose, type Drag, type Flying, type Discarding } from "./handControllerTypes";
 
+import { idleAutoHandState, mergeAutoHandState, type AutoHandState } from "./autoHandState";
+import { autoHandNextId } from "./autoHandNext";
+
 const fallback: HandSnapshot = {
   generation: 0, cards: [], settings: defaultHandSettings, gui: defaultGuiSettings,
   keys: emptyState.settings.discovery_keybindings, workArea: { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
@@ -29,6 +32,10 @@ export function useHandController() {
   const [inputMode, setInputMode] = useState<"pointer" | "keyboard">("pointer");
   const [drag, setDrag] = useState<Drag | null>(null);
   const [busy, setBusy] = useState("");
+  const [manualPlaying, setManualPlaying] = useState(false);
+  const [autoState, setAutoState] = useState(idleAutoHandState);
+  const autoStateRef = useRef(autoState); autoStateRef.current = autoState;
+  const autoLocked = (autoState.busy || manualPlaying) && !snapshot.preview;
   const [discoveryPhase, setDiscoveryPhase] = useState<"" | "fold" | "fill">("");
   const [refill, setRefill] = useState<HandCard | null>(null);
   const [refillCount, setRefillCount] = useState(0);
@@ -52,7 +59,7 @@ export function useHandController() {
   const current = useRef(snapshot); current.current = snapshot;
   const dragRef = useRef<Drag | null>(null);
   const dragFrame = useRef(0);
-  const busyRef = useRef(busy); busyRef.current = busy;
+  const busyRef = useRef(busy); busyRef.current = autoLocked ? "auto" : busy;
   const inputRef = useRef(inputMode); inputRef.current = inputMode;
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const hoverRef = useRef(hover); hoverRef.current = hover;
@@ -62,6 +69,8 @@ export function useHandController() {
     for (const card of snapshot.cards) (card.discovery ? discovery : ordinary).push(card);
     return { discovery, ordinary };
   }, [snapshot.cards]);
+  const autoNextId = useMemo(() => autoHandNextId(snapshot.cards, snapshot.settings, snapshot.preview),
+    [snapshot.cards, snapshot.settings.enabled, snapshot.settings.auto_play, snapshot.settings.auto_play_position, snapshot.preview]);
   const displayed = useMemo(() => refill && snapshot.discoverySettings?.enabled && groups.discovery.length < refillCount
     ? groups.discovery.concat(refill, groups.ordinary) : snapshot.cards,
   [snapshot.cards, groups, snapshot.discoverySettings?.enabled, refill, refillCount]);
@@ -226,8 +235,9 @@ export function useHandController() {
     finally { if (mounted.current) { setDiscoveryPhase(""); busyRef.current = ""; setBusy(""); } }
   };
   const operation = async (name: "play_hand_card" | "discard_hand_card" | "collect_hand_discovery_card", card: HandCard, pose?: CardPose, insert = 0) => {
-    if (busyRef.current || current.current.preview) return;
+    if (autoStateRef.current.busy || busyRef.current || current.current.preview) return;
     busyRef.current = card.id; setBusy(card.id); setError("");
+    if (name === "play_hand_card") setManualPlaying(true);
     if (card.discovery) {
       const state = current.current, batchEpoch = state.discovery?.batchEpoch;
       const args = { platform: card.song.platform, songId: card.song.songId, playlistId: card.song.playlistId, typename: card.song.typename, filename: card.song.filename };
@@ -257,7 +267,7 @@ export function useHandController() {
           setRefill(null); await decoded(); await pause(180);
         }
       } catch (e) { finishFlight(); setError(errorText(e)); }
-      finally { if (mounted.current) { setRefill(null); setReplacing(-1); setDiscoveryPhase(""); busyRef.current = ""; setBusy(""); } }
+      finally { if (mounted.current) { setRefill(null); setReplacing(-1); setDiscoveryPhase(""); setManualPlaying(false); busyRef.current = ""; setBusy(""); } }
       return;
     }
     let flight: Promise<unknown> = name === "discard_hand_card" ? animateDiscard([card]) : Promise.resolve();
@@ -273,9 +283,10 @@ export function useHandController() {
       await flight;
     } catch (e) {
       await flight;
-      returning.current.push(card.id); setError(errorText(e));
+      if (name !== "play_hand_card") returning.current.push(card.id);
+      setError(errorText(e));
     }
-    finally { finishDiscards(); busyRef.current = ""; setBusy(""); }
+    finally { finishDiscards(); setManualPlaying(false); busyRef.current = ""; setBusy(""); }
   };
   const clearHand = async () => {
     if (busyRef.current || current.current.preview) { if (desktop) void notifyHandClear(null); return; }
@@ -289,11 +300,30 @@ export function useHandController() {
     finally { finishDiscards(); busyRef.current = ""; setBusy(""); if (desktop) void notifyHandClear(message); }
   };
   const clearHandRef = useRef(clearHand); clearHandRef.current = clearHand;
-  useEffect(() => { if (desktop && !snapshot.preview) void notifyHandBusy(!!busy); }, [busy, snapshot.preview]);
+  useEffect(() => { if (desktop && !snapshot.preview) void notifyHandBusy(!!busy || autoLocked); }, [busy, autoLocked, snapshot.preview]);
   const { cancelDrag, endDrag, onCardPointerDown, onCardPointerMove, lostPointerCapture } = useHandInput({ snapshot, current, mounted,
     dockMoving, stage, busyRef, selectedRef, hoverRef, inputRef, pointer, toolbarBounds, posesRef, restPosesRef,
     dragRef, dragFrame, dragDrawing, setDrag, setInputMode, setHover, setSelected, setSnapshot, setError,
     toCanvas, scheduleRegions, commitRegions, operation });
+  useEffect(() => {
+    if (!desktop) return;
+    let cancelled = false, stop: (() => void) | undefined;
+    const acceptAuto = (next: AutoHandState) => {
+      if (cancelled) return;
+      const accepted = mergeAutoHandState(autoStateRef.current, next);
+      autoStateRef.current = accepted; setAutoState(accepted);
+      if (accepted.busy) {
+        busyRef.current = "auto"; cancelDrag();
+        hoverRef.current = null; selectedRef.current = null; setHover(null); setSelected(null);
+      }
+    };
+    void onDesktopEvent("auto-hand-state-changed", acceptAuto).then(cleanup => {
+      if (cancelled) { cleanup(); return; }
+      stop = cleanup;
+      return call<AutoHandState>("get_auto_hand_state").then(acceptAuto);
+    }).catch(e => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; stop?.(); };
+  }, []);
   const operationRef = useRef(operation); operationRef.current = operation;
   const refreshRef = useRef(refreshDiscovery); refreshRef.current = refreshDiscovery;
   useEffect(() => {
@@ -380,7 +410,7 @@ export function useHandController() {
   const errorPosition = errorDock ? { left: errorDock.left, top: Math.max(snapshot.workArea.top + 8, errorDock.top - 48) } : undefined;
   const clearError = () => setError("");
   return { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
-    scheduleRegions, busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
+    scheduleRegions, busy: autoLocked ? "auto" : busy, autoLocked, autoNextId, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId: groups.discovery[replacing]?.id,
     refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount: groups.discovery.length, ordinaryCount: groups.ordinary.length,

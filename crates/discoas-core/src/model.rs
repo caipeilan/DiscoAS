@@ -1,6 +1,16 @@
 //! Shared discovery and playback data.
 use serde::{Deserialize, Serialize};
 
+/// Player metadata is separate from translated/display annotations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlaybackMetadata {
+    pub title: String,
+    pub album: String,
+    pub track_number: u32,
+    pub duration_ms: u64,
+}
+
 /// Canonical metadata kept inside prepared batches, never sent to discovery views.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CanonicalSongMetadata {
@@ -36,6 +46,8 @@ pub struct SongCardDto {
     /// True cover identity for history; mystery projection never exposes this field.
     #[serde(skip)]
     pub real_cover_url: Option<String>,
+    #[serde(skip)]
+    pub playback_metadata: PlaybackMetadata,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

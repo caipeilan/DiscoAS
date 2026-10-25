@@ -25,12 +25,15 @@ function connect() {
       if (request.authenticated === true && !authenticated) {
         authenticated = true; player.beginSession().catch(() => {});
       }
+      if (authenticated && request.type === "observe") player.setObserving(request.enabled).catch(() => {});
+      if (authenticated && request.type === "pause") player.pause(request.requestId).catch(() => report({ requestId: request.requestId, pauseComplete: true, pauseSuccess: false }));
       if (authenticated && request.type === "play") player.command(request).catch(() => report({ requestId: request.requestId, rejected: true, error: "错误：视频编号无效" }));
     } catch { /* Ignore malformed transport data. */ }
   };
   candidate.onclose = () => {
     if (socket !== candidate) return;
     socket = null; authenticated = false; clearInterval(heartbeat);
+    player.setObserving(false).catch(() => {});
     reconnect = setTimeout(connect, 3000);
   };
   candidate.onerror = () => candidate.close();

@@ -65,7 +65,8 @@ function setup(initialBinding = null) {
     },
   };
   const player = api.controller(tabs, storage, (message) => reports.push(copy(message)));
-  const request = (requestId, songId = A, platform = "YouTube") => player.command({ requestId, songId, platform });
+  const observationReady = player.setObserving(true);
+  const request = async (requestId, songId = A, platform = "YouTube") => { await observationReady; return player.command({ requestId, songId, platform }); };
   const sender = (id, url = pages.get(id)?.url, frameId = 0) => ({ frameId, tab: { id, url }, url });
   return { api, pages, operations, reports, hooks, player, request, sender, stored: () => copy(stored) };
 }
@@ -371,6 +372,8 @@ function setupWorker(namespace = "chromium") {
     DiscoASBrowser: { controller() { return {
       async beginSession() { calls.push({ type: "begin" }); },
       async command(request) { calls.push({ type: "command", request: copy(request) }); },
+      async pause(requestId) { calls.push({ type: "pause", requestId }); },
+      async setObserving(enabled) { calls.push({ type: "observe", enabled }); },
       async handle(message, sender) { calls.push({ type: "runtime", message: copy(message), sender: copy(sender) }); return "binding"; },
       async removed(id) { calls.push({ type: "removed", id }); },
     }; } },
@@ -453,12 +456,13 @@ function setupContent({ songId = A, platform = "YouTube", paused = false, ad = f
     clearInterval(id) { activeIntervals.delete(id); },
   });
   runInContext(protocolSource, context);
-  runInContext(autoPlay ? contentSource.replace("const AUTO_PLAY_AVAILABLE = false;", "const AUTO_PLAY_AVAILABLE = true;") : contentSource, context);
-  const binding = (requestId, target = A, confirmed = false) => ({ tabId: 1, requestId, platform, songId: target, confirmed });
+  runInContext(contentSource, context);
+  const binding = (requestId, target = A, confirmed = false) => ({ tabId: 1, requestId, platform, songId: target, confirmed, observing: autoPlay });
   return {
     messages, video, previewVideo, location, intervals, activeIntervals, handlers, queries, ready, binding, site,
     bind(value) { listener({ type: "discoas-bind", binding: value }); },
-    pause() { listener({ type: "discoas-pause" }); },
+    pause(requestId) { let reply; listener({ type: "discoas-pause", requestId }, {}, value => { reply = copy(value); }); return reply; },
+    observe(enabled) { listener({ type: "discoas-observe", enabled }); },
     nextReady() { const pending = deferred(); readyQueue.push(pending); return pending; },
     pageEvent(type, value = {}) { pageHandlers.get(type)?.(value); },
     async event(type) { await Promise.all((handlers.get(type) || []).map((callback) => callback())); },
@@ -618,7 +622,7 @@ test("ad ends and DiscoAS-requested pauses cannot report a playback boundary", a
   assert.equal(f.messages.length, before);
 });
 
-test("withdrawn auto playback stops polling and media listeners after manual confirmation", async () => {
+test("disabled automatic playback stops polling and media listeners after manual confirmation", async () => {
   for (const options of [{}, { platform: "Bilibili", songId: "BV1234567890_p2", namespace: "firefox" }]) {
     const f = setupContent(options);
     assert.equal(f.activeIntervals.size, 0);
@@ -688,5 +692,121 @@ test("browser manifests use compatible background contexts and the exact applica
       const logo = readFileSync(new URL(`../../app/src-tauri/icons/${size}x${size}.png`, import.meta.url));
       assert.deepEqual(readFileSync(new URL(`./${path}`, import.meta.url)), logo);
     }
+  }
+});
+
+test("automatic handoff pauses only the bound page and confirms its pause", async () => {
+  const f = setup(); await f.request(1, A); const id = f.stored().tabId;
+  f.pages.set(999, { id: 999, url: youtube(C) });
+  await f.player.handle({ type: "discoas-state", requestId: 1, playing: true }, f.sender(id));
+  f.pages.get(id).url = youtube(B);
+  f.hooks.sendMessage = async (_id, message) => message.type === "discoas-pause" ? { paused: true } : null;
+  const before = f.operations.length;
+  await f.player.pause(1);
+  assert.deepEqual(f.operations.slice(before).map(item => item.type), ["get", "discoas-pause"]);
+  assert.equal(f.operations.at(-1).id, id);
+  assert.deepEqual(f.reports.at(-1), { requestId: 1, pauseComplete: true, pauseSuccess: true });
+  assert.equal(f.pages.get(999).url, youtube(C));
+  await f.request(2, C);
+  const count = f.operations.length;
+  await f.player.pause(1);
+  assert.equal(f.operations.length, count);
+});
+
+test("a failed bound-page pause is reported before another card is dispatched", async () => {
+  const f = setup(); await f.request(1, A);
+  await f.player.pause(1);
+  assert.deepEqual(f.reports.at(-1), { requestId: 1, pauseComplete: true, pauseSuccess: false });
+});
+
+test("observation can be enabled and disabled on an already confirmed page", async () => {
+  const f = setupContent(); f.ready.resolve(f.binding(3)); await flush();
+  assert.equal(f.activeIntervals.size, 0);
+  f.observe(true); await flush();
+  assert.equal(f.activeIntervals.size, 1);
+  assert.equal(f.messages.at(-1).type, "discoas-observation");
+  f.observe(false);
+  const count = f.messages.length;
+  await f.event("timeupdate");
+  assert.equal(f.activeIntervals.size, 0);
+  assert.equal(f.messages.length, count);
+});
+
+test("content acknowledges pause and ignores a stale pause request", async () => {
+  const f = setupContent({ autoPlay: true }); f.ready.resolve(f.binding(5)); await flush();
+  assert.equal(f.pause(4), undefined);
+  assert.equal(f.video.pauseCalls, 0);
+  assert.deepEqual(f.pause(5), { paused: true });
+  assert.equal(f.activeIntervals.size, 0);
+});
+
+test("pause and observation controls require an authenticated app connection", async () => {
+  const f = setupWorker(); f.open();
+  f.message({ type: "observe", enabled: true }); f.message({ type: "pause", requestId: 1 }); await flush();
+  assert.equal(f.calls.length, 0);
+  f.message({ authenticated: true });
+  f.message({ type: "observe", enabled: true }); f.message({ type: "pause", requestId: 1 }); await flush();
+  assert.deepEqual(f.calls.map(item => item.type), ["begin", "observe", "pause"]);
+});
+
+test("disconnecting the app stops observations in the controlled page", async () => {
+  const f = setupWorker(); f.open(); f.message({ authenticated: true });
+  f.message({ type: "observe", enabled: true }); await flush();
+  f.sockets[0].close(); await flush();
+  assert.deepEqual(f.calls.at(-1), { type: "observe", enabled: false });
+});
+
+function applePlayer(namespace) {
+  const pageListeners = [], mediaListeners = new Map(), reports = [];
+  let receive;
+  const binding = { requestId: 3, platform: "AppleMusic", songId: "123", songIds: [], observing: false };
+  const kit = {
+    isPlaying: true, nowPlayingItem: { id: "123" }, currentPlaybackTime: 3, currentPlaybackDuration: 100,
+    pauseCalls: 0,
+    async setQueue() {}, async play() { this.isPlaying = true; },
+    async pause() { this.pauseCalls++; this.isPlaying = false; },
+    addEventListener(type, callback) { mediaListeners.set(type, callback); },
+  };
+  const window = {
+    MusicKit: { getInstance: () => kit },
+    addEventListener(type, callback) { if (type === "message") pageListeners.push(callback); },
+    postMessage(data) { pageListeners.forEach(callback => callback({ source: window, data })); },
+  };
+  const api = { runtime: {
+    onMessage: { addListener(callback) { receive = callback; } },
+    async sendMessage(message) { reports.push(copy(message)); return message.type === "discoas-ready" ? copy(binding) : null; },
+  } };
+  const context = createContext({ window, setTimeout, clearTimeout, ...(namespace === "firefox" ? { browser: api } : { chrome: api }) });
+  if (namespace === "firefox") runInContext(readFileSync(new URL("./apple-music-firefox.js", import.meta.url), "utf8"), context);
+  else {
+    runInContext(readFileSync(new URL("./apple-music-bridge.js", import.meta.url), "utf8"), context);
+    runInContext(readFileSync(new URL("./apple-music-main.js", import.meta.url), "utf8"), context);
+  }
+  return { kit, reports,
+    message(message) { let result; const kept = receive(message, {}, reply => { result = copy(reply); }); return { kept, result: () => result }; },
+    progress() { mediaListeners.get("playbackTimeDidChange")?.(); },
+  };
+}
+
+test("Apple Music confirms a MusicKit pause through Chromium and Firefox bridges", async () => {
+  for (const namespace of ["chromium", "firefox"]) {
+    const f = applePlayer(namespace); await flush();
+    const response = f.message({ type: "discoas-pause", requestId: 3 }); await flush();
+    assert.equal(response.kept, true);
+    assert.equal(f.kit.pauseCalls, 1);
+    assert.deepEqual(response.result(), { paused: true });
+  }
+});
+
+test("Apple Music observation follows the automatic setting without restarting playback", async () => {
+  for (const namespace of ["chromium", "firefox"]) {
+    const f = applePlayer(namespace); await flush();
+    f.progress(); await flush();
+    assert.equal(f.reports.some(report => report.type === "discoas-observation"), false);
+    f.message({ type: "discoas-observe", enabled: true }); f.progress(); await flush();
+    assert.equal(f.reports.filter(report => report.type === "discoas-observation").length, 1);
+    f.message({ type: "discoas-observe", enabled: false }); f.progress(); await flush();
+    assert.equal(f.reports.filter(report => report.type === "discoas-observation").length, 1);
+    assert.equal(f.kit.isPlaying, true);
   }
 });

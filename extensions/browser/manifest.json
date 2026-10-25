@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DiscoAS",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DiscoAS的浏览器扩展",
   "minimum_chrome_version": "116",
   "icons": { "32": "icons/32x32.png", "128": "icons/128x128.png" },

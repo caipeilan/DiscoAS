@@ -22,6 +22,7 @@ pub async fn play_song(
     args: PlaySongArgs,
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
+    app.state::<crate::desktop::auto_hand::AutoHandService>().ensure_manual()?;
     if crate::desktop::discovery_preview::isolated(&app) {
         return Err("错误：预览中不能播放歌曲".into());
     }
@@ -87,7 +88,6 @@ pub async fn play_song(
             })
         })
         .cloned();
-    crate::desktop::hand_actions::clear_pending(&app);
     crate::desktop::playback::dispatch(&app, &args, card.as_ref(), url).await?;
     match service.record_selection(&args).await {
         Ok(()) => {

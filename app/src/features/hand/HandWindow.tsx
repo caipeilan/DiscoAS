@@ -6,6 +6,7 @@ import { Icon } from "../../Icon";
 import { appLogo } from "../../assets";
 import { groupSettings } from "./handLayout";
 import { HandDock } from "./HandDock";
+import { HandAutoPlayLock } from "./HandAutoPlayLock";
 import { HandCardContent } from "./HandCardContent";
 import { useHandController } from "./useHandController";
 import { isHandRegionAnimation, isHandRegionTransition } from "./handRegionEvents";
@@ -16,7 +17,7 @@ import "./hand.css";
 /** Rendering delegates persisted operations, pointer input, motion and native regions to their owners. */
 export function HandWindow() {
   const { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
-    scheduleRegions, busy, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
+    scheduleRegions, busy, autoLocked, autoNextId, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId, refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount, ordinaryCount,
     retiringById, entering, finishCardTransition, layoutTransition } = useHandController();
@@ -52,6 +53,7 @@ export function HandWindow() {
       const removing = discardById.get(card.id);
       const retiring = retiringById.get(card.id);
       const flyingCard = flying?.card.id === card.id ? flying : null;
+      const autoNext = card.id === autoNextId && !drag && !removing && !retiring && !flyingCard && !layoutPending;
       const i = cardIndices.get(card.id) ?? -1;
       const frozen = layoutPending ? layoutTransition?.poses.get(card.id) : undefined;
       const pose = frozen ?? retiring?.pose ?? removing?.pose ?? flyingCard?.pose ?? poses[i]; const held = !retiring && !removing && !flyingCard && drag?.id === card.id ? drag : null;
@@ -68,8 +70,8 @@ export function HandWindow() {
         "--hand-card-scale": held ? 1.12 : pose.scale, "--hand-order": i, "--discard-delay": `${removing?.delay ?? 0}ms`,
         "--refill-x": settings.side === "left" ? "-42px" : settings.side === "right" ? "42px" : "0px", "--refill-y": settings.side === "bottom" ? "42px" : "0px",
       } as CSSProperties;
-      return <div key={card.id} data-hand-id={card.id} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
-        role="button" tabIndex={-1} aria-label={card.song.mysteryMode ? t("神秘歌曲") : card.song.name} aria-disabled={snapshot.preview || !!busy}
+      return <div key={card.id} data-hand-id={card.id} data-auto-locked={autoLocked || undefined} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
+        role="button" tabIndex={-1} data-auto-next={autoNext || undefined} aria-label={`${card.song.mysteryMode ? t("神秘歌曲") : card.song.name}${autoNext ? ` · ${t("下一张自动打出")}` : ""}`} title={autoNext ? t("下一张自动打出") : undefined} aria-disabled={snapshot.preview || !!busy || autoLocked}
         style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); finishCardTransition(card.id); } }} onPointerDown={(e) => onCardPointerDown(card, e)} onPointerMove={(e) => onCardPointerMove(card, e)} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => lostPointerCapture(card.id)}>
         <div className="hand-flip"><div className="hand-card-face">
           <HandCardContent card={card} />
@@ -78,6 +80,7 @@ export function HandWindow() {
           {!card.placeholder && shortcutIndex >= 0 && shortcutIndex < 9 && <span className="hand-card-shortcut">{snapshot.settings.play_shortcuts[shortcutIndex]}</span>}
           {(playing || collecting) && <div className="hand-release-label"><Icon name={collecting ? "hand" : "play"} size={10} />{t(collecting ? "松开以加入手牌" : "松开以播放")}</div>}
         </div>{card.discovery ? <div className="hand-card-back hand-discovery-back"><div className="hand-card-face"><img src={appLogo} draggable={false} alt="DiscoAS" /></div></div> : card.mysteryRevealed && snapshot.arrival?.id === card.id && <div className="hand-card-back"><div className="hand-card-face"><div className="hand-art"><Cover url="" data={snapshot.arrival.mysteryCover} prepared mystery label={t("神秘歌曲")} /></div><strong>???</strong><span>???</span></div></div>}</div>
+        <HandAutoPlayLock locked={autoLocked} />
       </div>;
     })}
   </div>;

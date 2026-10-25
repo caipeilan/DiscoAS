@@ -1,11 +1,12 @@
 //! Automatic ordinary-hand playback policy. Callers supply observations and a clock.
 use crate::platforms::names;
+use crate::model::PlaybackMetadata;
 use std::collections::{HashMap, HashSet};
 
 pub const CONFIRM_TIMEOUT_MS: u64 = 20_000;
 
 pub fn supports_platform(platform: &str) -> bool {
-    platform != names::SPOTIFY
+    !platform.is_empty()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -35,16 +36,25 @@ pub struct Observation {
     pub platform: String,
     /// Native: normalized song title; browser: exact video/part ID.
     pub identity: String,
+    pub artist: String,
     pub signal: Signal,
     pub playing: bool,
     pub ended: bool,
     pub progress: Option<Progress>,
+    pub metadata: PlaybackMetadata,
+    /// Opaque native artwork fingerprint; distinguishes equal titles/artists on different releases.
+    pub artwork: String,
+    /// Metadata notification sequence for this source, not a playback clock.
+    pub revision: u64,
+    pub source: String,
 }
 #[derive(Clone, Debug)]
 pub struct Target {
     pub platform: String,
     pub song_id: String,
     pub title: String,
+    pub artists: Vec<String>,
+    pub metadata: PlaybackMetadata,
 }
 impl Target {
     fn matches(&self, value: &Observation) -> bool {
@@ -53,9 +63,16 @@ impl Target {
         }
         match value.signal {
             Signal::Browser => self.song_id == value.identity,
-            Signal::Interface => !self.title.is_empty() && self.title == value.identity,
+            Signal::Interface => {
+                !self.title.is_empty()
+                    && self.title == value.identity
+                    && self.artists.first().is_none_or(|artist| value.artist.contains(artist))
+                    && compatible_recording(&self.metadata, &value.metadata)
+            }
             Signal::Window => {
                 !self.title.is_empty()
+                    && self.artists.first().is_none_or(|artist| value.identity.contains(artist))
+                    && compatible_recording(&self.metadata, &value.metadata)
                     && if matches!(self.platform.as_str(), names::KUGOU | names::SPOTIFY) {
                         value.identity.ends_with(&self.title)
                     } else {
@@ -64,6 +81,21 @@ impl Target {
             }
         }
     }
+}
+
+fn compatible_recording(expected: &PlaybackMetadata, actual: &PlaybackMetadata) -> bool {
+    (expected.album.is_empty() || actual.album.is_empty() || normalize(&expected.album) == normalize(&actual.album))
+        && (expected.track_number == 0 || actual.track_number == 0 || expected.track_number == actual.track_number)
+        && (expected.duration_ms == 0 || actual.duration_ms == 0 || expected.duration_ms.abs_diff(actual.duration_ms) <= 1500)
+}
+fn recording_changed(old: &Observation, new: &Observation) -> bool {
+    !compatible_recording(&old.metadata, &new.metadata)
+        || !old.artwork.is_empty() && !new.artwork.is_empty() && old.artwork != new.artwork
+}
+fn track_fields_changed(old: &Observation, new: &Observation) -> bool {
+    old.identity != new.identity
+        || !old.artist.is_empty() && !new.artist.is_empty() && old.artist != new.artist
+        || !compatible_recording(&old.metadata, &new.metadata)
 }
 pub fn normalize(value: &str) -> String {
     value
@@ -104,7 +136,7 @@ pub fn track_title(value: &str) -> String {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    Play { token: u64, mute: bool },
+    Play { token: u64 },
     Confirmed { token: u64, automatic: bool },
     TimedOut { token: u64, automatic: bool },
 }
@@ -124,6 +156,52 @@ struct OwnedChange {
     deadline: u64,
     before: HashMap<Signal, Observation>,
     departed: HashSet<Signal>,
+    artwork: HashMap<Signal, OwnedArtwork>,
+}
+/// SMTC can publish the new title with the previous track's thumbnail. Associate
+/// the replacement thumbnail with our dispatch before using artwork-only changes.
+struct OwnedArtwork {
+    previous: String,
+    candidate: String,
+    since: Option<u64>,
+    settled: bool,
+}
+impl OwnedArtwork {
+    fn new(before: Option<&Observation>) -> Self {
+        Self {
+            previous: before.map(|value| value.artwork.clone()).unwrap_or_default(),
+            candidate: String::new(),
+            since: None,
+            settled: false,
+        }
+    }
+    fn settling(&mut self, artwork: &str, now: u64) -> bool {
+        if self.settled {
+            return false;
+        }
+        if artwork.is_empty() || artwork == self.previous {
+            self.candidate.clear();
+            self.since = None;
+        } else if self.candidate != artwork {
+            self.candidate = artwork.into();
+            self.since = Some(now);
+        } else if self.since.is_some_and(|since| now.saturating_sub(since) >= 500) {
+            // Event bursts are not independent stability samples. Require elapsed
+            // time with the replacement cover; never settle a known stale cover.
+            self.settled = true;
+        }
+        true
+    }
+}
+impl OwnedChange {
+    fn accept(&mut self, value: &Observation, now: u64) {
+        self.seen.insert(value.signal);
+        if value.signal != Signal::Browser {
+            let mut artwork = OwnedArtwork::new(self.before.get(&value.signal));
+            artwork.settling(&value.artwork, now);
+            self.artwork.insert(value.signal, artwork);
+        }
+    }
 }
 #[derive(Default)]
 pub struct AutoHand {
@@ -133,10 +211,7 @@ pub struct AutoHand {
     baseline: HashMap<Signal, Observation>,
     owned: Option<OwnedChange>,
     pending: Option<Pending>,
-    suspended: bool,
     consumed: bool,
-    timeline_floor: u64,
-    latency: HashMap<String, f64>,
 }
 impl AutoHand {
     pub fn configure(&mut self, enabled: bool) {
@@ -144,17 +219,25 @@ impl AutoHand {
             return;
         }
         self.enabled = enabled;
+        // Changing automatic observation must not cancel a manual handoff.
+        if self.pending.as_ref().is_some_and(|pending| !pending.automatic) {
+            return;
+        }
         self.generation += 1;
         self.pending = None;
         self.baseline.clear();
         self.owned = None;
         self.active = None;
-        self.suspended = false;
         self.consumed = false;
-        self.timeline_floor = 0;
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
     pub fn enabled(&self) -> bool {
         self.enabled
+    }
+    pub fn observing(&self) -> bool {
+        self.enabled || self.pending.is_some()
     }
     pub fn active(&self) -> Option<&str> {
         self.active.as_deref()
@@ -168,32 +251,59 @@ impl AutoHand {
         self.latest(token) && self.pending.as_ref().is_some_and(|p| p.token == token)
     }
     pub fn latest(&self, token: u64) -> bool {
-        self.enabled && self.generation == token
+        self.generation == token
     }
     pub fn waiting(&self, token: u64) -> bool {
         self.current(token)
     }
-    pub fn begin(&mut self, target: Target, automatic: Option<u64>, now: u64) -> Option<u64> {
-        if let Some(token) = automatic {
+    pub fn busy(&self) -> bool {
+        self.pending.is_some()
+    }
+    pub fn dispatched(&self, token: u64) -> bool {
+        self.pending.as_ref().is_some_and(|p| p.token == token && p.target.is_some())
+    }
+    pub fn paused(&mut self, token: u64, value: Observation) {
+        if self.current(token) && !self.dispatched(token) {
+            self.baseline.insert(value.signal, value);
+        }
+    }
+    /// Reserve the whole manual operation, including metadata/link preparation.
+    pub fn reserve_manual(&mut self, now: u64) -> Option<u64> {
+        if self.busy() { return None; }
+        self.generation += 1;
+        let token = self.generation;
+        self.owned = None;
+        self.pending = Some(Pending {
+            token, automatic: false, target: None, started: now,
+            deadline: now + CONFIRM_TIMEOUT_MS, before: self.baseline.clone(), departed: HashSet::new(),
+        });
+        Some(token)
+    }
+    /// A continuation retains the origin of the reserved manual/automatic request.
+    pub fn begin(&mut self, target: Target, continuation: Option<u64>, now: u64) -> Option<u64> {
+        if continuation.is_none() && self.busy() {
+            return None;
+        }
+        let automatic = if let Some(token) = continuation {
             if !self.current(token) || !supports_platform(&target.platform) {
                 return None;
             }
+            self.pending.as_ref()?.automatic
         } else {
             self.generation += 1;
-        }
+            false
+        };
         if self.active.as_deref() != Some(&target.platform) {
             self.baseline.clear();
         }
         let before = self.baseline.clone();
         self.owned = None;
         self.active = Some(target.platform.clone());
-        self.suspended = false;
         self.consumed = false;
-        self.timeline_floor = 0;
         let token = self.generation;
-        self.pending = (self.enabled && supports_platform(&target.platform)).then_some(Pending {
+        self.pending = supports_platform(&target.platform).then_some(Pending {
             token,
-            automatic: automatic.is_some(),
+            automatic,
             target: Some(target),
             started: now,
             deadline: now + CONFIRM_TIMEOUT_MS,
@@ -211,8 +321,14 @@ impl AutoHand {
     }
     pub fn fail(&mut self, token: u64) {
         if self.generation == token {
-            self.pending = None;
-            self.suspended = true;
+            self.owned = self.pending.take().and_then(|pending| pending.target.map(|target| {
+                let seen: HashSet<_> = self.baseline.iter().filter(|(_, value)| target.matches(value))
+                    .map(|(signal, _)| *signal).collect();
+                let artwork = self.baseline.iter().filter(|(signal, _)| seen.contains(signal))
+                    .filter(|(signal, _)| **signal != Signal::Browser)
+                    .map(|(signal, _)| (*signal, OwnedArtwork::new(pending.before.get(signal)))).collect();
+                OwnedChange { target, seen, deadline: 0, before: pending.before, departed: pending.departed, artwork }
+            }));
         }
     }
     pub fn expire(&mut self, now: u64) -> Option<Event> {
@@ -224,8 +340,8 @@ impl AutoHand {
             token: pending.token,
             automatic: pending.automatic,
         };
-        self.pending = None;
-        self.suspended = true;
+        let token = pending.token;
+        self.fail(token);
         Some(event)
     }
     pub fn waiting_for_ad(&mut self, now: u64) {
@@ -233,16 +349,8 @@ impl AutoHand {
             pending.deadline = (now + CONFIRM_TIMEOUT_MS).min(pending.started + 120_000);
         }
     }
-    /// Initial allowance is one second; subsequent confirmed dispatches refine it.
-    pub fn lead_seconds(&self, platform: &str) -> f64 {
-        self.latency
-            .get(platform)
-            .copied()
-            .unwrap_or(1.0)
-            .clamp(0.5, 4.0)
-    }
     pub fn observe(&mut self, value: Observation, now: u64) -> Option<Event> {
-        if !self.enabled
+        if !self.observing()
             || !supports_platform(&value.platform)
             || self.active.as_deref() != Some(&value.platform)
             || value.identity.is_empty()
@@ -250,17 +358,23 @@ impl AutoHand {
             return None;
         }
         if let Some(pending) = &mut self.pending {
+            self.baseline.insert(value.signal, value.clone());
             let Some(target) = &pending.target else {
                 return None;
             };
             let before = pending.before.get(&value.signal);
-            let repeated = before.is_some_and(|before| before.identity == value.identity);
+            let repeated = before.is_some_and(|before| {
+                before.identity == value.identity && before.artist == value.artist
+            });
             if !target.matches(&value) {
                 pending.departed.insert(value.signal);
                 return None;
             }
             let reset = value.signal == Signal::Browser
                 || pending.departed.contains(&value.signal)
+                || before.is_some_and(|old| recording_changed(old, &value)
+                    || !old.playing && value.playing
+                    || value.revision > old.revision)
                 || value.progress.as_ref().is_some_and(|new| {
                     new.valid()
                         && new.updated_at >= pending.started
@@ -268,37 +382,21 @@ impl AutoHand {
                             || before
                                 .and_then(|b| b.progress.as_ref())
                                 .is_some_and(|old| new.position + 2.0 < old.position))
-                })
-                || (value.progress.is_none()
-                    && now.saturating_sub(pending.started) >= 500
-                    && pending.before.values().all(|v| target.matches(v)));
+                });
             if !value.playing || (repeated && !reset) {
                 return None;
             }
             let token = pending.token;
             let automatic = pending.automatic;
-            let elapsed = now.saturating_sub(pending.started) as f64 / 1000.0;
-            let owned = OwnedChange {
+            let mut owned = OwnedChange {
                 target: target.clone(),
-                seen: HashSet::from([value.signal]),
+                seen: HashSet::new(),
                 deadline: now + CONFIRM_TIMEOUT_MS,
                 before: pending.before.clone(),
                 departed: pending.departed.clone(),
+                artwork: HashMap::new(),
             };
-            // Timeline updates may lag title updates. Do not treat the old near-end position as the new song's end.
-            self.timeline_floor = pending.started;
-            if elapsed < 10.0 {
-                let measured = (elapsed + 0.2).clamp(0.5, 4.0);
-                let previous = self.lead_seconds(&value.platform);
-                self.latency.insert(
-                    value.platform.clone(),
-                    if automatic {
-                        previous * 0.5 + measured * 0.5
-                    } else {
-                        measured
-                    },
-                );
-            }
+            owned.accept(&value, now);
             self.owned = Some(owned);
             self.baseline.insert(value.signal, value);
             self.pending = None;
@@ -323,17 +421,19 @@ impl AutoHand {
                             || owned.departed.contains(&value.signal)
                             || now >= owned.deadline)
                     {
-                        owned.seen.insert(value.signal);
+                        owned.accept(&value, now);
                     }
                     self.baseline.insert(value.signal, value);
                     return None;
                 }
                 owned.seen.insert(value.signal);
             }
-        }
-        if self.suspended {
-            self.baseline.insert(value.signal, value);
-            return None;
+            if self.baseline.get(&value.signal).is_some_and(|old| !track_fields_changed(old, &value))
+                && owned.artwork.get_mut(&value.signal).is_some_and(|artwork| artwork.settling(&value.artwork, now))
+            {
+                self.baseline.insert(value.signal, value);
+                return None;
+            }
         }
         let old = self
             .baseline
@@ -341,7 +441,7 @@ impl AutoHand {
             .or_else(|| self.baseline.values().next());
         let changed = old.is_some_and(|old| {
             if old.signal == value.signal {
-                old.identity != value.identity
+                track_fields_changed(old, &value) || recording_changed(old, &value)
             } else {
                 let same = if matches!(value.platform.as_str(), names::KUGOU | names::SPOTIFY) {
                     old.identity.ends_with(&value.identity)
@@ -355,34 +455,8 @@ impl AutoHand {
         });
         if changed {
             self.consumed = false;
-            self.timeline_floor = 0;
         }
-        let near_end = value.playing
-            && value.progress.as_ref().is_some_and(|p| {
-                p.valid()
-                    && p.updated_at >= self.timeline_floor
-                    && p.duration - p.position <= self.lead_seconds(&value.platform)
-            });
-        let looped = value.playing
-            && old.is_some_and(|old| {
-                old.playing
-                    && old
-                        .progress
-                        .as_ref()
-                        .zip(value.progress.as_ref())
-                        .is_some_and(|(before, after)| {
-                            before.valid()
-                                && after.valid()
-                                && before.updated_at >= self.timeline_floor
-                                && after.updated_at > before.updated_at
-                                && before.duration - before.position
-                                    <= self.lead_seconds(&value.platform) + 1.0
-                                && after.position < 2.0
-                                && before.position > after.position + 2.0
-                        })
-            });
-        // A pause is not a track change. Stopped/changing native states are accepted once the new title arrives.
-        let fire = !self.consumed && (changed || near_end || looped || value.ended);
+        let fire = !self.consumed && changed;
         self.baseline.insert(value.signal, value.clone());
         if !fire {
             return None;
@@ -399,10 +473,7 @@ impl AutoHand {
             before: self.baseline.clone(),
             departed: HashSet::new(),
         });
-        Some(Event::Play {
-            token,
-            mute: value.signal == Signal::Window,
-        })
+        Some(Event::Play { token })
     }
 }
 
@@ -459,10 +530,12 @@ mod tests {
         Observation {
             platform: names::QQ.into(),
             identity: normalize(title),
+            artist: String::new(),
             signal: Signal::Interface,
             playing: true,
             ended: false,
             progress: None,
+            metadata: Default::default(), artwork: String::new(), revision: 0, source: String::new(),
         }
     }
     fn engine() -> AutoHand {
@@ -476,6 +549,8 @@ mod tests {
             platform: names::QQ.into(),
             song_id: title.into(),
             title: normalize(title),
+            artists: Vec::new(),
+            metadata: Default::default(),
         }
     }
     fn progress(title: &str, position: f64, updated_at: u64) -> Observation {
@@ -566,53 +641,6 @@ mod tests {
         assert_eq!(a.observe(native("脆弱性"), 5), None);
     }
     #[test]
-    fn spotify_is_inert_and_manual_playback_cancels_previous_automation() {
-        let mut a = AutoHand::default();
-        a.configure(true);
-        a.adopt(names::SPOTIFY);
-        assert_eq!(a.active(), None);
-        a.adopt(names::QQ);
-        a.observe(observation("a"), 0);
-        let Some(Event::Play { token, .. }) = a.observe(observation("b"), 1) else {
-            panic!()
-        };
-        let spotify = Target {
-            platform: names::SPOTIFY.into(),
-            ..target("Never Gonna Give You Up")
-        };
-        assert_eq!(a.begin(spotify.clone(), Some(token), 2), None);
-        assert!(a.begin(spotify, None, 3).is_some());
-        assert!(!a.current(token));
-        for signal in [Signal::Interface, Signal::Window] {
-            for title in ["Never Gonna Give You Up", "next"] {
-                assert_eq!(
-                    a.observe(
-                        Observation {
-                            platform: names::SPOTIFY.into(),
-                            signal,
-                            ..progress(title, 99.5, 4)
-                        },
-                        4
-                    ),
-                    None
-                );
-            }
-        }
-        assert_eq!(a.expire(CONFIRM_TIMEOUT_MS + 4), None);
-        a.begin(target("c"), None, 30_000);
-        assert!(matches!(
-            a.observe(observation("c"), 30_001),
-            Some(Event::Confirmed {
-                automatic: false,
-                ..
-            })
-        ));
-        assert!(matches!(
-            a.observe(observation("d"), 30_002),
-            Some(Event::Play { .. })
-        ));
-    }
-    #[test]
     fn detection_choices_are_normalized_for_the_enabled_source() {
         use crate::{
             hand::AutoDetectionMode as Mode,
@@ -690,52 +718,10 @@ mod tests {
         ));
     }
     #[test]
-    fn near_end_fires_once_and_rejects_paused_or_stale_timeline() {
-        let mut a = engine();
-        a.observe(progress("a", 98.0, 10), 10);
-        assert_eq!(
-            a.observe(
-                Observation {
-                    playing: false,
-                    ..progress("a", 99.5, 20)
-                },
-                20
-            ),
-            None
-        );
-        let Some(Event::Play { token, .. }) = a.observe(progress("a", 99.5, 30), 30) else {
-            panic!()
-        };
-        assert_eq!(a.observe(progress("a", 99.9, 40), 40), None);
-        a.begin(target("b"), Some(token), 50);
-        assert!(matches!(
-            a.observe(progress("b", 99.9, 40), 60),
-            Some(Event::Confirmed { .. })
-        ));
-        assert_eq!(a.observe(progress("b", 99.9, 40), 70), None);
-        assert_eq!(a.observe(progress("b", 1.0, 80), 80), None);
-    }
-    #[test]
-    fn empty_hand_is_noop_until_next_track_and_manual_request_wins() {
-        let mut a = engine();
-        a.observe(observation("a"), 0);
-        let Some(Event::Play { token, .. }) = a.observe(observation("b"), 1) else {
-            panic!()
-        };
-        a.empty(token);
-        assert_eq!(a.observe(observation("b"), 2), None);
-        let Some(Event::Play { token, .. }) = a.observe(observation("c"), 3) else {
-            panic!()
-        };
-        a.begin(target("manual"), None, 4);
-        assert!(!a.current(token));
-        assert_eq!(a.begin(target("late auto"), Some(token), 5), None);
-    }
-    #[test]
     fn timeout_and_disable_release_the_wait_and_late_events_do_not_loop() {
         let mut a = engine();
         a.observe(observation("a"), 0);
-        let Some(Event::Play { token, mute: true }) = a
+        let Some(Event::Play { token }) = a
             .observe(
                 Observation {
                     signal: Signal::Window,
@@ -800,7 +786,7 @@ mod tests {
                 },
                 3
             ),
-            Some(Event::Play { mute: true, .. })
+            Some(Event::Play { .. })
         ));
     }
     #[test]
@@ -829,57 +815,24 @@ mod tests {
         }
     }
     #[test]
-    fn replaying_the_current_song_does_not_leave_automation_suspended() {
+    fn replaying_the_current_song_requires_a_fresh_source_update() {
         let mut a = engine();
         a.observe(observation("a"), 0);
         let token = a.begin(target("a"), None, 1).unwrap();
         assert_eq!(a.observe(observation("a"), 2), None);
+        assert_eq!(a.observe(observation("a"), 501), None);
         assert_eq!(
-            a.observe(observation("a"), 501),
+            a.observe(Observation { revision: 1, ..observation("a") }, 502),
             Some(Event::Confirmed {
                 token,
                 automatic: false
             })
         );
-        assert_eq!(a.observe(observation("a"), 502), None);
+        assert_eq!(a.observe(Observation { revision: 1, ..observation("a") }, 503), None);
         assert!(matches!(
             a.observe(observation("b"), 503),
             Some(Event::Play { .. })
         ));
-    }
-    #[test]
-    fn browser_ended_after_confirmation_plays_once_and_new_own_id_is_suppressed() {
-        let mut a = AutoHand::default();
-        a.configure(true);
-        let t = Target {
-            platform: names::YOUTUBE.into(),
-            song_id: "video-a".into(),
-            title: "irrelevant".into(),
-        };
-        let token = a.begin(t, None, 0).unwrap();
-        let v = Observation {
-            platform: names::YOUTUBE.into(),
-            identity: "video-a".into(),
-            signal: Signal::Browser,
-            ..observation("a")
-        };
-        assert_eq!(
-            a.observe(v.clone(), 1),
-            Some(Event::Confirmed {
-                token,
-                automatic: false
-            })
-        );
-        let ended = Observation {
-            playing: false,
-            ended: true,
-            ..v
-        };
-        assert!(matches!(
-            a.observe(ended.clone(), 2),
-            Some(Event::Play { mute: false, .. })
-        ));
-        assert_eq!(a.observe(ended, 3), None);
     }
     #[test]
     fn window_handshake_waits_for_target_and_suppresses_intermediate_titles() {
@@ -889,7 +842,7 @@ mod tests {
             ..observation(title)
         };
         a.observe(window("aartist"), 0);
-        let Some(Event::Play { token, mute: true }) = a.observe(window("bartist"), 1) else {
+        let Some(Event::Play { token }) = a.observe(window("bartist"), 1) else {
             panic!()
         };
         a.begin(target("c"), Some(token), 2);
@@ -906,35 +859,6 @@ mod tests {
         );
         assert!(!a.waiting(token));
         assert_eq!(a.observe(window("cartist"), 6), None);
-    }
-    #[test]
-    fn dispatch_latency_refines_the_advance_and_ad_wait_is_bounded() {
-        let mut a = engine();
-        let token = a.begin(target("a"), None, 0).unwrap();
-        assert_eq!(
-            a.observe(progress("a", 0.0, 2600), 2600),
-            Some(Event::Confirmed {
-                token,
-                automatic: false
-            })
-        );
-        assert!((a.lead_seconds(names::QQ) - 2.8).abs() < 0.001);
-        assert!(matches!(
-            a.observe(progress("a", 97.5, 100_000), 100_000),
-            Some(Event::Play { .. })
-        ));
-        let mut a = engine();
-        let token = a.begin(target("ad target"), None, 0).unwrap();
-        a.waiting_for_ad(19_000);
-        assert_eq!(a.expire(20_000), None);
-        a.waiting_for_ad(119_900);
-        assert_eq!(
-            a.expire(120_000),
-            Some(Event::TimedOut {
-                token,
-                automatic: false
-            })
-        );
     }
     #[test]
     fn mixed_sources_do_not_replay_lagging_own_changes_or_skip_the_next_song() {
@@ -993,15 +917,322 @@ mod tests {
             Some(Event::Play { .. })
         ));
     }
+
     #[test]
-    fn repeated_track_timeline_reset_is_an_end_signal_once() {
+    fn only_a_changed_track_triggers_not_progress_stop_or_loop() {
         let mut a = engine();
-        // Repeat-one can return to zero without ever changing its title or reporting stopped.
-        a.observe(progress("a", 98.0, 10), 10);
+        assert_eq!(a.observe(progress("a", 99.5, 10), 10), None);
+        assert_eq!(a.observe(progress("a", 0.1, 20), 20), None);
+        assert_eq!(
+            a.observe(
+                Observation {
+                    ended: true,
+                    playing: false,
+                    ..observation("a")
+                },
+                30
+            ),
+            None
+        );
         assert!(matches!(
-            a.observe(progress("a", 0.2, 20), 20),
+            a.observe(observation("b"), 40),
             Some(Event::Play { .. })
         ));
-        assert_eq!(a.observe(progress("a", 0.3, 30), 30), None);
+    }
+    #[test]
+    fn automatic_handoff_blocks_manual_requests_and_unlocks_on_completion() {
+        let mut a = engine();
+        a.observe(observation("a"), 0);
+        let Some(Event::Play { token }) = a.observe(observation("b"), 1) else {
+            panic!()
+        };
+        assert!(a.busy());
+        assert_eq!(a.begin(target("manual"), None, 2), None);
+        assert!(a.current(token));
+        a.begin(target("c"), Some(token), 3);
+        assert_eq!(a.observe(observation("transitional"), 4), None);
+        assert!(a.busy());
+        assert!(matches!(
+            a.observe(observation("c"), 5),
+            Some(Event::Confirmed {
+                automatic: true,
+                ..
+            })
+        ));
+        assert!(!a.busy());
+        assert!(a.begin(target("manual"), None, 6).is_some());
+    }
+    #[test]
+    fn manual_handoff_locks_from_preparation_even_with_automatic_play_disabled() {
+        for automatic_enabled in [false, true] {
+            let mut a = AutoHand::default();
+            a.configure(automatic_enabled);
+            let token = a.reserve_manual(0).unwrap();
+            assert!(a.busy() && a.observing() && a.current(token));
+            assert_eq!(a.reserve_manual(1), None);
+            assert_eq!(a.begin(target("other"), None, 1), None);
+            assert_eq!(a.begin(target("hand"), Some(token), 2), Some(token));
+            assert_eq!(a.observe(observation("hand"), 3), Some(Event::Confirmed { token, automatic: false }));
+            assert!(!a.busy());
+            if !automatic_enabled {
+                assert!(!a.observing());
+                assert_eq!(a.observe(observation("external"), 4), None);
+            }
+        }
+    }
+    #[test]
+    fn toggling_automatic_play_does_not_cancel_a_manual_lock() {
+        let mut a = engine();
+        let token = a.reserve_manual(0).unwrap();
+        a.configure(false);
+        assert!(a.current(token) && a.busy());
+        a.begin(target("hand"), Some(token), 1);
+        a.configure(true);
+        assert!(a.current(token) && a.busy());
+        assert!(matches!(a.observe(observation("hand"), 2), Some(Event::Confirmed { automatic: false, .. })));
+        assert!(!a.busy());
+    }
+    #[test]
+    fn manual_failure_and_timeout_release_the_lock_when_automatic_play_is_disabled() {
+        for timeout in [false, true] {
+            let mut a = AutoHand::default();
+            let token = a.reserve_manual(0).unwrap();
+            if timeout {
+                assert_eq!(a.expire(CONFIRM_TIMEOUT_MS), Some(Event::TimedOut { token, automatic: false }));
+            } else { a.fail(token); }
+            assert!(!a.busy() && !a.observing());
+            assert!(a.reserve_manual(CONFIRM_TIMEOUT_MS + 1).is_some());
+        }
+    }
+    #[test]
+    fn empty_failure_disable_and_timeout_release_the_automatic_lock() {
+        for outcome in 0..4 {
+            let mut a = engine();
+            a.observe(observation("a"), 0);
+            let Some(Event::Play { token }) = a.observe(observation("b"), 1) else {
+                panic!()
+            };
+            match outcome {
+                0 => a.empty(token),
+                1 => a.fail(token),
+                2 => a.configure(false),
+                _ => {
+                    a.expire(20_002);
+                }
+            }
+            assert!(!a.busy());
+            assert_eq!(a.begin(target("obsolete"), Some(token), 20_003), None);
+        }
+    }
+    #[test]
+    fn spotify_is_available_and_own_changes_do_not_consume_another_card() {
+        let mut a = engine();
+        let t = Target {
+            platform: names::SPOTIFY.into(),
+            ..target("a")
+        };
+        let v = |title: &str| Observation {
+            platform: names::SPOTIFY.into(),
+            ..observation(title)
+        };
+        let token = a.begin(t, None, 0).unwrap();
+        assert_eq!(
+            a.observe(v("a"), 1),
+            Some(Event::Confirmed {
+                token,
+                automatic: false
+            })
+        );
+        assert_eq!(a.observe(v("a"), 2), None);
+        assert!(matches!(a.observe(v("b"), 3), Some(Event::Play { .. })));
+    }
+    #[test]
+    fn artist_distinguishes_same_title_and_confirms_the_requested_recording() {
+        let mut a = engine();
+        a.observe(
+            Observation {
+                artist: normalize("artist a"),
+                ..observation("song")
+            },
+            0,
+        );
+        let Some(Event::Play { token }) = a.observe(
+            Observation {
+                artist: normalize("artist b"),
+                ..observation("song")
+            },
+            1,
+        ) else {
+            panic!()
+        };
+        a.begin(
+            Target {
+                artists: vec![normalize("artist c")],
+                ..target("song")
+            },
+            Some(token),
+            2,
+        );
+        assert_eq!(
+            a.observe(
+                Observation {
+                    artist: normalize("artist b"),
+                    ..observation("song")
+                },
+                3
+            ),
+            None
+        );
+        assert!(matches!(
+            a.observe(
+                Observation {
+                    artist: normalize("artist c"),
+                    ..observation("song")
+                },
+                4
+            ),
+            Some(Event::Confirmed { .. })
+        ));
+    }
+
+    #[test]
+    fn a_failure_or_timeout_keeps_the_latest_track_and_allows_the_next_external_change() {
+        for timeout in [false, true] {
+            let mut a = engine();
+            a.observe(observation("start"), 0);
+            let Some(Event::Play { token }) = a.observe(observation("external"), 1) else { panic!() };
+            a.begin(target("unavailable"), Some(token), 2);
+            a.observe(observation("external"), 3);
+            if timeout { a.expire(20_003); } else { a.fail(token); }
+            assert!(!a.busy());
+            assert_eq!(a.observe(observation("external"), 20_004), None);
+            assert!(matches!(a.observe(observation("next"), 20_005), Some(Event::Play { .. })));
+        }
+    }
+
+    #[test]
+    fn same_title_and_author_on_a_different_release_is_a_new_track() {
+        for signal in [Signal::Interface, Signal::Window] {
+            let mut a = engine();
+            let first = Observation { signal, artist: normalize("ピノキオピー"), artwork: "single-cover".into(), ..observation("愛属性") };
+            a.observe(first.clone(), 0);
+            assert!(matches!(a.observe(Observation { artwork: "album-cover".into(), ..first }, 1), Some(Event::Play { .. })));
+        }
+        let expected = Target { metadata: PlaybackMetadata { album: "UNDERWORLD".into(), ..Default::default() }, ..target("愛属性") };
+        assert!(!expected.matches(&Observation { metadata: PlaybackMetadata { album: "愛属性".into(), ..Default::default() }, ..observation("愛属性") }));
+    }
+
+    #[test]
+    fn owned_artwork_hydration_cannot_consume_the_next_card() {
+        for signal in [Signal::Interface, Signal::Window] {
+            for automatic in [false, true] {
+                for confirmation_art in ["", "previous-cover"] {
+                    let mut a = engine();
+                    let sample = |title: &str, artwork: &str, revision| Observation {
+                        signal, artwork: artwork.into(), revision, ..observation(title)
+                    };
+                    a.observe(sample("previous", "previous-cover", 1), 0);
+                    let automatic_token = automatic.then(|| {
+                        let Some(Event::Play { token }) = a.observe(sample("external", "previous-cover", 2), 1) else { panic!() };
+                        token
+                    });
+                    let token = a.begin(target("hand"), automatic_token, 2).unwrap();
+                    assert_eq!(a.observe(sample("hand", confirmation_art, 3), 3), Some(Event::Confirmed { token, automatic }));
+                    assert!(!a.busy());
+                    // Frequent notifications and a slow previous thumbnail must never settle it.
+                    for now in 4..100 {
+                        assert_eq!(a.observe(sample("hand", "previous-cover", 3), now), None);
+                    }
+                    assert_eq!(a.observe(sample("hand", "previous-cover", 3), 5_000), None);
+                    assert_eq!(a.observe(sample("hand", "hand-cover", 4), 5_001), None);
+                    assert_eq!(a.observe(sample("hand", "hand-cover", 4), 5_501), None);
+                    assert!(matches!(a.observe(sample("hand", "another-release", 5), 5_502), Some(Event::Play { .. })));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn owned_artwork_settles_by_elapsed_time_not_duplicate_sample_count() {
+        let mut a = engine();
+        let sample = |art: &str| Observation { artwork: art.into(), ..observation("hand") };
+        a.observe(Observation { artwork: "before".into(), ..observation("before") }, 0);
+        let token = a.begin(target("hand"), None, 1).unwrap();
+        assert!(matches!(a.observe(sample(""), 2), Some(Event::Confirmed { token: t, .. }) if t == token));
+        for now in 3..100 {
+            assert_eq!(a.observe(sample("intermediate"), now), None);
+        }
+        assert_eq!(a.observe(sample("final-cover"), 100), None);
+        assert_eq!(a.observe(sample("final-cover"), 600), None);
+        assert!(matches!(a.observe(sample("other-release"), 601), Some(Event::Play { .. })));
+    }
+
+    #[test]
+    fn lagging_native_observer_also_owns_its_delayed_artwork() {
+        let mut a = engine();
+        let sample = |title: &str, artwork: &str, signal| Observation {
+            signal, artwork: artwork.into(), ..observation(title)
+        };
+        a.observe(sample("before", "previous", Signal::Interface), 0);
+        a.observe(sample("before", "previous", Signal::Window), 1);
+        a.begin(target("hand"), None, 2);
+        assert!(matches!(a.observe(sample("hand", "", Signal::Window), 3), Some(Event::Confirmed { .. })));
+        assert_eq!(a.observe(sample("before", "previous", Signal::Interface), 4), None);
+        assert_eq!(a.observe(sample("hand", "", Signal::Interface), 5), None);
+        assert_eq!(a.observe(sample("hand", "previous", Signal::Interface), 6), None);
+        assert_eq!(a.observe(sample("hand", "replacement", Signal::Interface), 7), None);
+        assert_eq!(a.observe(sample("hand", "replacement", Signal::Interface), 507), None);
+        assert!(matches!(a.observe(sample("hand", "next-release", Signal::Interface), 508), Some(Event::Play { .. })));
+    }
+
+    #[test]
+    fn real_track_fields_bypass_unresolved_owned_artwork() {
+        for field in ["title", "artist", "album", "track", "duration"] {
+            let mut a = engine();
+            a.observe(observation("before"), 0);
+            let value = Observation {
+                artist: normalize("same artist"),
+                metadata: PlaybackMetadata { album: "release one".into(), track_number: 1, duration_ms: 180_000, ..Default::default() },
+                ..observation("hand")
+            };
+            a.begin(target("hand"), None, 1);
+            assert!(matches!(a.observe(value.clone(), 2), Some(Event::Confirmed { .. })));
+            let mut changed = value;
+            match field {
+                "title" => changed.identity = normalize("other song"),
+                "artist" => changed.artist = normalize("other artist"),
+                "album" => changed.metadata.album = "release two".into(),
+                "track" => changed.metadata.track_number = 2,
+                _ => changed.metadata.duration_ms = 190_000,
+            }
+            assert!(matches!(a.observe(changed, 3), Some(Event::Play { .. })), "{field}");
+        }
+    }
+
+    #[test]
+    fn native_confirmation_requires_the_primary_artist_not_just_a_shared_vocalist() {
+        let expected = Target { artists: vec![normalize("composer a"), normalize("初音ミク")], ..target("same") };
+        assert!(!expected.matches(&Observation { artist: normalize("composer b / 初音ミク"), ..observation("same") }));
+        assert!(expected.matches(&Observation { artist: normalize("composer a / 初音ミク"), ..observation("same") }));
+        assert!(!expected.matches(&Observation { signal: Signal::Window, ..observation("same composer b 初音ミク") }));
+        assert!(expected.matches(&Observation { signal: Signal::Window, ..observation("same composer a 初音ミク") }));
+    }
+
+    #[test]
+    fn replay_confirmation_uses_a_fresh_pause_to_play_transition() {
+        let mut a = engine();
+        a.observe(observation("start"), 0);
+        let Some(Event::Play { token }) = a.observe(observation("same"), 1) else { panic!() };
+        a.paused(token, Observation { playing: false, ..observation("same") });
+        a.begin(target("same"), Some(token), 2);
+        assert_eq!(a.observe(Observation { playing: false, ..observation("same") }, 3), None);
+        assert!(matches!(a.observe(observation("same"), 4), Some(Event::Confirmed { .. })));
+    }
+
+    #[test]
+    fn exact_browser_ids_distinguish_identically_named_recordings() {
+        let expected = target("same");
+        assert!(!expected.matches(&Observation { identity: "another-id".into(), signal: Signal::Browser, ..observation("same") }));
+        assert!(expected.matches(&Observation { identity: expected.song_id.clone(), signal: Signal::Browser, ..observation("same") }));
     }
 }

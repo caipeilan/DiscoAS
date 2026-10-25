@@ -110,9 +110,14 @@ struct Report {
     ended: bool,
     position: Option<f64>,
     duration: Option<f64>,
+    pause_complete: bool,
+    pause_success: bool,
 }
 #[derive(Default)]
 struct Connection {
+    observer: Option<mpsc::Sender<()>>,
+    observing: bool,
+    pause_result: Option<(u64, Result<(), String>)>,
     connected: bool,
     browser: Option<ExtensionBrowser>,
     seen: Option<Instant>,
@@ -132,6 +137,36 @@ impl Drop for Bridge {
     }
 }
 impl Bridge {
+    pub fn set_observing(&self, enabled: bool) {
+        self.state.lock().unwrap().observing = enabled;
+    }
+    pub fn set_observer(&self, wake: mpsc::Sender<()>) {
+        self.state.lock().unwrap().observer = Some(wake);
+    }
+    pub fn pause(&self, request_id: u64) -> Result<(), String> {
+        if !self.connected() {
+            return Err("错误：浏览器扩展未连接".into());
+        }
+        self.state.lock().unwrap().pause_result = None;
+        self.sender
+            .send(Command {
+                kind: "pause",
+                request_id,
+                platform: String::new(),
+                song_id: String::new(),
+                song_ids: vec![],
+            })
+            .map_err(|_| "错误：浏览器扩展连接中断".into())
+    }
+    pub fn pause_outcome(&self, request_id: u64) -> Option<Result<(), String>> {
+        self.state
+            .lock()
+            .ok()?
+            .pause_result
+            .as_ref()
+            .filter(|(id, _)| *id == request_id)
+            .map(|(_, result)| result.clone())
+    }
     pub fn observation(&self, request_id: u64) -> Option<discoas_core::auto_hand::Observation> {
         let state = self.state.lock().ok()?;
         if !state.connected {
@@ -397,9 +432,24 @@ fn serve(
         .set_read_timeout(Some(Duration::from_millis(100)));
     let mut last_seen = Instant::now();
     let mut pending: Option<Command> = None;
+    let mut observing = None;
     loop {
         if stopped.load(Ordering::SeqCst) {
             return;
+        }
+        let desired = state.lock().map(|state| state.observing).unwrap_or(false);
+        if observing != Some(desired) {
+            if socket
+                .send(Message::Text(
+                    serde_json::json!({"type": "observe", "enabled": desired})
+                        .to_string()
+                        .into(),
+                ))
+                .is_err()
+            {
+                return;
+            }
+            observing = Some(desired);
         }
         let mut next = None;
         while let Ok(command) = commands.try_recv() {
@@ -407,9 +457,12 @@ fn serve(
         }
         if let Some(command) = next.filter(|c| c.request_id == newest.load(Ordering::SeqCst)) {
             if let Ok(mut s) = state.lock() {
-                s.result = None;
-                s.advertisement = None;
-                s.observation = None;
+                if command.kind == "play" {
+                    s.result = None;
+                    s.advertisement = None;
+                    s.observation = None;
+                }
+                s.pause_result = None;
             }
             let Ok(json) = serde_json::to_string(&command) else {
                 return;
@@ -417,7 +470,9 @@ fn serve(
             if socket.send(Message::Text(json.into())).is_err() {
                 return;
             }
-            pending = Some(command);
+            if command.kind == "play" {
+                pending = Some(command);
+            }
         }
         match socket.read() {
             Ok(Message::Text(text)) => {
@@ -427,6 +482,16 @@ fn serve(
                 last_seen = Instant::now();
                 if let Ok(mut s) = state.lock() {
                     s.seen = Some(last_seen);
+                    if report.pause_complete && report.request_id == newest.load(Ordering::SeqCst) {
+                        s.pause_result = Some((
+                            report.request_id,
+                            if report.pause_success {
+                                Ok(())
+                            } else {
+                                Err("错误：无法暂停浏览器播放页".into())
+                            },
+                        ));
+                    }
                     let matching = pending.as_ref().filter(|p| {
                         p.request_id == report.request_id
                             && p.request_id == newest.load(Ordering::SeqCst)
@@ -452,13 +517,19 @@ fn serve(
                                 discoas_core::auto_hand::Observation {
                                     platform: report.platform.clone(),
                                     identity: report.song_id.clone(),
+                                    artist: String::new(),
                                     signal: discoas_core::auto_hand::Signal::Browser,
                                     playing: report.playing,
                                     ended: report.ended,
                                     progress,
+                                    metadata: Default::default(),
+                                    artwork: String::new(), revision: 0, source: String::new(),
                                 },
                                 last_seen,
                             ));
+                            if let Some(observer) = &s.observer {
+                                let _ = observer.send(());
+                            }
                         }
                         if report.waiting_for_ad {
                             s.advertisement = Some((report.request_id, last_seen));
@@ -610,6 +681,8 @@ mod tests {
                 ))
                 .unwrap();
             socket.read().unwrap();
+            let observing = socket.read().unwrap();
+            assert!(observing.to_text().unwrap().contains("observe"));
             bridge.dispatch(1, "YouTube", "abcdefghijk", &[]).unwrap();
             let command = socket.read().unwrap();
             assert!(command.to_text().unwrap().contains("abcdefghijk"));
@@ -640,6 +713,22 @@ mod tests {
             let progress = bridge.observation(1).unwrap().progress.unwrap();
             assert_eq!(progress.position, 99.1);
             assert!(bridge.observation(2).is_none());
+            bridge.pause(1).unwrap();
+            let pause = socket.read().unwrap();
+            assert!(pause.to_text().unwrap().contains("pause"));
+            socket
+                .send(Message::Text(
+                    "{\"requestId\":1,\"pauseComplete\":true,\"pauseSuccess\":true}".into(),
+                ))
+                .unwrap();
+            for _ in 0..50 {
+                if bridge.pause_outcome(1).is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert_eq!(bridge.pause_outcome(1), Some(Ok(())));
+            assert_eq!(bridge.outcome(1), Some(Ok(())));
             assert_eq!(
                 bridge.connected_browser(),
                 Some(if origin.starts_with("moz-extension://") {
@@ -656,7 +745,9 @@ mod tests {
             std::thread::sleep(Duration::from_millis(150));
             assert_eq!(bridge.outcome(1), Some(Ok(())));
             newest.store(2, Ordering::SeqCst);
-            bridge.dispatch(2, "Bilibili", "BV1234567890_p2", &[]).unwrap();
+            bridge
+                .dispatch(2, "Bilibili", "BV1234567890_p2", &[])
+                .unwrap();
             socket.read().unwrap();
             socket.send(Message::Text("{\"requestId\":1,\"platform\":\"YouTube\",\"songId\":\"abcdefghijk\",\"playing\":true}".into())).unwrap();
             std::thread::sleep(Duration::from_millis(150));

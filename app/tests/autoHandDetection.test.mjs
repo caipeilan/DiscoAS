@@ -7,9 +7,9 @@ const code = ts.transpileModule(fs.readFileSync(new URL("../src/features/setting
 }).outputText;
 const { supportsAutoPlay, supportsDetection, detectionForPlatform } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 
-test("Spotify is excluded from automatic playback while other sources retain support", () => {
-  assert.equal(supportsAutoPlay("Spotify"), false);
-  for (const platform of [undefined, "NeteaseCloudMusic", "QQMusic", "KugouMusic", "KuwoMusic", "QishuiMusic", "YouTube", "Bilibili", "LocalMusic"]) {
+test("automatic playback is available for every supported source", () => {
+  assert.equal(supportsAutoPlay("Spotify"), true);
+  for (const platform of [undefined, "NeteaseCloudMusic", "QQMusic", "KugouMusic", "KuwoMusic", "QishuiMusic", "YouTube", "Bilibili", "AppleMusic", "LocalMusic"]) {
     assert.equal(supportsAutoPlay(platform), true);
   }
 });

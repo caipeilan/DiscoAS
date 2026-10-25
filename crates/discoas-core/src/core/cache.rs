@@ -861,6 +861,7 @@ mod tests {
         let cache = Cache::new();
         let hand_cache = Cache::independent(&cache);
         let detail = SongDetail {
+            playback_metadata: Default::default(),
             name: "cached".into(),
             artist_names: vec![],
             album_pic_url: String::new(),

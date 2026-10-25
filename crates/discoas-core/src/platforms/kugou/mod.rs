@@ -85,6 +85,7 @@ pub async fn detail_from_info(
     }
     if mystery_mode {
         Ok(SongDetail {
+            playback_metadata: Default::default(),
             name: "???".into(),
             artist_names: vec!["???".into()],
             album_pic_url: if mystery_pic_url.is_empty() {
@@ -96,6 +97,7 @@ pub async fn detail_from_info(
         })
     } else {
         Ok(SongDetail {
+            playback_metadata: Default::default(),
             name,
             artist_names,
             album_pic_url,

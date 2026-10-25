@@ -34,7 +34,7 @@
     });
   };
   const reportObservation = () => {
-    if (!binding || !musicKit) return;
+    if (!binding || !musicKit || binding.observing !== true) return;
     const id = currentId();
     if (!id) return;
     let position = NaN, duration = NaN;
@@ -171,9 +171,13 @@
     const existing = await send({ type: "discoas-ready" });
     if (existing) playBinding(existing);
   }
-  extensionApi.runtime.onMessage.addListener((message) => {
+  extensionApi.runtime.onMessage.addListener((message, _sender, reply) => {
     if (message.type === "discoas-bind" && message.binding) playBinding(message.binding);
-    if (message.type === "discoas-pause" && musicKit) musicKit.pause();
+    if (message.type === "discoas-observe" && binding) binding = { ...binding, observing: message.enabled === true };
+    if (message.type === "discoas-pause" && musicKit) {
+      Promise.resolve().then(() => musicKit.pause()).then(() => reply?.({ paused: musicKit.isPlaying !== true })).catch(() => reply?.({ paused: false }));
+      return true;
+    }
   });
   init();
 })();

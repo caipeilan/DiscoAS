@@ -19,7 +19,7 @@
     });
   };
   const reportObservation = () => {
-    if (!binding || !musicKit) return;
+    if (!binding || !musicKit || binding.observing !== true) return;
     const id = currentId();
     if (!id) return;
     const position = Number(musicKit.currentPlaybackTime);
@@ -160,7 +160,10 @@
     const data = event.data;
     if (!data || data.source !== "discoas-apple" || data.dir !== "to-main") return;
     if (data.type === "discoas-bind" && data.binding) playBinding(data.binding);
-    if (data.type === "discoas-pause" && musicKit) musicKit.pause();
+    if (data.type === "discoas-observe" && binding) binding = { ...binding, observing: data.enabled === true };
+    if (data.type === "discoas-pause" && musicKit) {
+      Promise.resolve().then(() => musicKit.pause()).then(() => post({ type: "paused", requestId: data.requestId, paused: musicKit.isPlaying !== true })).catch(() => post({ type: "paused", requestId: data.requestId, paused: false }));
+    }
   });
   init();
 })();

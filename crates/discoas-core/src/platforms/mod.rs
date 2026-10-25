@@ -138,6 +138,7 @@ pub fn fetcher_for(platform: &str) -> AppResult<Box<dyn PlaylistFetcher>> {
 /// 但 real_window_name 保留真实值（用于播放器窗口匹配）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SongDetail {
+    pub playback_metadata: crate::model::PlaybackMetadata,
     /// 歌曲名（神秘模式下为 "???"）。
     pub name: String,
     /// 歌手名列表（神秘模式下为 ["???"]）。

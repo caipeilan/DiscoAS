@@ -4,22 +4,9 @@ use crate::{
     core::cache::Cache,
     settings::music_setting::{MusicSetting, MusicSettingDesktop},
 };
-use discoas_core::{
-    discovery_service::DiscoveryService,
-    hand::{HandStore, StoredHandCard},
-    model::PlaySongArgs,
-};
-use std::sync::{Arc, Mutex};
+use discoas_core::{discovery_service::DiscoveryService, hand::HandStore, model::PlaySongArgs};
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
-
-struct Pending {
-    index: usize,
-    card: StoredHandCard,
-}
-#[derive(Default)]
-pub struct HandActionsState {
-    pending: Mutex<Option<Pending>>,
-}
 
 pub(super) fn store(app: &tauri::AppHandle) -> Result<HandStore, String> {
     Ok(HandStore::new(
@@ -32,15 +19,11 @@ pub(super) fn service(app: &tauri::AppHandle) -> Result<DiscoveryService, String
         app.state::<Arc<Cache>>().inner().clone(),
     ))
 }
-pub fn clear_pending(app: &tauri::AppHandle) {
-    app.state::<HandActionsState>()
-        .pending
-        .lock()
-        .unwrap()
-        .take();
-}
 
 pub fn play_position(app: &tauri::AppHandle, index: usize) {
+    if app.state::<super::auto_hand::AutoHandService>().busy() {
+        return;
+    }
     if index >= 9 || preview(app) || super::discovery_preview::isolated(app) {
         return;
     }
@@ -137,7 +120,26 @@ pub async fn play_hand_card(
     id: String,
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
-    play_card(&app, id, cache.inner(), None).await
+    if preview(&app) || super::discovery_preview::isolated(&app) {
+        return Err("错误：预览中不能播放歌曲".into());
+    }
+    let automation = app.state::<super::auto_hand::AutoHandService>();
+    let args = store(&app)?.get(&id)?.1.playback_args();
+    let token = automation.reserve_manual(&args)?;
+    let result = play_card(&app, id.clone(), cache.inner(), token).await;
+    if result.is_err() {
+        automation.fail(token);
+        // Preparation can fail/expire before the normal post-dispatch removal.
+        if result.as_ref().is_err_and(|error| error != "错误：手牌模式未开启" && error != "错误：预览中不能播放歌曲") {
+            let _operation = cache.operation.lock().await;
+            let store = store(&app)?;
+            if store.load()?.cards.iter().any(|card| card.id == id) {
+                store.remove(&id)?;
+                changed(&app, cache.inner()).await?;
+            }
+        }
+    }
+    result
 }
 pub(super) async fn play_automatically(app: &tauri::AppHandle, token: u64) -> Result<(), String> {
     let cache = app.state::<Arc<Cache>>();
@@ -169,32 +171,40 @@ pub(super) async fn play_automatically(app: &tauri::AppHandle, token: u64) -> Re
         card.id.clone()
     };
     super::diagnostics::log_event(app, "auto_hand", "dispatch_started");
-    play_card(app, id, cache.inner(), Some(token)).await
+    play_card(app, id, cache.inner(), token).await
 }
 async fn play_card(
     app: &tauri::AppHandle,
     id: String,
     cache: &Arc<Cache>,
-    automatic: Option<u64>,
+    token: u64,
 ) -> Result<(), String> {
     if preview(&app) || super::discovery_preview::isolated(&app) {
         return Err("错误：预览中不能播放歌曲".into());
     }
-    let (_, initial) = store(&app)?.get(&id)?;
+    let (_, mut initial) = store(&app)?.get(&id)?;
     let args = initial.playback_args();
+    // Old stored cards predate the separate player identity. Resolve their original
+    // platform title before dispatch; translated display text is never guessed away.
+    if initial.song.playback_metadata.title.is_empty()
+        && matches!(args.platform.as_str(), discoas_core::platforms::names::NETEASE | discoas_core::platforms::names::QQ)
+    {
+        if let Ok(detail) = discoas_core::platforms::detail_loader_for(&args.platform).map_err(|e| e.to_string())?
+            .load_song_detail(&serde_json::Value::Null, &args.song_id, false, "").await
+        {
+            initial.song.playback_metadata = detail.playback_metadata;
+        }
+    }
     let url = if args.platform == discoas_core::platforms::names::KUWO {
         discoas_core::platforms::kuwo::native_playback_url(&args.song_id)
             .await
-            .map_err(|e| crate::services::request_errors::short_error(&e.to_string()))?
+            .map_err(|e| crate::services::request_errors::short_error(&e.to_string()))
     } else {
-        discoas_core::platforms::build_scheme_url(&args).map_err(|e| e.to_string())?
+        discoas_core::platforms::build_scheme_url(&args).map_err(|e| e.to_string())
     };
     let _operation = cache.operation.lock().await;
-    if automatic.is_some_and(|token| {
-        !app.state::<super::auto_hand::AutoHandService>()
-            .current(token)
-    }) {
-        return Ok(());
+    if !app.state::<super::auto_hand::AutoHandService>().current(token) {
+        return Err("错误：播放请求已更新".into());
     }
     if preview(&app)
         || !MusicSetting::load(&app)
@@ -204,18 +214,14 @@ async fn play_card(
     {
         return Err("错误：手牌模式未开启".into());
     }
-    let (index, card) = store(&app)?.get(&id)?;
-    *app.state::<HandActionsState>().pending.lock().unwrap() = Some(Pending {
-        index,
-        card: card.clone(),
-    });
-    let result = if let Some(token) = automatic {
-        super::playback::dispatch_automatically(app, &args, &card.song, url, token).await
+    let (_, mut card) = store(&app)?.get(&id)?;
+    card.song.playback_metadata = initial.song.playback_metadata;
+    let result = if let Ok(url) = url {
+        super::playback::dispatch_reserved(app, &args, &card.song, url, token).await
     } else {
-        super::playback::dispatch(app, &args, Some(&card.song), url).await
+        Err(url.unwrap_err())
     };
-    if automatic.is_some() {
-        super::diagnostics::log_event(
+    super::diagnostics::log_event(
             app,
             "auto_hand",
             if result.is_ok() {
@@ -223,15 +229,16 @@ async fn play_card(
             } else {
                 "dispatch_failed"
             },
-        );
-    }
-    if let Err(error) = result {
-        clear_pending(&app);
-        return Err(error);
+    );
+    if result
+        .as_ref()
+        .is_err_and(|error| error == super::auto_hand::BUSY_ERROR)
+    {
+        return result;
     }
     store(&app)?.remove(&id)?;
     changed(app, cache).await?;
-    Ok(())
+    result
 }
 async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {
     service(app)?.sync_hand_exclusions().await?;
@@ -256,6 +263,7 @@ pub async fn discard_hand_card(
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
     let _operation = cache.operation.lock().await;
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     if preview(&app) {
         return Err("错误：预览中不能修改手牌".into());
     }
@@ -268,10 +276,10 @@ pub async fn clear_hand(
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
     let _operation = cache.operation.lock().await;
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     if preview(&app) {
         return Err("错误：预览中不能修改手牌".into());
     }
-    clear_pending(&app);
     store(&app)?.clear()?;
     changed(&app, cache.inner()).await
 }
@@ -282,6 +290,7 @@ pub async fn reorder_hand(
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
     let _operation = cache.operation.lock().await;
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     if preview(&app) {
         return Err("错误：预览中不能修改手牌".into());
     }
@@ -289,35 +298,4 @@ pub async fn reorder_hand(
     // The hand already animates this order locally; keep its snapshot without reloading covers.
     hand::update_order(&app, &ids);
     Ok(())
-}
-pub fn playback_result(app: &tauri::AppHandle, result: &serde_json::Value) {
-    let result = result.clone();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let cache = app.state::<Arc<Cache>>();
-        let _operation = cache.operation.lock().await;
-        let pending = {
-            let state = app.state::<HandActionsState>();
-            let mut pending = state.pending.lock().unwrap();
-            if !pending.as_ref().is_some_and(|p| {
-                result["platform"].as_str() == Some(&p.card.song.platform)
-                    && result["songId"].as_str() == Some(&p.card.song.song_id)
-            }) {
-                return;
-            }
-            pending.take()
-        };
-        if result["success"].as_bool() != Some(false) || result["error"].as_str().is_none() {
-            return;
-        }
-        if let Some(pending) = pending {
-            let response = store(&app).and_then(|s| s.restore(pending.index, pending.card));
-            if let Err(e) = response {
-                let _ = app.emit("hand-error", e);
-            } else {
-                let _ = changed(&app, cache.inner()).await;
-            }
-        }
-        let _ = app.emit("hand-error", result["error"].as_str().unwrap());
-    });
 }

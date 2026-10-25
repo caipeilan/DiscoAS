@@ -140,6 +140,7 @@ fn detail_from_track(
         .map(str::to_owned)
         .collect();
     Ok(SongDetail {
+        playback_metadata: Default::default(),
         name: if mystery_mode {
             "???".into()
         } else {

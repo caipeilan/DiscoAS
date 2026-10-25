@@ -178,7 +178,6 @@ pub fn run() {
         .manage(browser_playback::BrowserPlaybackService::default())
         .manage(library::ShortcutRecording::default())
         .manage(desktop::hand::HandState::default())
-        .manage(desktop::hand_actions::HandActionsState::default())
         .manage(desktop::auto_hand::AutoHandService::default())
         .manage(desktop::hand_discovery::HandDiscoveryState::default())
         .manage(desktop::hand_dock::DockState::default())
@@ -283,7 +282,6 @@ pub fn run() {
                 let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
                     return;
                 };
-                desktop::hand_actions::playback_result(&playback_app, &payload);
                 playback_app.state::<desktop::auto_hand::AutoHandService>().playback_result(&payload);
                 if payload["success"].as_bool() == Some(false) {
                     if let Some(error) = payload["error"].as_str() {
@@ -347,6 +345,7 @@ pub fn run() {
             desktop::tray_menu::tray_menu_action,
             commands::play_song,
             desktop::hand::hand_ready,
+            desktop::auto_hand::get_auto_hand_state,
             desktop::hand::present_hand,
             desktop::hand::hand_arrival_ready,
             desktop::hand::set_hand_hit_regions,

@@ -89,6 +89,7 @@ pub fn detail_from_track(
     let real_window_name = format!("{} - {title}", artists[0]);
     if mystery_mode {
         return Ok(SongDetail {
+            playback_metadata: Default::default(),
             name: "???".into(),
             artist_names: vec!["???".into()],
             album_pic_url: if mystery_pic_url.trim().is_empty() {
@@ -104,6 +105,7 @@ pub fn detail_from_track(
         .find_map(|key| track[*key].as_str().filter(|value| !value.is_empty()))
         .unwrap_or("");
     Ok(SongDetail {
+        playback_metadata: Default::default(),
         name: title.into(),
         artist_names: artists,
         album_pic_url: cover.into(),

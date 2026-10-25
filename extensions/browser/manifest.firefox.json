@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "DiscoAS",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DiscoAS的浏览器扩展",
   "browser_specific_settings": {
     "gecko": {

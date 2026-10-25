@@ -202,6 +202,7 @@ pub async fn begin_hand_drag(
     pointer: Point,
     pose: DragPose,
 ) -> Result<(), String> {
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     let hand = app.state::<HandState>();
     if !visible(&app) || hand.generation.load(Ordering::Acquire) != generation {
         return Err("错误：手牌已收纳或关闭".into());
@@ -213,6 +214,7 @@ pub async fn begin_hand_drag(
         .clone()
         .ok_or("错误：手牌窗口不可用")?;
     let window = ensure_window(&app).await?;
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     let offset = Point {
         x: pose.x - pointer.x,
         y: pose.y - pointer.y,
@@ -278,6 +280,7 @@ fn show_surface(app: &tauri::AppHandle, generation: u64) -> Result<(), String> {
 
 #[tauri::command]
 pub fn present_hand_drag(app: tauri::AppHandle, generation: u64) -> Result<(), String> {
+    app.state::<super::auto_hand::AutoHandService>().ensure_manual()?;
     show_surface(&app, generation)
 }
 

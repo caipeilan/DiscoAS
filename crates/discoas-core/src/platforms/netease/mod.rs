@@ -123,6 +123,13 @@ fn detail_from_song(
         mystery_pic_url
     };
     Ok(SongDetail {
+        playback_metadata: crate::model::PlaybackMetadata {
+            title: base_name.into(),
+            album: album.and_then(|a| a["name"].as_str()).unwrap_or("").into(),
+            track_number: song["no"].as_u64().unwrap_or(0) as u32,
+            duration_ms: song.get("duration").or_else(|| song.get("dt"))
+                .and_then(Value::as_u64).unwrap_or(0),
+        },
         name: if mystery_mode { "???".into() } else { name },
         artist_names: if mystery_mode {
             vec!["???".into()]
@@ -182,11 +189,21 @@ mod tests {
         ] {
             let visible = detail_from_song(&song, false, "").unwrap();
             assert_eq!(visible.name, "原曲 (翻译)");
+            assert_eq!(visible.playback_metadata.title, "原曲");
             assert_eq!(visible.album_pic_url, "https://example.com/cover");
             let hidden = detail_from_song(&song, true, "https://example.com/mystery").unwrap();
             assert_eq!(hidden.name, "???");
             assert_eq!(hidden.real_window_name, "原曲 - 歌手");
             assert_eq!(hidden.album_pic_url, "https://example.com/mystery");
         }
+    }
+    #[test]
+    fn playback_identity_preserves_versions_and_distinguishes_equal_names_on_different_albums() {
+        let first = detail_from_song(&json!({"name":"愛属性","artists":[{"name":"ピノキオピー"}],"album":{"name":"愛属性"},"duration":173834,"no":1}), false, "").unwrap();
+        let second = detail_from_song(&json!({"name":"愛属性","ar":[{"name":"ピノキオピー"}],"al":{"name":"UNDERWORLD"},"dt":176186,"no":10}), false, "").unwrap();
+        assert_eq!(first.playback_metadata.title, second.playback_metadata.title);
+        assert_ne!(first.playback_metadata, second.playback_metadata);
+        let version = detail_from_song(&json!({"name":"Song (Live)","ar":[{"name":"Artist"}],"tns":["译名"]}), false, "").unwrap();
+        assert_eq!(version.playback_metadata.title, "Song (Live)");
     }
 }

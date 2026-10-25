@@ -212,7 +212,7 @@ export function useHandInput(context: HandInputContext) {
   };
   const keyboardRef = useRef(keyboard); keyboardRef.current = keyboard;
   const pointerHandler = ([x, y]: [number, number, boolean]) => {
-    if (dragRef.current || !mounted.current || !current.current.expanded) return;
+    if (busyRef.current || dragRef.current || !mounted.current || !current.current.expanded) return;
     const previous = pointer.current; pointer.current = { x, y };
     if (previous && Math.abs(previous.x-x) + Math.abs(previous.y-y) < 1) return;
     if (previous && inputRef.current === "keyboard") { setInputMode("pointer"); inputRef.current = "pointer"; }

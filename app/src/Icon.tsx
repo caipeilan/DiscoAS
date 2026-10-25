@@ -20,6 +20,7 @@ const paths: Record<string, string> = {
   import: "M12 3v12m-4-4 4 4 4-4M4 15v6h16v-6",
   check: "m5 12 4 4L19 6",
   play: "m8 4 12 8-12 8V4Z",
+  lock: "M7 10V7a5 5 0 0 1 10 0v3M6 10h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Zm6 5v3",
   music:
     "M9 18V5l11-2v13M9 6l11-2M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3Zm11-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3Z",
   remove: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7",

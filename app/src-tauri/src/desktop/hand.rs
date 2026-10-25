@@ -190,10 +190,9 @@ async fn cards(app: &tauri::AppHandle, music: &MusicSetting) -> Result<Vec<Arc<H
     let previous = app.state::<HandState>().prepared.lock().unwrap().clone();
     let mut prepared = HashMap::new();
     let mut cards = Vec::new();
-    for c in store(app)?
-        .load()?
-        .cards
-        .into_iter()
+    let held = store(app)?.load()?.cards;
+    if !preview(app) { app.state::<super::auto_hand::AutoHandService>().set_has_cards(music.hand.enabled && !held.is_empty()); }
+    for c in held.into_iter()
         .filter(|_| music.hand.enabled)
     {
         let mut card = c.project(&music.mystery_song_cover);
@@ -704,6 +703,7 @@ pub async fn refresh(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let music = MusicSetting::load(app).map_err(|e| e.to_string())?;
+    app.state::<super::auto_hand::AutoHandService>().set_has_cards(music.hand.enabled && !store(app)?.load()?.cards.is_empty());
     if !music.hand.enabled && !music.hand_discovery.enabled {
         app.state::<HandState>()
             .dismissed

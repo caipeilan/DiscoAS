@@ -84,19 +84,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn startup_disables_old_auto_play_once_and_preserves_other_fields() {
+    fn startup_preserves_enabled_auto_play_and_all_original_bytes() {
         let path = std::env::temp_dir().join(format!(
             "discoas-retired-auto-play-{}.json",
             rand::random::<u64>()
         ));
-        let mut original = serde_json::json!({
+        let original = serde_json::json!({
             "hand": {"enabled": true, "auto_play": true, "auto_play_position": "last", "extra": "keep"},
             "playlist_albums": [{"name": "QQMusic", "enabled": true}],
             "other": {"keep": [1, 2, 3]}
         });
         std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
-        assert!(disable_unavailable_auto_play(&path).unwrap());
-        original["hand"]["auto_play"] = false.into();
+        let before = std::fs::read(&path).unwrap();
+        assert!(!disable_unavailable_auto_play(&path).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
@@ -108,14 +109,14 @@ mod tests {
     }
 
     #[test]
-    fn stale_preferences_cannot_enable_unavailable_auto_play() {
+    fn preferences_can_enable_auto_play() {
         let current = MusicSetting::default();
         let mut draft = current.clone();
         draft.hand.enabled = true;
         draft.hand.auto_play = true;
         let prepared = prepare_music_preferences(&current, draft).unwrap();
         assert!(prepared.hand.enabled);
-        assert!(!prepared.hand.auto_play);
+        assert!(prepared.hand.auto_play);
     }
     #[test]
     fn preferences_cannot_disable_all_songs() {

@@ -1,39 +1,31 @@
-//! Windows media observations and temporary, per-client audio-session muting.
-use crate::{
-    client_window::{self, Client},
-    platforms::names,
-};
+//! Windows media observations and directed per-session pause.
+use crate::{client_window, platforms::names};
 use discoas_core::auto_hand::{track_title, window_identity, Observation, Progress, Signal};
 use discoas_core::hand::AutoDetectionMode;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc, Arc,
     },
     time::{Duration, Instant},
 };
 use windows::{
-    core::{Interface, RuntimeType},
+    core::RuntimeType,
     Foundation::TypedEventHandler,
+    Storage::Streams::DataReader,
     Media::Control::{
         GlobalSystemMediaTransportControlsSession as Session,
         GlobalSystemMediaTransportControlsSessionManager as Manager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
-        MediaPropertiesChangedEventArgs,
+        MediaPropertiesChangedEventArgs, PlaybackInfoChangedEventArgs,
     },
-    Win32::{
-        Media::Audio::{
-            eRender, AudioSessionStateActive, IAudioSessionControl2, IAudioSessionManager2,
-            IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
-        },
-        System::{
-            Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
-            WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
-        },
-    },
+    Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
 };
 use windows_future::{AsyncStatus, IAsyncOperation};
+
+/// Returned when a pause loop is interrupted by stop/disable instead of a player error.
+pub const CANCELLED_ERROR: &str = "错误：自动打出已取消";
 
 pub const PLATFORMS: [&str; 6] = [
     names::NETEASE,
@@ -94,49 +86,128 @@ impl Drop for Apartment {
         }
     }
 }
+/// Bounded fallback cadence for the artwork fingerprint. With a cover the
+/// fallback keeps a one-second cadence; without one it backs off 1→2→4→5s.
+/// A media-property event forces a read and resets the wait.
+fn artwork_schedule(present: bool, wait: Duration, from_event: bool) -> (Duration, Duration) {
+    let wait = if from_event { Duration::from_secs(1) } else { wait };
+    if present {
+        (Duration::from_secs(1), Duration::from_secs(1))
+    } else {
+        (wait, (wait * 2).min(Duration::from_secs(5)))
+    }
+}
+fn artwork_due(dirty: bool, now: Instant, next: Instant) -> bool {
+    dirty || now >= next
+}
+
 struct Watched {
     session: Session,
     token: i64,
+    playback_token: Option<i64>,
     dirty: Arc<AtomicBool>,
     title: String,
+    artist: String,
+    metadata: discoas_core::model::PlaybackMetadata,
+    artwork: String,
+    artwork_wait: Duration,
+    artwork_next: Instant,
+    revision: Arc<AtomicU64>,
+    read_revision: u64,
     last_read: Instant,
     was_playing: bool,
 }
 impl Drop for Watched {
     fn drop(&mut self) {
         let _ = self.session.RemoveMediaPropertiesChanged(self.token);
+        if let Some(token) = self.playback_token {
+            let _ = self.session.RemovePlaybackInfoChanged(token);
+        }
     }
 }
 impl Watched {
-    fn new(session: Session) -> Option<Self> {
+    fn new(session: Session, wake: Option<mpsc::Sender<()>>) -> Option<Self> {
         let dirty = Arc::new(AtomicBool::new(true));
         let changed = dirty.clone();
+        let metadata_wake = wake.clone();
+        let revision = Arc::new(AtomicU64::new(1));
+        let updated_revision = revision.clone();
         let token = session
             .MediaPropertiesChanged(
                 &TypedEventHandler::<Session, MediaPropertiesChangedEventArgs>::new(move |_, _| {
                     changed.store(true, Ordering::Release);
+                    updated_revision.fetch_add(1, Ordering::AcqRel);
+                    if let Some(wake) = &metadata_wake {
+                        let _ = wake.send(());
+                    }
                     Ok(())
                 }),
             )
             .ok()?;
+        let playback_token = session
+            .PlaybackInfoChanged(
+                &TypedEventHandler::<Session, PlaybackInfoChangedEventArgs>::new(move |_, _| {
+                    if let Some(wake) = &wake {
+                        let _ = wake.send(());
+                    }
+                    Ok(())
+                }),
+            )
+            .ok();
         Some(Self {
             session,
+            playback_token,
             token,
             dirty,
             title: String::new(),
+            artist: String::new(),
+            metadata: Default::default(),
+            artwork: String::new(),
+            artwork_wait: Duration::from_secs(1),
+            artwork_next: Instant::now(),
+            revision,
+            read_revision: 0,
             last_read: Instant::now(),
             was_playing: false,
         })
     }
     fn sample(&mut self, platform: &str) -> Option<Observation> {
-        if self.dirty.swap(false, Ordering::AcqRel)
+        let dirty = self.dirty.swap(false, Ordering::AcqRel);
+        if dirty
             || self.last_read.elapsed() >= Duration::from_secs(1)
         {
             self.last_read = Instant::now();
             if let Ok(properties) = self.session.TryGetMediaPropertiesAsync().and_then(wait) {
                 let title = track_title(&properties.Title().ok()?.to_string());
                 if !title.is_empty() {
+                    let artist = discoas_core::auto_hand::normalize(&properties.Artist().unwrap_or_default().to_string());
+                    let new_title = self.title != title || self.artist != artist;
                     self.title = title;
+                    self.artist = artist;
+                    self.metadata.album = properties.AlbumTitle().unwrap_or_default().to_string();
+                    self.metadata.track_number = properties.TrackNumber().unwrap_or(0).max(0) as u32;
+                    if new_title {
+                        // Deliver a changed title immediately. Artwork may arrive later;
+                        // never attach the previous track's cover to the new title.
+                        self.artwork.clear();
+                        self.dirty.store(true, Ordering::Release);
+                    } else {
+                        // Schedule from the start of this properties read so the
+                        // one-second fallback is due exactly on the next tick.
+                        let read_at = self.last_read;
+                        if artwork_due(dirty, Instant::now(), self.artwork_next) {
+                            let fingerprint = artwork_fingerprint(&properties);
+                            let present = fingerprint.is_some();
+                            if let Some(hash) = fingerprint { self.artwork = hash; }
+                            // A cover is sampled every second; a missing one backs
+                            // off, but a media event always reads immediately and
+                            // resets the wait. Never skip the fallback entirely.
+                            let (delay, wait) = artwork_schedule(present, self.artwork_wait, dirty);
+                            self.artwork_wait = wait;
+                            self.artwork_next = read_at + delay;
+                        }
+                    }
+                    self.read_revision = self.revision.load(Ordering::Acquire);
                 }
             } else {
                 self.dirty.store(true, Ordering::Release);
@@ -182,14 +253,33 @@ impl Watched {
         Some(Observation {
             platform: platform.into(),
             identity: self.title.clone(),
+            artist: self.artist.clone(),
             signal: Signal::Interface,
             playing,
             ended,
-            progress,
+            progress: progress.clone(),
+            metadata: discoas_core::model::PlaybackMetadata {
+                duration_ms: progress.as_ref().map_or(0, |p| (p.duration * 1000.0) as u64),
+                ..self.metadata.clone()
+            },
+            artwork: self.artwork.clone(),
+            revision: self.read_revision,
+            source: self.session.SourceAppUserModelId().ok()?.to_string(),
         })
     }
 }
+fn artwork_fingerprint(properties: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties) -> Option<String> {
+    let stream = properties.Thumbnail().ok()?.OpenReadAsync().ok().and_then(|op| wait(op).ok())?;
+    let size = stream.Size().ok()?;
+    if size == 0 || size > 1024 * 1024 { return None; }
+    let reader = DataReader::CreateDataReader(&stream).ok()?;
+    if reader.LoadAsync(size as u32).ok().and_then(|op| wait(op).ok())? != size as u32 { return None; }
+    let mut bytes = vec![0; size as usize];
+    reader.ReadBytes(&mut bytes).ok()?;
+    Some(format!("{:x}", md5::compute(bytes)))
+}
 pub struct Reader {
+    wake: Option<mpsc::Sender<()>>,
     manager: Option<Manager>,
     watched: HashMap<String, Watched>,
     titles: HashMap<String, client_window::TitleReader>,
@@ -198,9 +288,128 @@ pub struct Reader {
     local_target: Option<String>,
     local_session: Option<String>,
 }
+pub struct PausedSession {
+    session: Session,
+    token: u64,
+    source: String,
+}
+#[derive(Debug, PartialEq)]
+enum PauseCommand { Pause, Toggle }
+fn next_pause_command(playing: bool, attempts: u8, last_toggle: bool, observed_quiet: bool, elapsed: Option<Duration>, toggle_enabled: bool) -> Option<PauseCommand> {
+    if !playing || attempts >= 4 { return None; }
+    if attempts == 0 { return Some(PauseCommand::Pause); }
+    if observed_quiet && elapsed.is_some_and(|d| d >= Duration::from_millis(200)) {
+        return Some(PauseCommand::Pause);
+    }
+    if !last_toggle && elapsed.is_some_and(|d| d >= Duration::from_millis(500)) {
+        return Some(if toggle_enabled { PauseCommand::Toggle } else { PauseCommand::Pause });
+    }
+    None
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PauseCancel {
+    Continue,
+    Abort,
+    Hold,
+}
+/// A cancellation may abort only before any command has been sent. After that
+/// the client may apply the pause late, so the round must settle or time out.
+fn pause_cancel_action(cancelled: bool, commands_sent: u32) -> PauseCancel {
+    if !cancelled {
+        PauseCancel::Continue
+    } else if commands_sent == 0 {
+        PauseCancel::Abort
+    } else {
+        PauseCancel::Hold
+    }
+}
+
+impl PausedSession {
+    fn status(&self) -> Option<Status> {
+        self.session.GetPlaybackInfo().ok()?.PlaybackStatus().ok()
+    }
+    pub fn maintain(&self, cancelled: &dyn Fn() -> bool) -> Result<(), String> {
+        if cancelled() { return Ok(()); }
+        if self.status() == Some(Status::Playing) {
+            super::diagnostics::trace_auto_hand(self.token, "external_resumed", &self.source);
+            self.pause(cancelled)?;
+        }
+        Ok(())
+    }
+    fn pause(&self, cancelled: &dyn Fn() -> bool) -> Result<(), String> {
+        let started = Instant::now();
+        let mut quiet_since = None;
+        let mut last_request = None;
+        let mut previous = None;
+        let mut attempts = 0;
+        let mut commands_sent = 0u32;
+        let mut observed_quiet = false;
+        let mut last_toggle = false;
+        while started.elapsed() < Duration::from_millis(3000) {
+            // Cancellation may only stop a round that has not sent a command.
+            // Once a Pause/Toggle is on the wire the client may apply it 100~500ms
+            // later, so we must keep the handoff until quiet or timeout.
+            let held = match pause_cancel_action(cancelled(), commands_sent) {
+                PauseCancel::Abort => return Err(CANCELLED_ERROR.into()),
+                PauseCancel::Continue => false,
+                PauseCancel::Hold => true,
+            };
+            let status = self.status();
+            if status != previous {
+                super::diagnostics::trace_auto_hand(self.token, "pause_state", &format!("source={} elapsed_ms={} status={status:?}", self.source, started.elapsed().as_millis()));
+                previous = status;
+            }
+            let quiet = matches!(status, Some(Status::Paused | Status::Stopped));
+            let toggle_enabled = self.session.GetPlaybackInfo().ok().and_then(|info| info.Controls().ok())
+                .is_some_and(|controls| controls.IsPlayPauseToggleEnabled().unwrap_or(false));
+            if let Some(command) = next_pause_command(status == Some(Status::Playing), attempts, last_toggle, observed_quiet, last_request.map(|at: Instant| at.elapsed()), toggle_enabled) {
+                if held {
+                    // A command is already in flight: never queue another one,
+                    // just wait for the client to actually settle.
+                    if !quiet { quiet_since = None; std::thread::sleep(Duration::from_millis(10)); continue; }
+                } else {
+                    // Some clients accept TryPauseAsync without changing state. Their
+                    // directed toggle still works, but must only be sent once while
+                    // playing. Never broadcast a media key or queue repeated toggles.
+                    if command == PauseCommand::Toggle && self.status() != Some(Status::Playing) {
+                        std::thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                    if cancelled() { return Err(CANCELLED_ERROR.into()); }
+                    let operation = match command { PauseCommand::Pause => self.session.TryPauseAsync(), PauseCommand::Toggle => self.session.TryTogglePlayPauseAsync() };
+                    let accepted = operation.and_then(wait).map_err(|_| "错误：播放器暂停请求失败")?;
+                    attempts += 1;
+                    commands_sent += 1;
+                    last_toggle = command == PauseCommand::Toggle;
+                    last_request = Some(Instant::now());
+                    quiet_since = None;
+                    observed_quiet = false;
+                    super::diagnostics::trace_auto_hand(self.token, "pause_reply", &format!("elapsed_ms={} kind={command:?} accepted={accepted} attempt={attempts}", started.elapsed().as_millis()));
+                    if !accepted && !quiet { return Err("错误：播放器拒绝暂停".into()); }
+                    continue;
+                }
+            }
+            if quiet {
+                observed_quiet = true;
+                let since = quiet_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_millis(200) {
+                    super::diagnostics::trace_auto_hand(self.token, "pause_stable", &format!("elapsed_ms={}", started.elapsed().as_millis()));
+                    return Ok(());
+                }
+            } else { quiet_since = None; }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Err("错误：无法确认播放器已暂停".into())
+    }
+}
 impl Reader {
+    #[cfg(test)]
     pub fn new() -> Self {
+        Self::with_wake(None)
+    }
+    pub fn with_wake(wake: Option<mpsc::Sender<()>>) -> Self {
         Self {
+            wake,
             manager: None,
             watched: HashMap::new(),
             titles: HashMap::new(),
@@ -210,6 +419,37 @@ impl Reader {
             local_session: None,
         }
     }
+    #[cfg(test)]
+    pub fn pause(&mut self, platform: &str) -> Result<PausedSession, String> {
+        self.pause_for(platform, None, 0, &|| false)
+    }
+    pub fn pause_observation(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool) -> Result<PausedSession, String> {
+        self.pause_for(platform, source, token, cancelled)
+    }
+    fn pause_for(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool) -> Result<PausedSession, String> {
+        if self.manager.is_none() {
+            self.manager = Manager::RequestAsync().and_then(wait).ok();
+        }
+        let sessions = self.manager.as_ref().and_then(|m| m.GetSessions().ok())
+            .ok_or("错误：无法读取播放器媒体会话")?;
+        let mut selected = None;
+        for index in 0..sessions.Size().unwrap_or(0) {
+            let Ok(session) = sessions.GetAt(index) else { continue; };
+            let Ok(id) = session.SourceAppUserModelId() else { continue; };
+            let id = id.to_string();
+            let matches = source.map_or_else(|| {
+                if platform == names::LOCAL { self.local_session.as_deref() == Some(&id) }
+                else { platform_for_app(&id) == Some(platform) }
+            }, |source| source == id);
+            if !matches { continue; }
+            if selected.is_some() { return Err("错误：播放器存在多个媒体会话，无法确定暂停目标".into()); }
+            selected = Some(PausedSession { session, token, source: id });
+        }
+        let selected = selected.ok_or("错误：未找到对应播放器的媒体会话")?;
+        selected.pause(cancelled)?;
+        Ok(selected)
+    }
+
     pub fn current_platform(&self) -> Option<String> {
         let session = self.manager.as_ref()?.GetCurrentSession().ok()?;
         if session.GetPlaybackInfo().ok()?.PlaybackStatus().ok()? != Status::Playing {
@@ -232,11 +472,10 @@ impl Reader {
             self.local_session = None;
         }
         let mode = active.map_or(mode, |p| mode.for_platform(p));
-        let scan = mode != AutoDetectionMode::Window
-            && (self.last_platform.as_deref() != active
+        let scan = self.last_platform.as_deref() != active
                 || self
                     .last_scan
-                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(1)));
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(1));
         if scan && self.manager.is_none() {
             self.manager = Manager::RequestAsync().and_then(wait).ok();
         }
@@ -264,7 +503,7 @@ impl Reader {
                     found.insert(id.clone());
                     let replace = self.watched.get(&id).is_none_or(|w| w.session != session);
                     if replace {
-                        if let Some(watched) = Watched::new(session) {
+                        if let Some(watched) = Watched::new(session, self.wake.clone()) {
                             self.watched.insert(id, watched);
                         }
                     }
@@ -277,7 +516,7 @@ impl Reader {
         let mut local_candidate = None;
         for (id, watched) in &mut self.watched {
             let platform = platform_for_app(id).unwrap_or(names::LOCAL);
-            if mode == AutoDetectionMode::Window || active.is_some_and(|p| p != platform) {
+            if active.is_some_and(|p| p != platform) {
                 continue;
             }
             if let Some(value) = watched.sample(platform) {
@@ -305,8 +544,17 @@ impl Reader {
         if !ambiguous.contains(names::LOCAL) && local_candidate.is_some() {
             self.local_session = local_candidate;
         }
+        // System detection never reads captions. Skip the window metadata clones
+        // instead of building a map that the loop would immediately discard.
+        if mode == AutoDetectionMode::System {
+            return observations;
+        }
+        // A caption alone cannot distinguish identical titles and artists. Keep
+        // caption detection while borrowing available release/artwork evidence.
+        let native_metadata: HashMap<_, _> = observations.iter().map(|v| (v.platform.clone(), v.clone())).collect();
+        if mode == AutoDetectionMode::Window { observations.clear(); }
         for platform in PLATFORMS {
-            if mode == AutoDetectionMode::System || active.is_some_and(|p| p != platform) {
+            if active.is_some_and(|p| p != platform) {
                 continue;
             }
             let title = self
@@ -314,13 +562,19 @@ impl Reader {
                 .entry(platform.into())
                 .or_insert_with(|| client_window::TitleReader::new(platform).unwrap());
             if let Some(identity) = title.read().and_then(|s| window_identity(platform, &s)) {
+                let native = native_metadata.get(platform);
                 observations.push(Observation {
                     platform: platform.into(),
                     identity,
+                    artist: String::new(),
                     signal: Signal::Window,
-                    playing: active == Some(platform) || audio_active(platform),
+                    playing: native.map_or(active == Some(platform), |v| v.playing),
                     ended: false,
                     progress: None,
+                    metadata: native.map(|v| v.metadata.clone()).unwrap_or_default(),
+                    artwork: native.map(|v| v.artwork.clone()).unwrap_or_default(),
+                    revision: native.map_or(0, |v| v.revision),
+                    source: native.map(|v| v.source.clone()).unwrap_or_default(),
                 });
             }
         }
@@ -340,159 +594,173 @@ fn matches_local_session(
     )
 }
 
-struct AudioSession {
-    id: String,
-    volume: ISimpleAudioVolume,
-    audible: bool,
-}
-fn same_client_audio(client: Client, image: &str, main_image: Option<&str>) -> bool {
-    if client.matches_image(image) {
-        return true;
-    }
-    // Kuwo's audio engine is a sibling executable, not the UI process.
-    client == Client::Kuwo
-        && std::path::Path::new(image)
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("kwservice.exe"))
-        && main_image
-            .zip(std::path::Path::new(image).parent())
-            .is_some_and(|(main, parent)| {
-                std::path::Path::new(main).parent().is_some_and(|p| {
-                    p.to_string_lossy()
-                        .eq_ignore_ascii_case(&parent.to_string_lossy())
-                })
-            })
-}
-fn audio_sessions(platform: &str) -> windows::core::Result<Vec<AudioSession>> {
-    let Some(client) = Client::from_platform(platform) else {
-        return Ok(vec![]);
-    };
-    let main_image = (client == Client::Kuwo)
-        .then(|| client_window::client_image(platform))
-        .flatten();
-    // SAFETY: COM is initialized on the owning worker; all pointers come from successful COM calls.
-    unsafe {
-        let enumerator: IMMDeviceEnumerator =
-            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-        let devices = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
-        let mut result = Vec::new();
-        for index in 0..devices.GetCount()? {
-            let device = devices.Item(index)?;
-            let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) else {
-                continue;
-            };
-            let sessions = manager.GetSessionEnumerator()?;
-            for n in 0..sessions.GetCount()? {
-                let control = sessions.GetSession(n)?;
-                let detail: IAudioSessionControl2 = control.cast()?;
-                let Some(image) = client_window::process_image(detail.GetProcessId()?) else {
-                    continue;
-                };
-                if !same_client_audio(client, &image, main_image.as_deref()) {
-                    continue;
-                }
-                let id_ptr = detail.GetSessionInstanceIdentifier()?;
-                let id = id_ptr.to_string();
-                CoTaskMemFree(Some(id_ptr.0.cast()));
-                result.push(AudioSession {
-                    id: id?,
-                    volume: control.cast()?,
-                    audible: detail.GetState()? == AudioSessionStateActive && control.cast::<windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation>()
-                        .and_then(|meter| meter.GetPeakValue()).is_ok_and(|peak| peak > 0.00001),
-                });
-            }
-        }
-        Ok(result)
-    }
-}
-pub fn audio_active(platform: &str) -> bool {
-    audio_sessions(platform).is_ok_and(|s| s.iter().any(|s| s.audible))
-}
-struct MutedSession {
-    id: String,
-    volume: ISimpleAudioVolume,
-    original: bool,
-}
-pub struct TemporaryMute {
-    platform: String,
-    sessions: Vec<MutedSession>,
-}
-impl TemporaryMute {
-    pub fn new(platform: &str) -> Result<Self, String> {
-        let mut value = Self {
-            platform: platform.into(),
-            sessions: vec![],
-        };
-        value.refresh()?;
-        if value.sessions.is_empty() {
-            return Err("错误：无法静音对应客户端，自动打出已暂停".into());
-        }
-        Ok(value)
-    }
-    pub fn refresh(&mut self) -> Result<(), String> {
-        let sessions =
-            audio_sessions(&self.platform).map_err(|_| "错误：无法读取客户端音频会话")?;
-        for session in sessions {
-            if self.sessions.iter().any(|s| s.id == session.id) {
-                // Some clients clear the same audio session's mute while applying a new URI.
-                unsafe {
-                    if !session
-                        .volume
-                        .GetMute()
-                        .map_err(|_| "错误：无法读取客户端静音状态")?
-                        .as_bool()
-                    {
-                        session
-                            .volume
-                            .SetMute(true, std::ptr::null())
-                            .map_err(|_| "错误：无法静音对应客户端")?;
-                    }
-                }
-                continue;
-            }
-            // SAFETY: only verified client audio sessions are changed; original mute is retained per session.
-            unsafe {
-                let original = session
-                    .volume
-                    .GetMute()
-                    .map_err(|_| "错误：无法读取客户端静音状态")?
-                    .as_bool();
-                session
-                    .volume
-                    .SetMute(true, std::ptr::null())
-                    .map_err(|_| "错误：无法静音对应客户端")?;
-                self.sessions.push(MutedSession {
-                    id: session.id,
-                    volume: session.volume,
-                    original,
-                });
-            }
-        }
-        Ok(())
-    }
-}
-impl Drop for TemporaryMute {
-    fn drop(&mut self) {
-        for session in &self.sessions {
-            // Session objects retain the original instance even if the client replaces its process/session.
-            unsafe {
-                let _ = session.volume.SetMute(session.original, std::ptr::null());
-            }
-        }
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_artwork_backs_off_one_two_four_five_without_dropping_events() {
+        let mut wait = Duration::from_secs(1);
+        let mut due = 0u64;
+        let mut reads = Vec::new();
+        for now in 0..=20u64 {
+            if now >= due {
+                reads.push(now);
+                let (delay, retry) = artwork_schedule(false, wait, false);
+                wait = retry;
+                due = now + delay.as_secs();
+            }
+        }
+        assert_eq!(reads, vec![0, 1, 3, 7, 12, 17]);
+        // 6 fallback reads in 20s instead of 21; the read count is the
+        // observable frequency this test locks in.
+        println!("missing-artwork fallback reads in 20s: {} (every-second: 21)", reads.len());
+        assert!(reads.len() < 21);
+        // A media event reads immediately and resets the backoff.
+        let (delay, retry) = artwork_schedule(false, Duration::from_secs(4), true);
+        assert_eq!((delay.as_secs(), retry.as_secs()), (1, 2));
+        // A present cover keeps the original one-second fallback.
+        let (delay, retry) = artwork_schedule(true, Duration::from_secs(4), false);
+        assert_eq!((delay.as_secs(), retry.as_secs()), (1, 1));
+        let now = Instant::now();
+        assert!(artwork_due(true, now, now + Duration::from_secs(60)));
+        assert!(artwork_due(false, now, now));
+        assert!(!artwork_due(false, now, now + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn a_sent_pause_is_not_aborted_by_late_cancellation() {
+        assert_eq!(pause_cancel_action(true, 0), PauseCancel::Abort);
+        assert_eq!(pause_cancel_action(true, 1), PauseCancel::Hold);
+        assert_eq!(pause_cancel_action(false, 0), PauseCancel::Continue);
+        assert_eq!(pause_cancel_action(false, 3), PauseCancel::Continue);
+    }
+
+    #[test]
+    fn a_lost_pause_uses_one_directed_toggle_without_queuing_more_toggles() {
+        assert_eq!(next_pause_command(true, 0, false, false, None, true), Some(PauseCommand::Pause));
+        assert_eq!(next_pause_command(true, 1, false, false, Some(Duration::from_millis(200)), true), None);
+        assert_eq!(next_pause_command(true, 1, false, false, Some(Duration::from_millis(500)), true), Some(PauseCommand::Toggle));
+        assert_eq!(next_pause_command(true, 2, true, false, Some(Duration::from_millis(1000)), true), None);
+        assert_eq!(next_pause_command(false, 2, true, true, Some(Duration::from_millis(1000)), true), None);
+        assert_eq!(next_pause_command(true, 2, true, true, Some(Duration::from_millis(1000)), true), Some(PauseCommand::Pause));
+    }
+    #[test]
+    #[ignore = "reads installed media sessions on the interactive Windows desktop"]
+    fn live_session_inventory() {
+        let _apartment = Apartment::init().unwrap();
+        let manager = Manager::RequestAsync().and_then(wait).unwrap();
+        let sessions = manager.GetSessions().unwrap();
+        for index in 0..sessions.Size().unwrap() {
+            let session = sessions.GetAt(index).unwrap();
+            println!("{}: {:?}", session.SourceAppUserModelId().unwrap(), session.GetPlaybackInfo().unwrap().PlaybackStatus().unwrap());
+            if let Ok(p) = session.TryGetMediaPropertiesAsync().and_then(wait) {
+                println!("title={} artist={} album={} track={:?} subtitle={}", p.Title().unwrap_or_default(), p.Artist().unwrap_or_default(), p.AlbumTitle().unwrap_or_default(), p.TrackNumber(), p.Subtitle().unwrap_or_default());
+            }
+        }
+    }
+    #[test]
+    #[ignore = "sends one pause request to the installed player and traces its actual state"]
+    fn live_pause_once() {
+        let _apartment = Apartment::init().unwrap();
+        let manager = Manager::RequestAsync().and_then(wait).unwrap();
+        let sessions = manager.GetSessions().unwrap();
+        let session = (0..sessions.Size().unwrap()).filter_map(|i| sessions.GetAt(i).ok())
+            .find(|s| s.SourceAppUserModelId().ok().is_some_and(|id| platform_for_app(&id.to_string()) == Some(names::NETEASE))).unwrap();
+        let start = Instant::now();
+        println!("initial={:?}", session.GetPlaybackInfo().unwrap().PlaybackStatus().unwrap());
+        let controls = session.GetPlaybackInfo().unwrap().Controls().unwrap();
+        println!("pause_enabled={:?} toggle_enabled={:?}", controls.IsPauseEnabled(), controls.IsPlayPauseToggleEnabled());
+        let command = if std::env::var_os("DISCOAS_QA_TOGGLE").is_some() { session.TryTogglePlayPauseAsync() } else { session.TryPauseAsync() };
+        println!("accepted={:?}", command.and_then(wait));
+        let mut last = None;
+        while start.elapsed() < Duration::from_secs(3) {
+            let status = session.GetPlaybackInfo().unwrap().PlaybackStatus().unwrap();
+            if last != Some(status) { println!("elapsed_ms={} state={status:?}",start.elapsed().as_millis()); last=Some(status); }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    #[test]
+    #[ignore = "pauses the selected installed player on the interactive Windows desktop"]
+    fn live_directed_pause() {
+        let _apartment = Apartment::init().unwrap();
+        let platform =
+            std::env::var("DISCOAS_QA_PLATFORM").unwrap_or_else(|_| names::NETEASE.into());
+        let mut reader = Reader::new();
+        let before = reader.sample(Some(&platform), AutoDetectionMode::System, None);
+        assert!(!before.is_empty(), "no media session for {platform}");
+        let began = Instant::now();
+        reader.pause(&platform).unwrap();
+        println!(
+            "{platform} pause confirmed in {:.2} ms",
+            began.elapsed().as_secs_f64() * 1000.0
+        );
+        assert!(reader
+            .sample(Some(&platform), AutoDetectionMode::System, None)
+            .iter()
+            .all(|value| !value.playing));
+    }
+    #[test]
+    #[ignore = "advances the selected installed player for an isolated automatic-handoff check"]
+    fn live_external_next() {
+        let _apartment = Apartment::init().unwrap();
+        let platform =
+            std::env::var("DISCOAS_QA_PLATFORM").unwrap_or_else(|_| names::NETEASE.into());
+        let manager = Manager::RequestAsync().and_then(wait).unwrap();
+        let sessions = manager.GetSessions().unwrap();
+        let session = (0..sessions.Size().unwrap())
+            .filter_map(|index| sessions.GetAt(index).ok())
+            .find(|session| {
+                session
+                    .SourceAppUserModelId()
+                    .ok()
+                    .is_some_and(|id| platform_for_app(&id.to_string()) == Some(platform.as_str()))
+            })
+            .expect("selected player's session");
+        assert!(session.TryPlayAsync().and_then(wait).unwrap());
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(session.TrySkipNextAsync().and_then(wait).unwrap());
+        println!("{platform}: external next accepted");
+    }
+    #[test]
+    #[ignore = "selects real NetEase tracks for an isolated handoff or pause check"]
+    fn live_track_change_probe() {
+        let _apartment = Apartment::init().unwrap();
+        let root = std::env::var("DISCOAS_QA_TRACE_ROOT").unwrap();
+        super::super::diagnostics::set_isolation_root(root.into());
+        let id = std::env::var("DISCOAS_QA_SONG").unwrap();
+        let mut reader = Reader::new();
+        reader.sample(Some(names::NETEASE), AutoDetectionMode::System, None);
+        let before = reader.sample(Some(names::NETEASE), AutoDetectionMode::System, None).pop();
+        println!("before={before:?}");
+        let started = Instant::now();
+        tauri_plugin_opener::open_url(discoas_core::platforms::netease::card::scheme_url(&id), None::<&str>).unwrap();
+        let mut last = String::new();
+        let mut paused = false;
+        while started.elapsed() < Duration::from_secs(8) {
+            if let Some(value) = reader.sample(Some(names::NETEASE), AutoDetectionMode::System, None).pop() {
+                let signature = format!("{}:{}:{}:{}", value.identity, value.artist, value.artwork, value.playing);
+                if signature != last { println!("elapsed_ms={} value={value:?}", started.elapsed().as_millis()); last = signature; }
+                let changed = before.as_ref().is_some_and(|old| old.identity != value.identity || old.artist != value.artist || !old.artwork.is_empty() && !value.artwork.is_empty() && old.artwork != value.artwork);
+                if changed && !paused && std::env::var_os("DISCOAS_QA_PAUSE").is_some() {
+                    reader.pause_observation(&value.platform, (!value.source.is_empty()).then_some(value.source.as_str()), 100, &|| false).unwrap();
+                    paused = true;
+                    println!("pause_complete_ms={}", started.elapsed().as_millis());
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     #[test]
     fn local_player_binds_by_the_requested_title_and_keeps_its_own_session() {
         let mut value = Observation {
             platform: names::LOCAL.into(),
             identity: track_title("DiscoAS Local QA A"),
+            artist: String::new(),
             signal: Signal::Interface,
             playing: true,
             ended: false,
             progress: None,
+            metadata: Default::default(), artwork: String::new(), revision: 0, source: String::new(),
         };
         assert!(!matches_local_session(
             None,
@@ -536,9 +804,16 @@ mod tests {
                 continue;
             }
             let mut reader = Reader::new();
+            reader.sample(Some(&platform), mode, None);
             let values = reader.sample(Some(&platform), mode, None);
             println!("{platform} {mode:?}: {values:?}");
             assert!(!values.is_empty(), "no observation in {mode:?}");
+            if mode == AutoDetectionMode::Mixed {
+                if let (Some(native), Some(window)) = (values.iter().find(|v| v.signal == Signal::Interface), values.iter().find(|v| v.signal == Signal::Window)) {
+                    assert_eq!(native.artwork, window.artwork);
+                    assert_eq!(native.playing, window.playing);
+                }
+            }
             let began = Instant::now();
             for _ in 0..40 {
                 reader.sample(Some(&platform), mode, None);
@@ -560,101 +835,6 @@ mod tests {
             "fakeQQMusic.exe",
         ] {
             assert_eq!(platform_for_app(id), None);
-        }
-    }
-    #[test]
-    fn kuwo_helper_must_share_the_verified_install_directory() {
-        assert!(same_client_audio(
-            Client::Kuwo,
-            r"D:\kuwo\bin\KwService.exe",
-            Some(r"D:\kuwo\bin\KwMusic.exe")
-        ));
-        assert!(!same_client_audio(
-            Client::Kuwo,
-            r"C:\other\KwService.exe",
-            Some(r"D:\kuwo\bin\KwMusic.exe")
-        ));
-        assert!(!same_client_audio(
-            Client::Qq,
-            r"D:\kuwo\bin\KwService.exe",
-            None
-        ));
-    }
-    #[test]
-    #[ignore = "requires the six installed clients and their Windows audio sessions"]
-    fn live_inventory_and_mute_restoration() {
-        let _apartment = Apartment::init().unwrap();
-        let mut reader = Reader::new();
-        let observations = reader.sample(None, AutoDetectionMode::Mixed, None);
-        for platform in PLATFORMS {
-            let observation = observations
-                .iter()
-                .find(|v| {
-                    v.platform == platform
-                        && (v.signal == Signal::Interface || platform == names::KUWO)
-                })
-                .unwrap_or_else(|| panic!("missing observation: {platform}"));
-            println!(
-                "{platform}: {:?}, progress={}",
-                observation.signal,
-                observation.progress.is_some()
-            );
-            if platform == names::KUWO {
-                assert_eq!(observation.signal, Signal::Window);
-            } else {
-                assert_eq!(observation.signal, Signal::Interface);
-            }
-            let sessions = audio_sessions(platform).unwrap();
-            assert!(!sessions.is_empty(), "missing audio session: {platform}");
-            let mut restore = TemporaryMute {
-                platform: platform.into(),
-                sessions: vec![],
-            };
-            let mut volumes = vec![];
-            for session in sessions {
-                unsafe {
-                    volumes.push(session.volume.GetMasterVolume().unwrap());
-                    restore.sessions.push(MutedSession {
-                        id: session.id,
-                        original: session.volume.GetMute().unwrap().as_bool(),
-                        volume: session.volume,
-                    });
-                }
-            }
-            {
-                let mut mute = TemporaryMute::new(platform).unwrap();
-                for session in &restore.sessions {
-                    assert!(unsafe { session.volume.GetMute().unwrap().as_bool() });
-                }
-                unsafe {
-                    restore.sessions[0]
-                        .volume
-                        .SetMute(false, std::ptr::null())
-                        .unwrap();
-                }
-                mute.refresh().unwrap();
-                assert!(unsafe { restore.sessions[0].volume.GetMute().unwrap().as_bool() });
-            }
-            for (session, volume) in restore.sessions.iter().zip(&volumes) {
-                assert_eq!(
-                    unsafe { session.volume.GetMute().unwrap().as_bool() },
-                    session.original
-                );
-                assert_eq!(
-                    unsafe { session.volume.GetMasterVolume().unwrap() },
-                    *volume
-                );
-                unsafe {
-                    session.volume.SetMute(true, std::ptr::null()).unwrap();
-                }
-            }
-            {
-                let _mute = TemporaryMute::new(platform).unwrap();
-            }
-            for session in &restore.sessions {
-                assert!(unsafe { session.volume.GetMute().unwrap().as_bool() });
-            }
-            drop(restore);
         }
     }
 }

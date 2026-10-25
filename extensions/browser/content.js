@@ -1,6 +1,6 @@
 (() => {
   const extensionApi = globalThis.browser ?? globalThis.chrome;
-  const AUTO_PLAY_AVAILABLE = false;
+  const AUTO_PLAY_AVAILABLE = true;
   const mediaEvents = ["playing", "pause", "loadeddata", "error", "ended", "timeupdate"];
   let binding = null, observedVideo = null, tried = false, confirmed = false;
   let pageActive = true, pageEpoch = 0, pausedByDiscoAS = false;
@@ -30,16 +30,17 @@
   function accept(value) {
     if (!pageActive || !value || value.requestId === binding?.requestId) return;
     binding = value; confirmed = !!value.confirmed; tried = false; pausedByDiscoAS = false;
-    if (confirmed && !AUTO_PLAY_AVAILABLE) { stopWatching(); return; }
+    if (confirmed && (!AUTO_PLAY_AVAILABLE || binding?.observing !== true)) { stopWatching(); return; }
     if (pollTimer === null) pollTimer = setInterval(tick, 250);
     tick();
   }
   async function tick() {
     if (!pageActive || !binding || pausedByDiscoAS) return;
     if (confirmed) {
-      if (!AUTO_PLAY_AVAILABLE) { stopWatching(); return; }
+      if ((!AUTO_PLAY_AVAILABLE || binding?.observing !== true)) { stopWatching(); return; }
       const actual = DiscoASBrowser.identity(location.href), video = mainVideo();
       if (!actual || !video || inAd() || video.error || video.readyState < 2) return;
+      if (observedVideo !== video) { unwatchVideo(); observedVideo = video; mediaEvents.forEach(event => video.addEventListener(event, tick)); }
       await send({ type: "discoas-observation", requestId: binding.requestId,
         playing: !video.paused && !video.ended, ended: video.ended,
         position: video.currentTime, duration: video.duration });
@@ -82,18 +83,25 @@
       await send({ type: "discoas-state", requestId: request.requestId, playing: true, ad });
       if (current()) {
         confirmed = true;
-        if (!AUTO_PLAY_AVAILABLE) stopWatching();
+        if ((!AUTO_PLAY_AVAILABLE || binding?.observing !== true)) stopWatching();
       }
     }
   }
-  extensionApi.runtime.onMessage.addListener((message) => {
+  extensionApi.runtime.onMessage.addListener((message, _sender, reply) => {
+    if (message.type === "discoas-observe" && binding) {
+      binding = { ...binding, observing: message.enabled === true };
+      if (confirmed && !binding.observing) stopWatching();
+      else { if (pollTimer === null) pollTimer = setInterval(tick, 250); tick(); }
+    }
     if (message.type === "discoas-bind") accept(message.binding);
-    if (message.type === "discoas-pause" && pageActive) {
+    if (message.type === "discoas-pause" && pageActive && (message.requestId === undefined || message.requestId === binding?.requestId)) {
       // Avoid racing an old playing event with navigation to the new request.
       confirmed = true;
       pausedByDiscoAS = true;
       stopWatching();
-      mainVideo()?.pause();
+      const video = mainVideo();
+      video?.pause();
+      reply?.({ paused: !!video && (video.paused || video.ended) });
     }
   });
   // Firefox may retain content scripts in its history cache. A suspended page
@@ -104,5 +112,7 @@
     pageActive = true; pageEpoch++; binding = null; confirmed = false;
     requestBinding();
   });
+  window.addEventListener("popstate", tick);
+  window.addEventListener("yt-navigate-finish", tick);
   requestBinding();
 })();

@@ -381,7 +381,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unavailable_auto_play_is_disabled_on_load_and_save() {
+    fn auto_play_preference_survives_load_and_save() {
         let path = std::env::temp_dir().join(format!(
             "discoas-auto-play-disabled-{}.json",
             rand::random::<u64>()
@@ -393,7 +393,7 @@ mod tests {
         .unwrap();
         let mut settings = MusicSetting::load_from_path(&path).unwrap();
         assert!(settings.hand.enabled);
-        assert!(!settings.hand.auto_play);
+        assert!(settings.hand.auto_play);
         assert_eq!(
             settings.hand.auto_play_position,
             crate::hand::AutoPlayPosition::Last
@@ -402,7 +402,7 @@ mod tests {
         settings.save_to_path(&path).unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(saved["hand"]["auto_play"], false);
+        assert_eq!(saved["hand"]["auto_play"], true);
         assert_eq!(saved["hand"]["enabled"], true);
         assert_eq!(saved["hand"]["auto_play_position"], "last");
         std::fs::remove_file(path).unwrap();
