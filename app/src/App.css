@@ -578,6 +578,7 @@ a {
   font-size: calc(10px * var(--font-scale, 1));
 }
 .settings-section {
+  --setting-row-height: calc(60px * max(1, var(--font-scale, 1)));
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -587,7 +588,6 @@ a {
   color: var(--text-secondary);
   background: var(--surface-subtle);
   padding: 11px 18px;
-  border-bottom: 1px solid var(--border);
   border-radius: 8px 8px 0 0;
   font-size: calc(12px * var(--font-scale, 1));
   font-weight: 550;
@@ -597,9 +597,6 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-.setting-row:last-child {
-  border: 0;
 }
 .setting-row > div:first-child {
   min-width: 0;
@@ -689,7 +686,6 @@ a {
   font-size: calc(11px * var(--font-scale, 1));
 }
 .cover-setting .button {
-  height: 36px;
   font-size: calc(11px * var(--font-scale, 1));
 }
 .unsaved-note {
@@ -1506,7 +1502,8 @@ html.floating-window #root {
 }
 .settings-topbar > div { min-width: 0; }
 .settings-topbar .button { margin-left: auto; flex-shrink: 0; }
-.setting-row { flex-wrap: wrap; padding: 12px 18px; gap: 14px; border-bottom: 1px solid var(--border); }
+/* A row owns its leading separator, including when Reveal adds a wrapper. */
+.setting-row { flex-wrap: wrap; min-height: var(--setting-row-height, 60px); padding: 12px 18px; gap: 14px; border-top: 1px solid var(--border); }
 .setting-label { display: inline-flex; align-items: center; gap: 7px; }
 .setting-control { min-width: 0; max-width: 100%; }
 .setting-control .button { min-height: 30px; padding: 5px 10px; }
