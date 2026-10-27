@@ -28,8 +28,8 @@
 | 单卡替换、每批预算、状态 DTO 与信息条 | `crates/discoas-core/src/model.rs`、`discovery_service.rs`、`core/cache.rs`；前端 `app/src/features/discovery/` |
 | 手牌保存、收牌、持有排除与打出 | `crates/discoas-core/src/hand.rs`、`discovery_service.rs`；桌面 `app/src-tauri/src/desktop/hand.rs`、`hand_drag.rs`、`playback.rs`；前端 `app/src/features/hand/`、`HandDragWindow.tsx`、`features/settings/HandSettings.tsx` |
 | 自动打出手牌（实验） | 核心 `auto_hand.rs` 的换曲观察、去重与操作锁；桌面 `desktop/auto_hand.rs`、`auto_hand_native.rs`；普通手牌 `hand_actions.rs` 与共用 `playback.rs`；网页 `services/browser_bridge.rs`、`extensions/browser/` |
-| 迷你发现 | `HandDiscoverySettings`、`DiscoveryService::for_hand`、`Cache::independent`；桌面 `desktop/hand_discovery.rs`；共享手牌窗口、Logo 浮窗和设置预览 |
-| 穿透尺寸预览、原生指针和按键观察 | `app/src-tauri/src/desktop/discovery_preview.rs`、`preview_keyboard.rs`；前端 `app/src/features/settings/useDiscoveryPreview.ts`、`app/src/features/discovery/` |
+| 迷你发现 | `HandDiscoverySettings`、`DiscoveryService::for_hand`、`Cache::independent`；桌面 `desktop/hand_discovery.rs`；共享手牌窗口与 Logo 浮窗 |
+| 原生指针、按键观察和浮窗生命周期 | `app/src-tauri/src/desktop/hand_input.rs`、`preview_keyboard.rs`、`discovery_preview.rs`；前端 `app/src/features/discovery/`、`features/hand/` |
 | 导入进度、取消与网络任务提交 | `platforms::PlaylistFetcher::fetch_with_progress`、`app/src-tauri/src/services/library_jobs.rs`、`desktop/library.rs` |
 | Spotify 切歌、可选扩展安装与已有配置恢复 | `app/src-tauri/src/spotify_playback.rs`、`spotify_setup.rs`、`services/spotify_setup.rs`、`installer/`、`extensions/spotify/` |
 | Apple Music 公开来源、网页队列与选歌 | `crates/discoas-core/src/platforms/apple_music/`、`extensions/browser/apple-music-main.js`、`apple-music-bridge.js`、`app/src-tauri/src/browser_playback.rs` |
@@ -70,6 +70,8 @@
 2.0.9 的设置分类由 `features/settings/settingsNavigation.ts` 管理，在原侧栏“设置”下展开二级菜单，仅在设置页显示。最后使用的分类保存在当前窗口的本地存储中，切换分类保留设置草稿。保存错误留在设置页，放弃更改恢复各组最后保存的值。`theme.ts` 解析系统与手动主题；新配置默认跟随系统，旧 `gui_setting.json` 缺少 `follow_system_theme` 时保留原日夜选择。主窗口、发现、手牌、独立浮窗与托盘菜单订阅系统主题变化。
 
 歌单页当前卡池右侧提供发现按钮，列表继续显示启用、更新、编辑与删除操作。添加歌单先提取分享链接并识别平台、类型，也支持手动选择及本地音频；平台 SVG 位于 `app/src/assets/platforms/`，署名与许可证在同目录 `NOTICE.txt`。面向用户的旧“来源”消息由 `i18n.ts` 统一为“卡池”，存储字段与平台接口保持兼容。播放失败提示通过桌面事件进入主窗口的播放连接分类。
+
+2.0.14 的设置整理将全局发现、手牌展开／收纳、前九张打出和键盘选歌统一放在「快捷键」，手牌与迷你发现关闭时仍可编辑绑定。发现显示器、卡片与按钮大小归入「发现外观与布局」，「收牌后保留发现界面」归入「发现偏好」；通用外观与发现尺寸分别还原，保留另一组草稿及语言。客户端隐藏与独立桌面继续位于「播放连接 → 窗口与播放」。
 
 ## 依赖规则
 
@@ -113,7 +115,7 @@
 
 酷我原生播放 URI 在官网歌曲页取得，并核对固定协议、字段和目标 `MUSIC_<id>`，保留官方 Base64 的字面 `+`；页面读取复用共享 HTTP 连接池，已校验 URI 在 5 分钟内复用。桌面先在操作锁内验证来源并记录 `current_batch_epoch`，释放锁后联网，重新获得锁后二次核对完整来源与批次标记，再读取最新播放设置并唤起客户端。只影响预加载的 `generation` 变化不使当前可见批次失效；取消、换批、选择和来源变化仍不能让旧请求播放。汽水使用官方 Windows 客户端 `luna://luna.com/playing?track_id=...` 协议；客户端识别仅匹配 `SodaMusic.exe`，酷我匹配 `KwMusic.exe`，不把同名辅助进程作为播放器。URI 构造或元数据读取通过不能代替真实客户端切歌验收。
 
-> 2026-10-21 起，播放路径不再使用 DiscoAS 虚拟桌面：改为在当前桌面隐藏本地客户端，并在隐藏时把窗口移到屏幕外，避免 URI handler 显示窗口的一瞬在屏幕上闪出；长期隐藏由持续看门狗保持，只有“显示客户端”按钮取消。临时隐藏在延时结束后把原本可见的客户端最小化（不弹窗），原本隐藏的保持隐藏。客户端可见或最小化时会被 URI handler 前台激活并切桌面，隐藏则不会。以下独立桌面段落保留为历史记录。
+> 以下屏外隐藏方案是 2.0.13 的历史实现。2.0.14 已改为播放前准备并核验后台桌面，移除同桌面的屏外移动和隐藏看门狗；当前行为见文末 2.0.14 补充。
 
 `DesktopPreferences.client_window_mode` 与旧的最小化开关相互独立（历史设计）：`off` 不处理主窗口，`temporary` 在打开 scheme 前把客户端主窗口移到名为 `DiscoAS` 的虚拟桌面并在等待时间后移回，`persistent` 保持在该桌面，只有设置页的“显示客户端”才移回。临时模式移回后仍遵守“播放后最小化客户端”；独立桌面使用 Explorer 的未公开 `IVirtualDesktopManagerInternal`（`IServiceProvider` → `IApplicationViewCollection` + 内部 manager）移动其他进程的主窗口。公开的 `IVirtualDesktopManager` 只用于查询，不能跨进程移动，会返回 `E_ACCESSDENIED`。移动走 22H2–25H2 共有的早期 vtable 方法：先 `GetViewForHwnd`，再 `GetDesktops` 枚举并调用每个桌面对象的 `GetId`，最后 `MoveViewToDesktop`；不依赖 24H2 才改到 slot 14 的 `FindDesktop`，因此可同时覆盖 22H2/23H2 与 24H2/25H2。启动状态用实际 COM 探测（`automatic_move_supported`），不按 build 号猜测；只有成功结果缓存 15 秒，临时的 COM 失败不缓存，设置页的“重新检测”显式失效后立即重探。播放前（`prepare`）强制新探测并在失败后短暂重试一次，避免状态页缓存把一次瞬时失败放大成播放回退。未知的 26H2+ 若接口仍可查询则尝试移动，否则禁用并回退，而不是崩溃。创建仍使用 `Win+Ctrl+D`，桌面名称和 GUID 从 Explorer 注册表读取，首次启用需在任务视图把新桌面改名为 `DiscoAS`。对已在运行、托盘隐藏或最小化的客户端，先找到真实主窗口再移动；客户端完全关闭时，scheme 启动后由短时 watcher 找到新主窗口并移到目标桌面。播放时不得对客户端调用激活或切换桌面：客户端在后台桌面时 scheme 可以静默切歌，手动把客户端拖到后台桌面后实测不会弹窗也不会切桌面。移动隐藏/托盘窗口时直接尝试内部 `MoveViewToDesktop`；隐藏窗口可能还没有 `IApplicationView`，查询/移动返回 `0x8002802B` 时用 `ShowWindowAsync(SW_SHOWNOACTIVATE)` 在**当前**桌面显示以获得 view，再移动。移动后必须用 `ShowWindowAsync(SW_HIDE)` 保持客户端隐藏，并有界确认 `!IsWindowVisible`；未确认则本次不宣称隔离成功。实机对比确认：客户端可见或最小化时，NetEase 的 URI handler 会把客户端前台激活并切到 `DiscoAS`；保持隐藏时不会切桌面，且隐藏状态仍能正常切歌。因此正常隔离播放不恢复、不最小化客户端，只有设置页的“显示客户端”才显式显示并激活。隐藏确认不使用 `SW_RESTORE`/`SetForegroundWindow`。URI 在隔离播放时不能走普通 opener（其 `ShellExecuteExW.nShow` 是 `SW_SHOWNORMAL`），而要走显式 STA 初始化、`SEE_MASK_FLAG_NO_UI`、`nShow = SW_SHOWNOACTIVATE` 的打开路径；这样客户端不会因 URI 投递被要求前台显示。功能开启时即使 `prepare` 因探测/桌面瞬时失败返回 false，也仍使用非激活打开并回退旧最小化，绝不能回退到会激活客户端的普通 opener。`prepare` 的 gate、桌面缺失和移动结果都写入诊断日志，避免再出现“没有 prepare 日志但使用了普通 opener”的盲区。临时模式的返回计时在 URI 投递成功后由 playback 调用启动，投递失败则 abort；返回前停止冷启动 watcher，避免它把窗口再次搬回。只有在客户端不在 `DiscoAS` 时才移动一次，已经在目标桌面时只做非激活恢复；移动失败则回退旧的最小化流程，不再用切桌面补偿。隔离过程写入 `user_data/logs/client-isolation.log`（256 KiB 轮转，记录 stage/HWND/桌面 GUID/可见状态/HRESULT，不记录标题、URL 或凭据）。桌面未配置、COM 探测失败或目标桌面不存在时不接管播放，回退到原最小化流程；`create_client_desktop` 只创建不自动改名，前端轮询配置状态。该流程覆盖网易云、QQ、酷狗、酷我、汽水和 Spotify scheme 模式，浏览器播放与本地文件不处理。
 
@@ -121,7 +123,7 @@
 
 浏览器扩展只控制绑定页面，确认首次播放后结束比较；自动续播不写入历史或触发发现事件。Apple Music 由官方网页播放器的 MusicKit 驱动：Chrome / Edge 使用主世界脚本，Firefox 使用 `wrappedJSObject` + `cloneInto`/`exportFunction`；脚本把来源 `song_ids` 写成网页队列并切到选中歌曲（不能按索引跳转时把选中曲放到队首），再读取 `nowPlayingItem`/`playbackTimeDidChange` 回报；首次自动播放被浏览器拦截时由用户在该页面点击一次。两种浏览器都需要先登录 `music.apple.com`。Spicetify 安装 / 配置在操作锁外运行，校验固定资源、保留已有配置和备份。首次安装仅由设置中的明确操作发起；启动、保存模式和选歌的自动入口必须先检查有效且未移除的 DiscoAS 安装记录，服务锁内再检查一次。NSIS 没有安装时自动部署钩子，升级保留配置，卸载仅撤销本应用内容。
 
-## 发现状态、替换与预览
+## 发现状态与替换
 
 `discover_batch` / `get_discovery_state` 返回 `DiscoveryStateDto`，前端对应 `DiscoveryState`：`songs`、`batchEpoch`、`remainingSongs`、`replacementsRemaining`、`exclusionEnabled`、`replacementEnabled`、`preview`。批次或元数据改变时，在操作锁内发送完整 `discovery-state-changed`；仅计数、排除与预算改变时发送不含 `songs` 的 `discovery-status-changed`。核心分别维护批次 epoch 和元数据 revision，同身份的详情修复仍触发完整更新。前端按 epoch 合并解码期间收到的轻量状态，不重启未变卡片的动画。歌曲设置保留 snake_case，跨桌面的 DTO 使用 camelCase。
 
@@ -147,15 +149,9 @@
 
 发现卡片网格每行最多 5 张，列数随当前可用宽度与卡片比例减少；键盘移动仍以实际 slot 行位置为准。独立 `.discovery-status-bar` 定位在卡片组下方，不参与全屏居中计算。开启排除时第一行显示剩余卡池，开启替换时第二行显示次数；功能关闭跳过对应行，两项关闭则不产生信息条。`GuiSetting` 的 `replacement_button_size`、`discovery_bar_size` 分别独立缩放，范围 0.50–3.00。
 
-普通发现浮窗淡入期间禁用卡片操作，卡片本身保持 100% 不透明度，由外层统一淡入；尺寸预览继续使用自身的 25% 透明度规则。
+普通发现浮窗淡入期间禁用卡片操作，卡片本身保持 100% 不透明度，由外层统一淡入。
 
-`start_discovery_preview` 使用设置 / 外观草稿调用 `prepare_preview`，保存独立 `PreviewState`，不修改真实当前批次、预加载队列、历史、权重轮次或替换预算。`update_discovery_preview` 更新同一会话的外观及按键，不重新抽歌、不保存草稿；`end_discovery_preview` 或 `preview-closed` 结束预览并同步设置开关。预览卡片默认 25% 不透明度，指针悬停或键盘选中变为 100%，前后端均阻止播放和替换。会话 generation 与生命周期锁同时约束准备、窗口效果、退出动画及观察任务，关闭后的旧准备结果不能重新打开浮窗。
-
-Windows 预览让卡片和背景穿透；右上退出按钮是唯一临时接受鼠标点击的命中区域。`desktop/discovery_preview.rs` 使用 `GetPhysicalCursorPos`、窗口屏幕原点和当前 DPI 比例转换指针，避免后台线程的 DPI 虚拟化，发送 `preview-pointer`。`preview_keyboard.rs` 在 Tauri UI 消息循环中安装临时 `WH_KEYBOARD_LL`，只保留配置键、修饰键和 Esc 的瞬时状态，始终转发输入；回调只发送有界事件，不等待生命周期锁、不执行窗口或文件操作。退出时先原子停用，再按会话卸载，旧卸载不能移除新会话。Esc 有独立优先通道，打开时按住的键不会触发，修改按键后缓冲的旧事件被拒绝。前端区分 native / DOM 来源防止重复处理。`preview-appearance` 只作用于预览会话，退出后恢复正式外观。原生调用不能下移至核心库。
-
-预览指针观察保持 24ms 间隔，每次只复制关闭按钮区域；按键事件在会话锁内核对当前绑定，两条观察路径均直接读取会话，不复制整批歌曲与封面。
-
-原生窗口显示及关闭回调先转入后台执行，统一按 `operation → lifecycle` 的顺序提交；UI 线程不能反向等待生命周期锁。安装按键观察前释放这两把锁，再等待 UI 确认。预览关闭期间的查询和播放继续隔离，正常浮窗打开时才清除关闭标记；重复退出为最新 generation 保留隐藏兜底。
+2.0.14 移除发现尺寸预览和手牌／迷你发现布局预览的设置开关、前端会话 Hook 及原生创建／更新命令注册。主窗口继续通过 `useAppearance(guiDraft)` 即时应用外观草稿，放弃更改时恢复。`discovery_preview.rs` 中普通浮窗共用的生命周期锁、关闭清理，以及 `preview_keyboard.rs` 中真实手牌使用的按键观察仍由原调用方复用；锁顺序保持 `operation → lifecycle`。
 
 ## 界面与交互约定
 
@@ -165,13 +161,13 @@ Windows 预览让卡片和背景穿透；右上退出按钮是唯一临时接受
 
 `hand/cards.json` 保存独立身份、原平台播放参数和真实元数据，不存封面 data URI；前端投影按收牌时的揭晓选项隐藏信息。切换或删除来源、重新启动或关闭模式均保留手牌。持有身份按平台 / 歌曲排除发现和替补，收牌使旧预加载准备失效；打出和弃牌重新计算持有集合。历史排除继续独立生效。打出通过共用 `desktop/playback.rs` 唤起客户端，不再记录选择或重复减权。普通手牌尝试播放后消耗，失败直接丢牌；普通协议的唤起成功沿用现有播放接口含义。
 
-自动打出手牌作为实验功能恢复，Rust 与前端的 AUTO_PLAY_AVAILABLE 为 true，设置加载、保存和启动保留 hand.auto_play。默认关闭，普通手牌开启后可设置首／末张及 system / window / mixed 检测方式；迷你发现卡不参与自动选牌，Spotify 也可作为观察来源或目标。
+自动打出手牌作为实验功能恢复，Rust 与前端的 AUTO_PLAY_AVAILABLE 为 true，设置加载、保存和启动保留 hand.auto_play。默认关闭，普通手牌开启后可设置首／末张；2.0.14 起检测方式由桌面层按平台实际能力自动选择一个主观察源，设置不再显示或写回检测方式，旧 `auto_play_detection` 字段只读兼容，不参与钉死策略。迷你发现卡不参与自动选牌，Spotify 也可作为观察来源或目标。
 
-开启后，下一张普通手牌以橙色内边框提示，浅色 #C55300、深色 #FF9230；200ms 透明度过渡沿用已有独立边框层，不改变卡牌尺寸或原生命中区域。标记按快照中的普通手牌顺序计算，收牌、弃牌、打出和首／末设置变化均重新选择；拖动与设置预览期间隐藏，退出卡与补位卡不保留标记。悬停／键盘反馈继续使用蓝色，自动锁灰层覆盖橙框。
+开启后，下一张普通手牌以橙色边框和橙色 hover 光晕提示，浅色 #C55300、深色 #FF9230；非下一张仍使用原有蓝色反馈，自动锁灰层优先。标记按快照中的普通手牌顺序计算，收牌、弃牌、打出和首／末设置变化均重新选择；拖动与设置预览期间隐藏，退出卡与补位卡不保留标记。普通/迷你入手和发现刷新/替换在真实落位或翻面完成、即现有动画/过渡生命周期结束后才淡入高亮，不在最终位置提前出现；不使用固定延时或逐帧重扫布局。
 
 自动策略只由非 DiscoAS 自身请求造成的有效曲目变化触发，开启后先建立基线；重复通知、暂停恢复、曲终进度、ended 与同曲循环回零均不触发。窗口标题继续忽略空白、应用名称和酷我标题滚动；接口身份同时比较曲名与可用歌手，目标确认保留媒体用途注释兼容。媒体属性／状态事件直接唤醒专用线程，250ms 轮询补足窗口观察；空手牌消费当前信号并继续观察。
 
-有牌时立即建立自动请求并发布锁定状态，暂停触发换曲的对应客户端会话，确认安静后再获取目标链接、调用共用播放入口。先使用 TryPauseAsync；客户端接受但持续播放时，只对仍处于播放状态的同一会话补一次 TryTogglePlayPauseAsync，并等待稳定暂停。准备手牌期间维持该会话暂停；暂停与目标派发串行交接，迟到操作不能暂停目标歌曲。Windows 调用位于 desktop/auto_hand_native.rs；核心继续只接收观察值和时钟。全局操作锁只保护手牌和发现提交，不跨整个播放确认窗口持有。临时静音、音频会话恢复和曲终提前量已移除。
+有牌时立即建立自动请求并发布锁定状态，暂停触发换曲的对应客户端会话，确认安静后再获取目标链接、调用共用播放入口。先使用 TryPauseAsync；2.0.14 起首发一次定向 Pause。客户端接受后无论实际 Paused 多晚到达，都等待实际 quiet 200ms 或明确超时，绝不再补反向 Toggle，避免 Paused→Playing→Paused。若已经实际见到 quiet、随后客户端又确实回到 Playing（如原生 +172 Paused、+286 Playing），才补发一次同向幂等 Pause，再等待新的 quiet；从未见 quiet 的 accepted Pause 不重试。准备手牌期间维持该会话暂停；暂停与目标派发串行交接，迟到操作不能暂停目标歌曲。Windows 调用位于 desktop/auto_hand_native.rs；核心继续只接收观察值和时钟。全局操作锁只保护手牌和发现提交，不跨整个播放确认窗口持有。临时静音、音频会话恢复和曲终提前量已移除。
 
 发现、普通手牌、迷你发现与快捷键共用播放入口登记自身目标与请求代次。手动与自动出牌均锁定全部卡片，拒绝新的播放、弃牌、清空与重排；原生拖牌入口同样校验，已有拖动立即取消。普通手牌手动请求在详情／链接准备前预留代次，随后续接同一请求；准备失败也释放锁并丢牌。关闭自动打出时仍短暂观察手动目标直到确认、失败或超时，观察完成后停止，不触发自动出牌。自动开关变化保留在途手动请求。auto-hand-state-changed 与 get_auto_hand_state 使用 token / busy 同步全部手牌的锁定状态，迟到初始快照不能重新上锁，旧完成不能解除新请求。原生暂停尚在途时保留交接保护，完成后再允许新的手动播放。锁 SVG 在正方形封面中心，以 78px 设计尺寸随卡牌缩放；灰色遮罩覆盖整张卡，200ms 淡入淡出并遵循减弱动画。
 
@@ -292,7 +288,7 @@ npm run tauri dev
 | 手牌测量与区域提交 | `node --test tests/handRegions.test.mjs`；动画期间不逐帧测量、拖动由独立窗口跟随并合并提交 |
 | 发现与本地选歌 | 按修改选择 `test:discovery`、`test:keyboard`、`test:motion` |
 | 封面、来源、歌单、历史 | 按修改选择 `test:covers`、`test:source`、`test:library`、`test:history` |
-| 设置、控件、数值、主题 | 按修改选择 `test:preferences`、`test:controls`、`test:numeric`、`test:theme` |
+| 设置、控件、数值、主题 | 按修改选择 `test:preferences`、`test:settings-layout`、`test:controls`、`test:numeric`、`test:theme` |
 | 托盘、更新、安装器 | 按修改选择 `test:tray`、`test:updates`、`test:installer` |
 | 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
 | Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |
@@ -306,6 +302,19 @@ npm run tauri dev
 
 WebView2 准备脚本核对本地安装器的微软签名。普通包完成后，构建脚本复用当次生成的 NSIS 脚本和同一应用文件，将完整包的运行时安装方式改为内置本地离线文件；生成完整包无需访问微软下载节点。两种包保留相同图标、语言和安装行为，安装阶段仍检查最低运行时版本。
 
-原生 QA 可在调试构建设置 `DISCOAS_TEST_ROOT` 为一个已存在的绝对目录，`paths.rs` 将应用根及其 `user_data/` 指向该隔离目录；无效路径直接报错。此分支仅在 `debug_assertions` 编译，正式 Release / NSIS 不读取该变量，也不构成便携数据模式。测试应预置专用来源、偏好与封面，不借用仓库根或系统应用数据；结束时保留或清理的对象只限明确创建的测试文件。
+原生 QA 可在调试构建设置 `DISCOAS_TEST_ROOT` 为一个已存在的绝对目录，`paths.rs` 将应用根及其 `user_data/` 指向该隔离目录；无效路径直接报错。此分支仅在 `debug_assertions` 编译，正式 Release / NSIS 不读取该变量，也不构成便携数据模式。隔离设置 QA 的自启读取固定关闭，保存不写正式程序的 Run 项。测试应预置专用来源、偏好与封面，不借用仓库根或系统应用数据；结束时保留或清理的对象只限明确创建的测试文件。
 
 浏览器预览可验证布局、设置草稿与外观；托盘、透明浮窗、快捷键注册、自启、播放器唤起和最小化仍需 Windows 实机验收。
+
+### 2.0.14 自动出牌与隔离补充
+
+- 本次请求期间，每个非目标观察值的封面都记录为旧曲目封面。目标歌名先到、旧封面重复、目标封面迟到的序列不会把中间封面确认为目标封面，也不会因此额外出牌；快速暂停/恢复和观察源重绑继续保留这份归属记录。真正的歌名、作者或专辑/曲号/时长变化仍进入换曲判断。
+
+- 核心 `AutoHand::observe` 只在观察值 `playing=true` 时由曲目变化触发；Paused/Stopped 的新标题只更新基线。检测源/模式改变调用 `rebind()` 清空基线但不取消已在准备或确认中的手动/自动请求；初始化、自动开关开启和会话重建同样先建立基线。目标确认后的不同 Playing 标题/作者仍是真实观测变化，现有 SMTC/窗口观察流无法证明其来自本次 URI、旧队列还是用户切歌，因此不按经过时间吞掉；真实外部快速切歌会消费一张。单客户端归因由 `.local-qa/auto-hand-2.0.14/capture-single-client-sequence.ps1` 只读采集 app log 与客户端窗口标题，再决定契约。用户主动暂停通过 `user_pause()` 结束本轮且不消耗牌。
+- `client_separate_desktop` 是默认关闭的独立实验开关，与 `client_window_mode` 分别保存；旧配置保持实验关闭。设置位于“播放连接 → 窗口与播放”，恢复手动创建、重新检测和桌面状态。开关只修改草稿，保存后在播放时自动创建／复用桌面；手动创建按钮是立即创建／复用的明确操作。关闭时，临时／长期隐藏使用当前桌面隐藏，不自动创建／移动桌面，也不改变窗口坐标；显示客户端或新播放会取消旧隐藏任务。实验开关开启时，六个平台共用桌面准备流程，包含 Spotify 扩展路径；隐藏关闭时窗口仍可保留在独立桌面。
+- 实验开启后，客户端主窗口已在其他虚拟桌面时，播放保留该桌面。当前桌面的主窗口在播放调用前移入 `DiscoAS` 后台桌面并核验桌面 ID；后台桌面缺失时通过现有 STA/COM 边界创建并命名，不发送 Win+Ctrl+D，不切换当前桌面。创建方法的内部 ABI 按已知 Windows build 布局选择，当前实机 build 26300 已核验创建、移动、普通窗口与托盘真实 URI 播放。隐藏窗口先以 `SW_SHOWMINNOACTIVE` 注册 Explorer 视图，移入后台后用 `SW_SHOWNOACTIVATE` 恢复正常窗口，避免 URI 自行恢复最小化窗口；保留该视图直到 dispatch。准备或移动失败、后台桌面正是当前桌面时，共享 playback 在播放调用前返回错误并保留手牌。浏览器和本地音频默认播放器继续原路径。Temporary 在成功移入后台后延时返回，先最小化可见窗口并恢复原隐藏状态；Explorer 移回视图时可能解除最小化，返回后再核验并补一次最小化。Persistent 或隐藏关闭时保持后台窗口；“显示客户端”显式移回并激活。最小化窗口的 -32000 坐标是系统标记，显示客户端时不据此调整恢复位置。
+- PID + 已核验主 HWND 的 NAMECHANGE 订阅立即唤醒观察线程，并按媒体会话 app ID 找到对应平台的缓存后重读元数据。标题事件本身不消费手牌；自身操作通过核心请求和目标归属过滤。平台切换、主窗口 PID/HWND 失效会解绑并重新查找，观察停止时释放订阅。自动换曲先发定向 Pause，accepted 后立即发布 busy，再等待实际 quiet；不在锁发布前等待整个暂停确认期。
+- 设置不再显示或写回 `auto_play_detection`，旧字段继续兼容读取。自动观察优先使用当前可用且唯一的 SMTC 会话，无可用会话时使用已核验主窗口标题；存在多个候选会话时不猜测。每个平台一次只发布一个主观察源。会话丢失、恢复、重建或观察源切换会更新绑定并重建比较基线，保留在途请求的 token/目标以及本次出牌的封面来源信息。浏览器沿用 Browser 观察。
+- 手牌下一张橙色边框/橙色 hover 与锁/到手等待优先级：`data-auto-locked` 和 `hand-surface-waiting` 的 face/ring 规则使用 `!important` 覆盖 auto-next/hover；face 的 `border-color` 与 `box-shadow` 都在 220ms 过渡内。实际收牌 arrival 由 generation、native presentation、封面解码、arrival/flip 完成共同置 ready；进入、刷新和单卡替换共用同一等待门，拖回不进入此门。
+- 下一张普通牌封面左上内侧增加非交互 `AUTO NEXT` 胶囊（6px 内缩、10px system 600、浅色 #C55300/白字、深色 #FF9230/#22170D，均 ≥4.5:1），位于真实 cover/卡面变换内，与橙框共用 `data-auto-next` 资格、锁/到手等待、200ms opacity 过渡和减弱动画；首／末牌与排序变化由同一 `autoNextId` 驱动；不使用模糊或脉冲，卡片既有中文无障碍描述保留，胶囊 `aria-hidden` 不重复播报。
+- 单卡替换按迷你发现卡槽将悬停／键盘选中迁移到新 ID，替换结束后用最新指针位置重判，鼠标已移走时不恢复旧悬停。悬停命中按卡牌绘制层级：先检查当前抬牌的可见姿态，再按其他卡片的绘制顺序检查当前布局；只读取一张抬牌的实际变换，覆盖抬起过渡中的命中，保留原生指针与穿透流程。

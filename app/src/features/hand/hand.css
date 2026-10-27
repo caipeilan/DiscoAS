@@ -45,8 +45,39 @@
 .hand-card[data-auto-next]::after { opacity: 1; }
 .hand-card.hand-discovery.hand-active::after, .hand-card.hand-discovery.hand-playable::after { opacity: 1; }
 .hand-card[data-hand-instant] { transition: none !important; }
-.hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease; backface-visibility: hidden; }
-.hand-art { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease, border-color 220ms ease; backface-visibility: hidden; }
+.hand-art { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; flex-shrink: 0; position: relative; }
+/* Next-card status capsule: noninteractive, inside the real cover, following
+   the same eligibility/lock/waiting lifecycle and 200ms fade as the ring. */
+.hand-auto-next-label {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  max-width: calc(100% - 12px);
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #c55300;
+  color: #fff;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  box-shadow: none;
+  filter: none;
+  backdrop-filter: none;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-out);
+}
+:root[data-theme="dark"] .hand-auto-next-label { background: #ff9230; color: #22170d; }
+.hand-card[data-auto-next] .hand-auto-next-label { opacity: 1; }
+.hand-card[data-auto-locked] .hand-auto-next-label,
+.hand-card.hand-surface-waiting .hand-auto-next-label { opacity: 0 !important; }
 .hand-flip { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
 .hand-card-back { position: absolute; inset: 0; transform: rotateY(180deg); backface-visibility: hidden; }
 .hand-art .cover { width: 100%; height: 100%; }
@@ -66,6 +97,30 @@
 .hand-card:focus { outline: none; }
 .hand-pending { visibility: hidden; pointer-events: none; }
 .hand-playable .hand-card-face { border-color: var(--accent-focus); box-shadow: 0 0 0 2px var(--accent-focus), var(--shadow-floating); }
+/* 2.0.14: the next ordinary card keeps orange for both its border and hover
+   glow. Other cards keep the normal accent; the lock layer always wins. */
+.hand-card[data-auto-next]:not(.hand-discovery) .hand-card-face,
+.hand-card[data-auto-next]:not(.hand-discovery).hand-active .hand-card-face,
+.hand-card[data-auto-next]:not(.hand-discovery):hover .hand-card-face {
+  border-color: #c55300;
+  box-shadow: var(--shadow-floating), 0 0 0 1px #c55300, 0 0 18px #c5530033;
+}
+:root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery) .hand-card-face,
+:root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery).hand-active .hand-card-face,
+:root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery):hover .hand-card-face {
+  border-color: #ff9230;
+  box-shadow: var(--shadow-floating), 0 0 0 1px #ff9230, 0 0 18px #ff923033;
+}
+.hand-card[data-auto-next]:not(.hand-discovery)::after { box-shadow: 0 0 0 1px #c55300, 0 0 18px #c5530033; }
+:root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery)::after { box-shadow: 0 0 0 1px #ff9230, 0 0 18px #ff923033; }
+/* Lock and arrival waiting always win over the orange/blue face selectors,
+   including data-auto-next + hand-active/hover. */
+.hand-card[data-auto-locked] .hand-card-face { border-color: var(--border) !important; box-shadow: var(--shadow-popover) !important; }
+.hand-card[data-auto-locked]::after { opacity: 0 !important; box-shadow: none !important; }
+/* Existing arrival, refill and flip lifecycles suppress the final-position
+   highlight until the real surface stops moving. No delay or layout scan. */
+.hand-card.hand-surface-waiting::after { opacity: 0 !important; box-shadow: none !important; }
+.hand-card.hand-surface-waiting .hand-card-face { border-color: var(--border) !important; box-shadow: var(--shadow-popover) !important; }
 .hand-discard { position: absolute; right: 10px; top: 10px; border: 1px solid var(--border); border-radius: 50%; width: calc(24px * var(--font-scale)); height: calc(24px * var(--font-scale)); padding: 0; line-height: 1; background: var(--surface); color: var(--text-secondary); display: grid; place-items: center; opacity: 0; cursor: pointer; }
 .hand-discard svg { display: block; width: calc(14px * var(--font-scale)); height: calc(14px * var(--font-scale)); }
 .hand-active .hand-discard { opacity: 1; }
@@ -136,4 +191,4 @@
   from { transform: translate(-50%, -50%) translate(var(--hand-x), var(--hand-y)) rotate(var(--hand-angle)) scale(var(--hand-card-scale)); opacity: 1; }
   to { transform: translate(-50%, -50%) translate(var(--hand-x), calc(var(--hand-y) + 14px)) rotate(var(--hand-angle)) scale(calc(var(--hand-card-scale) * .65)); opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card::after, .hand-card-face, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary, .hand-auto-lock, .hand-auto-lock svg { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }
+@media (prefers-reduced-motion: reduce) { .hand-card, .hand-card::after, .hand-card-face, .hand-auto-next-label, .hand-toolbar, .hand-dock-actions, .hand-dock-logo img, .hand-flip, .hand-intake-boundary, .hand-auto-lock, .hand-auto-lock svg { transition-duration: 0ms; transition-delay: 0ms; } .hand-flying, .hand-card.hand-discarding, .hand-card.hand-refill { animation-duration: 0ms; animation-delay: 0ms; } }

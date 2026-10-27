@@ -1,57 +1,28 @@
-import { useEffect, useRef, useState } from "react";
-import type { GuiSettings, HandSettings as HandPreferences, HandDiscoverySettings, Preferences } from "../../types";
+import { useState } from "react";
+import type { HandSettings as HandPreferences, HandDiscoverySettings, Preferences } from "../../types";
 import { SettingRow, NumberField, ScaleField, Toggle } from "../../components/SettingsControls";
 import { Select } from "../../components/Select";
 import { Reveal } from "../../components/Motion";
-import { ShortcutRecorder } from "../../ShortcutRecorder";
-import { call, onDesktopEvent } from "../../services/desktop";
+import { call } from "../../services/desktop";
 import { t, errorText } from "../../i18n";
-import { AUTO_PLAY_AVAILABLE, detectionForPlatform, supportsAutoPlay, supportsDetection } from "./autoHandDetection";
+import { AUTO_PLAY_AVAILABLE, supportsAutoPlay } from "./autoHandDetection";
 
-export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { settings: Preferences; gui: GuiSettings; onChange: (value: HandPreferences) => void; onDiscoveryChange: (value: HandDiscoverySettings) => void }) {
+export function HandSettings({ settings, onChange, onDiscoveryChange }: { settings: Preferences; onChange: (value: HandPreferences) => void; onDiscoveryChange: (value: HandDiscoverySettings) => void }) {
   const value = settings.hand;
   const platform = settings.playlist_albums.find(source => source.enabled)?.name;
   const autoPlaySupported = supportsAutoPlay(platform);
-  const detection = detectionForPlatform(platform, value.auto_play_detection);
-  useEffect(() => {
-    if (AUTO_PLAY_AVAILABLE && value.auto_play_detection !== detection) onChange({ ...value, auto_play_detection: detection });
-  }, [value, detection, onChange]);
+  // Detection is chosen by the desktop observer from platform capability. The
+  // old saved field remains readable but is intentionally not edited here.
   const discovery = settings.hand_discovery;
   const setDiscovery = <K extends keyof HandDiscoverySettings>(key: K, next: HandDiscoverySettings[K]) => onDiscoveryChange({ ...discovery, [key]: next });
   const set = <K extends keyof HandPreferences>(key: K, next: HandPreferences[K]) => onChange({ ...value, [key]: next });
-  const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
-  const active = useRef(false);
-  const mounted = useRef(false);
-  const draft = useRef({ settings, gui }); draft.current = { settings, gui };
-  const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const updateQueued = useRef(false);
-  const enqueue = (command: "start_hand_preview" | "update_hand_preview" | "end_hand_preview") => {
-    if (command === "update_hand_preview" && updateQueued.current) return;
-    if (command === "update_hand_preview") updateQueued.current = true;
-    chain.current = chain.current.catch(() => {}).then(() => {
-      if (command === "update_hand_preview") updateQueued.current = false;
-      return call(command, command === "end_hand_preview" ? undefined : draft.current);
-    });
-    void chain.current.catch((e) => { if (mounted.current) { setError(errorText(e)); if (command === "start_hand_preview") { active.current = false; setPreview(false); } } });
-  };
-  useEffect(() => {
-    mounted.current = true; let stop: (() => void) | undefined;
-    void onDesktopEvent("hand-preview-closed", () => { active.current = false; setPreview(false); }).then((cleanup) => { if (mounted.current) stop = cleanup; else cleanup(); });
-    return () => { mounted.current = false; active.current = false; stop?.(); enqueue("end_hand_preview"); };
-  }, []);
-  useEffect(() => {
-    if (!preview) return;
-    const timer = setTimeout(() => { if (active.current) enqueue("update_hand_preview"); }, 100);
-    return () => clearTimeout(timer);
-  }, [settings, gui, preview]);
   return <><section className="settings-section">
     <h2>{t("手牌模式")}</h2>
-    <SettingRow title={t("手牌模式")}><Toggle label={t("手牌模式")} value={value.enabled} onChange={(v) => { if (!v && preview) { active.current = false; setPreview(false); enqueue("end_hand_preview"); } set("enabled", v); }} /></SettingRow>
+    <SettingRow title={t("手牌模式")}><Toggle label={t("手牌模式")} value={value.enabled} onChange={(v) => set("enabled", v)} /></SettingRow>
     <Reveal open={value.enabled || discovery.enabled}>
       <Reveal open={value.enabled}>
       <SettingRow title={t("进入手牌时揭晓神秘歌曲")}><Toggle label={t("进入手牌时揭晓神秘歌曲")} value={value.reveal_mystery} onChange={(v) => set("reveal_mystery", v)} /></SettingRow>
-      <SettingRow title={t("收牌后保留发现界面")}><Toggle label={t("收牌后保留发现界面")} value={value.keep_discovery_open} onChange={(v) => set("keep_discovery_open", v)} /></SettingRow>
       <SettingRow title={t("手牌常驻")}><Toggle label={t("手牌常驻")} value={value.resident} onChange={(v) => set("resident", v)} /></SettingRow>
       {AUTO_PLAY_AVAILABLE && <>
       <SettingRow title={t("自动打出手牌（实验）")}>
@@ -63,16 +34,9 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
         <SettingRow title={t("下一首使用")}><Select label={t("下一首使用")} value={value.auto_play_position} options={[
           { value: "first", label: t("手牌的第一张") }, { value: "last", label: t("手牌的最后一张") },
         ]} onChange={(v) => set("auto_play_position", v as HandPreferences["auto_play_position"])} /></SettingRow>
-        <SettingRow title={t("检测方式")}>
-          <Select label={t("检测方式")} value={detection} options={([
-            ["system", "系统接口"], ["window", "窗口名变化"], ["mixed", "混合"],
-          ] as const).map(([mode, label]) => ({ value: mode, label: t(label), disabled: !supportsDetection(platform, mode) }))}
-            onChange={v => set("auto_play_detection", v as HandPreferences["auto_play_detection"])} />
-        </SettingRow>
       </>}
       </>}
       </Reveal>
-      <SettingRow title={t("手牌快捷键")}><ShortcutRecorder label={t("手牌快捷键")} value={value.shortcut} onChange={(v) => set("shortcut", v)} /></SettingRow>
       <Reveal open={value.enabled}>
       <SettingRow title={t("手牌上限")}><NumberField label={t("手牌上限")} value={value.capacity} min={1} max={100} suffix={t("张")} onChange={(v) => set("capacity", v)} /></SettingRow>
       <SettingRow title={t("手牌位置")}><Select label={t("手牌位置")} value={value.side} options={[
@@ -85,7 +49,6 @@ export function HandSettings({ settings, gui, onChange, onDiscoveryChange }: { s
       <SettingRow title={t("倾斜角度")}><NumberField decimal label={t("倾斜角度")} value={value.tilt} min={0} max={45} suffix="°" onChange={(v) => set("tilt", v)} /></SettingRow>
       <div className="appearance-actions"><button type="button" className="button secondary" onClick={() => { void call("toggle_hand_expanded").catch((e) => setError(errorText(e))); }}>{t("展开／收纳手牌")}</button></div>
       </Reveal>
-      <SettingRow title={t("预览手牌／迷你发现布局")}><Toggle label={t("预览手牌／迷你发现布局")} value={preview} onChange={(v) => { active.current = v; setPreview(v); setError(""); enqueue(v ? "start_hand_preview" : "end_hand_preview"); }} /></SettingRow>
     </Reveal>
     {error && <p className="inline-error padded-error" role="alert">{error}</p>}
   </section><section className="settings-section">

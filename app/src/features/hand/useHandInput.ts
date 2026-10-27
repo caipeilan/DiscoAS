@@ -211,18 +211,29 @@ export function useHandInput(context: HandInputContext) {
     if (held.ready && !dragFrame.current) dragFrame.current = requestAnimationFrame(paintDrag);
   };
   const keyboardRef = useRef(keyboard); keyboardRef.current = keyboard;
-  const pointerHandler = ([x, y]: [number, number, boolean]) => {
-    if (busyRef.current || dragRef.current || !mounted.current || !current.current.expanded) return;
-    const previous = pointer.current; pointer.current = { x, y };
-    if (previous && Math.abs(previous.x-x) + Math.abs(previous.y-y) < 1) return;
-    if (previous && inputRef.current === "keyboard") { setInputMode("pointer"); inputRef.current = "pointer"; }
+  const updateHover = (x: number, y: number) => {
     const state = current.current;
     const oldIndex = state.cards.findIndex((c) => c.id === hoverRef.current);
     const bar = toolbarBounds.current;
     const overToolbar = bar && x >= bar.left && x <= bar.left+bar.width && y >= bar.top && y <= bar.top+bar.height;
-    const index = overToolbar ? -1 : hoverGroupedHandIndex(restPosesRef.current, x, y, posesRef.current[oldIndex] ?? null, oldIndex);
+    const element = oldIndex >= 0 ? stage.current?.querySelector<HTMLElement>(`[data-hand-id="${hoverRef.current}"]`) : null;
+    // Read only the raised card so an in-progress lift keeps its visible hit area.
+    const raised = element ? readPose(element) : posesRef.current[oldIndex] ?? null;
+    const index = overToolbar ? -1 : hoverGroupedHandIndex(posesRef.current, x, y, raised, oldIndex);
     const id = state.cards[index]?.id ?? null;
     if (hoverRef.current !== id) { hoverRef.current = id; setHover(id); }
+  };
+  const pointerHandler = ([x, y]: [number, number, boolean]) => {
+    const previous = pointer.current; pointer.current = { x, y };
+    if (busyRef.current || dragRef.current || !mounted.current || !current.current.expanded) return;
+    if (previous && Math.abs(previous.x-x) + Math.abs(previous.y-y) < 1) return;
+    if (previous && inputRef.current === "keyboard") { setInputMode("pointer"); inputRef.current = "pointer"; }
+    updateHover(x, y);
+  };
+  const refreshPointerHover = () => {
+    if (!pointer.current || inputRef.current !== "pointer" || busyRef.current || dragRef.current
+      || !mounted.current || !current.current.expanded) return;
+    updateHover(pointer.current.x, pointer.current.y);
   };
   const pointerHandlerRef = useRef(pointerHandler); pointerHandlerRef.current = pointerHandler;
   const escapeRef = useRef(() => {}); escapeRef.current = () => {
@@ -251,5 +262,5 @@ export function useHandInput(context: HandInputContext) {
     return () => { active = false; stops.forEach((stop) => stop()); window.removeEventListener("keydown", key); };
   }, []);
   const lostPointerCapture = (id: string) => { if (dragRef.current?.id === id && !dragRef.current.ending) cancelDrag(); };
-  return { cancelDrag, endDrag, onCardPointerDown, onCardPointerMove, lostPointerCapture };
+  return { cancelDrag, endDrag, onCardPointerDown, onCardPointerMove, lostPointerCapture, refreshPointerHover };
 }

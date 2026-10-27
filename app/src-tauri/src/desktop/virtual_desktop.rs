@@ -4,10 +4,8 @@
 //! a window's desktop. Moving another process's window is not permitted through
 //! that interface (`E_ACCESSDENIED`), so the client isolation path uses
 //! Explorer's private view-based manager on Windows 11 24H2+. There is no
-//! public API for creating or naming a desktop; creation uses the system
-//! shortcut and the name is read from the Explorer registry cache, which is
-//! updated by the Task View rename UI. The registry format is deliberately kept
-//! behind this module so unsupported systems fail closed.
+//! public API for creating or naming a desktop. The same private manager creates
+//! and names the background desktop without switching the active desktop.
 
 use std::fmt;
 
@@ -87,12 +85,7 @@ mod imp {
             RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY,
             RRF_RT_REG_SZ,
         },
-        UI::{
-            Input::KeyboardAndMouse::{
-                keybd_event, KEYEVENTF_KEYUP, VK_CONTROL, VK_D, VK_LEFT, VK_LWIN,
-            },
-            WindowsAndMessaging::{SetForegroundWindow, ShowWindowAsync, SW_RESTORE},
-        },
+        UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindowAsync, SW_RESTORE},
     };
 
     fn wide(value: &str) -> Vec<u16> {
@@ -191,34 +184,6 @@ mod imp {
                 CoUninitialize();
             }
             result
-        }
-    }
-
-    fn tap(vk: u16) {
-        // SAFETY: keybd_event only injects a system key pulse.
-        unsafe {
-            keybd_event(vk as u8, 0, 0, 0);
-            thread::sleep(Duration::from_millis(35));
-            keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
-            thread::sleep(Duration::from_millis(35));
-        }
-    }
-
-    fn combo(vk: u16) {
-        // SAFETY: same as `tap`; modifiers are released in reverse order.
-        unsafe {
-            keybd_event(VK_LWIN as u8, 0, 0, 0);
-            thread::sleep(Duration::from_millis(35));
-            keybd_event(VK_CONTROL as u8, 0, 0, 0);
-            thread::sleep(Duration::from_millis(35));
-        }
-        tap(vk);
-        // SAFETY: release the held modifiers even if the target shortcut is ignored.
-        unsafe {
-            keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
-            thread::sleep(Duration::from_millis(35));
-            keybd_event(VK_LWIN as u8, 0, KEYEVENTF_KEYUP, 0);
-            thread::sleep(Duration::from_millis(35));
         }
     }
 
@@ -406,6 +371,9 @@ mod imp {
         type GetAtFn =
             unsafe extern "system" fn(*mut c_void, u32, *const GUID, *mut *mut c_void) -> i32;
         type GetIdFn = unsafe extern "system" fn(*mut c_void, *mut GUID) -> i32;
+        type CreateDesktopFn = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32;
+        type SetNameFn = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void) -> i32;
+        type GetNameFn = unsafe extern "system" fn(*mut c_void, *mut windows::core::HSTRING) -> i32;
         type ReleaseFn = unsafe extern "system" fn(*mut c_void) -> u32;
 
         fn raw_guid(guid: windows::core::GUID) -> GUID {
@@ -445,6 +413,53 @@ mod imp {
             std::thread::spawn(|| unsafe { probe_on_sta() })
                 .join()
                 .unwrap_or(false)
+        }
+
+        pub(super) fn create_named(name: &str, build: u32) -> Result<super::DesktopId, String> {
+            let name = name.to_owned();
+            std::thread::spawn(move || unsafe {
+                let hr = CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32);
+                if hr < 0 { return Err(error("初始化后台桌面线程", hr)); }
+                let result = create_on_sta(&name, build);
+                CoUninitialize();
+                result
+            }).join().map_err(|_| "错误：创建后台桌面的线程异常".to_string())?
+        }
+
+        unsafe fn create_on_sta(name: &str, build: u32) -> Result<super::DesktopId, String> {
+            let provider = open_provider()?;
+            let manager = query_service(provider, &CLSID_VIRTUAL_DESKTOP_MANAGER_INTERNAL, &IID_VIRTUAL_DESKTOP_MANAGER_INTERNAL);
+            release(provider);
+            let manager = manager?;
+            let mut desktop = ptr::null_mut();
+            let result = (|| {
+                // 24H2 inserted SwitchDesktopAndMoveForegroundView before CreateDesktop.
+                // Layout: microsoft/TypeAgent, WindowsVirtualDesktopService.cs.
+                // QueryService above must accept this exact interface IID first.
+                let create_slot = if build >= 26100 { 11 } else { 10 };
+                let create: CreateDesktopFn = method(manager, create_slot);
+                let hr = create(manager, &mut desktop);
+                if hr < 0 || desktop.is_null() { return Err(error("创建后台桌面", hr)); }
+                let name = windows::core::HSTRING::from(name);
+                // HSTRING is the transparent owning wrapper for this ABI handle;
+                // it remains alive until SetDesktopName returns.
+                let raw_name: *mut c_void = std::mem::transmute_copy(&name);
+                let set_name: SetNameFn = method(manager, create_slot + 5);
+                let hr = set_name(manager, desktop, raw_name);
+                if hr < 0 { return Err(error("命名后台桌面", hr)); }
+                let get_name: GetNameFn = method(desktop, 5);
+                let mut actual = windows::core::HSTRING::new();
+                let hr = get_name(desktop, &mut actual);
+                if hr < 0 || actual != name { return Err("错误：未能核验后台桌面名称".into()); }
+                let get_id: GetIdFn = method(desktop, 4);
+                let mut id = GUID::default();
+                let hr = get_id(desktop, &mut id);
+                if hr < 0 { return Err(error("读取后台桌面标识", hr)); }
+                Ok(super::guid_to_id(windows::core::GUID::from_values(id.data1, id.data2, id.data3, id.data4)))
+            })();
+            release(desktop);
+            release(manager);
+            result
         }
 
         unsafe fn move_on_sta(hwnd: isize, target: GUID) -> Result<(), String> {
@@ -655,37 +670,15 @@ mod imp {
     }
 
     pub(super) fn create() -> Result<Desktop, String> {
-        // A fresh Windows profile may not have the registry key yet. In that
-        // case creation is still attempted and the switch back is best effort.
-        let before = current().ok();
-        combo(VK_D);
-
-        let deadline = Instant::now() + Duration::from_secs(4);
-        let mut created = None;
-        while Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(120));
-            if let Ok(now) = current() {
-                if before != Some(now) {
-                    created = Some(now);
-                    break;
-                }
-            }
-        }
-        let Some(id) = created else {
-            return Err(
-                "错误：未能创建虚拟桌面，请确认 Win+Ctrl+D 快捷键可用后重试".into(),
-            );
-        };
-
-        combo(VK_LEFT);
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while before.is_some() && Instant::now() < deadline {
-            if current().ok() == before {
-                break;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        Ok(Desktop { id, name: None })
+        static CREATE_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = CREATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = find_by_name(super::BACKGROUND_NAME)? { return Ok(existing); }
+        let build = build_number().filter(|build| matches!(build, 22621..=22631 | 26100..=26300))
+            .ok_or("错误：当前 Windows 版本尚未支持自动创建后台桌面")?;
+        let before = current()?;
+        let id = internal::create_named(super::BACKGROUND_NAME, build)?;
+        if current()? != before { return Err("错误：准备后台桌面期间当前桌面发生变化".into()); }
+        Ok(Desktop { id, name: Some(super::BACKGROUND_NAME.into()) })
     }
 
     #[cfg(test)]
@@ -834,6 +827,24 @@ mod imp {
             let desktops = super::list().expect("virtual desktop list");
             eprintln!("virtual desktops: {desktops:?}");
             assert!(!desktops.is_empty());
+        }
+
+        #[test]
+        #[ignore = "creates the app background desktop without switching the interactive desktop"]
+        fn live_create_background_preserves_current_desktop_and_foreground() {
+            use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+            let before = super::current().expect("current desktop");
+            let foreground = unsafe { GetForegroundWindow() };
+            let original = super::list().expect("original desktops");
+            let background = super::create().expect("create or reuse named background");
+            assert_ne!(background.id, before);
+            assert_eq!(background.name.as_deref(), Some("DiscoAS"));
+            assert_eq!(super::current().unwrap(), before);
+            assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+            let after = super::list().expect("desktops after creation");
+            assert!(original.iter().all(|old| after.iter().any(|new| new.id == old.id && new.name == old.name)));
+            assert_eq!(super::create().unwrap().id, background.id, "repeated preparation must reuse the desktop");
+            eprintln!("background={} original_count={} final_count={} current={before}", background.id, original.len(), after.len());
         }
 
         #[test]

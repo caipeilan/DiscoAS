@@ -82,26 +82,30 @@ async fn dispatch_to_platform(
         let mode = super::client_isolation::mode(options);
         let spotify_extension = args.platform == discoas_core::platforms::names::SPOTIFY
             && options.spotify_playback_mode == "extension";
-        // The scheme must be opened after the window is moved; the service
-        // performs that open internally for local clients.
-        let isolation = if !spotify_extension
-            && matches!(
-                mode,
-                ClientWindowMode::Temporary | ClientWindowMode::Persistent
-            )
-        {
+        // Complete optional desktop preparation before dispatch, including
+        // Spotify extension playback when the experimental setting is enabled.
+        let preparation = if super::client_isolation::should_prepare(options, spotify_extension) {
             super::client_isolation::prepare(&args.platform, options)
         } else {
-            None
+            super::client_isolation::Preparation::NotRequired
         };
-        // Hide mode must never fall back to the normal activating opener: that
-        // is what made the user's desktop jump. The client is already on the
-        // current desktop, so even a failed hide cannot switch desktops.
+        let isolation = match preparation {
+            super::client_isolation::Preparation::Ready(handle) => Some(handle),
+            super::client_isolation::Preparation::NotRequired => None,
+            super::client_isolation::Preparation::Unavailable(error) => {
+                // This is the shared background-control call site. A missing
+                // verified desktop must block the activation-capable URI, not
+                // merely be logged after the fact.
+                return Err(error);
+            }
+        };
+        // Ordinary hiding and prepared background playback both retain the
+        // non-activating URI opener. Preparation failures have returned above.
         let prevent_activation = !spotify_extension
-            && matches!(
+            && (options.client_separate_desktop || matches!(
                 mode,
                 ClientWindowMode::Temporary | ClientWindowMode::Persistent
-            );
+            ));
         let result = app
             .state::<crate::spotify_playback::PlaybackService>()
             .invoke(

@@ -149,6 +149,7 @@ struct Pending {
     deadline: u64,
     before: HashMap<Signal, Observation>,
     departed: HashSet<Signal>,
+    stale_artwork: HashMap<Signal, HashSet<String>>,
 }
 struct OwnedChange {
     target: Target,
@@ -157,19 +158,23 @@ struct OwnedChange {
     before: HashMap<Signal, Observation>,
     departed: HashSet<Signal>,
     artwork: HashMap<Signal, OwnedArtwork>,
+    stale_artwork: HashMap<Signal, HashSet<String>>,
+    pause_reported: bool,
 }
 /// SMTC can publish the new title with the previous track's thumbnail. Associate
 /// the replacement thumbnail with our dispatch before using artwork-only changes.
 struct OwnedArtwork {
-    previous: String,
+    previous: HashSet<String>,
     candidate: String,
     since: Option<u64>,
     settled: bool,
 }
 impl OwnedArtwork {
-    fn new(before: Option<&Observation>) -> Self {
+    fn new(before: Option<&Observation>, stale: Option<&HashSet<String>>) -> Self {
+        let mut previous = stale.cloned().unwrap_or_default();
+        if let Some(before) = before { previous.insert(before.artwork.clone()); }
         Self {
-            previous: before.map(|value| value.artwork.clone()).unwrap_or_default(),
+            previous,
             candidate: String::new(),
             since: None,
             settled: false,
@@ -179,7 +184,7 @@ impl OwnedArtwork {
         if self.settled {
             return false;
         }
-        if artwork.is_empty() || artwork == self.previous {
+        if artwork.is_empty() || self.previous.contains(artwork) {
             self.candidate.clear();
             self.since = None;
         } else if self.candidate != artwork {
@@ -197,7 +202,7 @@ impl OwnedChange {
     fn accept(&mut self, value: &Observation, now: u64) {
         self.seen.insert(value.signal);
         if value.signal != Signal::Browser {
-            let mut artwork = OwnedArtwork::new(self.before.get(&value.signal));
+            let mut artwork = OwnedArtwork::new(self.before.get(&value.signal), self.stale_artwork.get(&value.signal));
             artwork.settling(&value.artwork, now);
             self.artwork.insert(value.signal, artwork);
         }
@@ -228,6 +233,16 @@ impl AutoHand {
         self.baseline.clear();
         self.owned = None;
         self.active = None;
+        self.consumed = false;
+    }
+    /// Observation source/mode changed: reset only the comparison baseline.
+    /// An in-flight manual/automatic handoff keeps its token and target.
+    pub fn rebind(&mut self) {
+        self.baseline.clear();
+        if let Some(owned) = &mut self.owned {
+            owned.seen.clear();
+            owned.artwork.clear();
+        }
         self.consumed = false;
     }
     pub fn generation(&self) -> u64 {
@@ -276,6 +291,7 @@ impl AutoHand {
         self.pending = Some(Pending {
             token, automatic: false, target: None, started: now,
             deadline: now + CONFIRM_TIMEOUT_MS, before: self.baseline.clone(), departed: HashSet::new(),
+            stale_artwork: HashMap::new(),
         });
         Some(token)
     }
@@ -297,6 +313,7 @@ impl AutoHand {
             self.baseline.clear();
         }
         let before = self.baseline.clone();
+        let stale_artwork = self.pending.as_ref().map(|pending| pending.stale_artwork.clone()).unwrap_or_default();
         self.owned = None;
         self.active = Some(target.platform.clone());
         self.consumed = false;
@@ -309,6 +326,7 @@ impl AutoHand {
             deadline: now + CONFIRM_TIMEOUT_MS,
             before,
             departed: HashSet::new(),
+            stale_artwork,
         });
         Some(token)
     }
@@ -319,6 +337,20 @@ impl AutoHand {
             self.consumed = true;
         }
     }
+    /// A user pause ends the current automatic confirmation round without
+    /// consuming another card. The paused track stays the baseline; a later
+    /// real external change can start a fresh round.
+    pub fn user_pause(&mut self) -> bool {
+        if let Some(owned) = self.owned.as_mut().filter(|owned| !owned.pause_reported) {
+            // End this round while retaining its cover provenance. A quick
+            // pause/resume must not turn a late thumbnail into an external skip.
+            owned.pause_reported = true;
+            self.consumed = true;
+            true
+        } else {
+            false
+        }
+    }
     pub fn fail(&mut self, token: u64) {
         if self.generation == token {
             self.owned = self.pending.take().and_then(|pending| pending.target.map(|target| {
@@ -326,8 +358,8 @@ impl AutoHand {
                     .map(|(signal, _)| *signal).collect();
                 let artwork = self.baseline.iter().filter(|(signal, _)| seen.contains(signal))
                     .filter(|(signal, _)| **signal != Signal::Browser)
-                    .map(|(signal, _)| (*signal, OwnedArtwork::new(pending.before.get(signal)))).collect();
-                OwnedChange { target, seen, deadline: 0, before: pending.before, departed: pending.departed, artwork }
+                    .map(|(signal, _)| (*signal, OwnedArtwork::new(pending.before.get(signal), pending.stale_artwork.get(signal)))).collect();
+                OwnedChange { target, seen, deadline: 0, before: pending.before, departed: pending.departed, artwork, stale_artwork: pending.stale_artwork, pause_reported: false }
             }));
         }
     }
@@ -359,6 +391,12 @@ impl AutoHand {
         }
         if let Some(pending) = &mut self.pending {
             self.baseline.insert(value.signal, value.clone());
+            if pending.target.as_ref().is_none_or(|target| !target.matches(&value)) && !value.artwork.is_empty() {
+                // SMTC can deliver several queued-track covers during one URI
+                // handoff. Every cover actually seen on a non-target belongs to
+                // that prior track, even if it is repeated later with our title.
+                pending.stale_artwork.entry(value.signal).or_default().insert(value.artwork.clone());
+            }
             let Some(target) = &pending.target else {
                 return None;
             };
@@ -395,6 +433,8 @@ impl AutoHand {
                 before: pending.before.clone(),
                 departed: pending.departed.clone(),
                 artwork: HashMap::new(),
+                stale_artwork: pending.stale_artwork.clone(),
+                pause_reported: false,
             };
             owned.accept(&value, now);
             self.owned = Some(owned);
@@ -456,7 +496,9 @@ impl AutoHand {
         if changed {
             self.consumed = false;
         }
-        let fire = !self.consumed && changed;
+        // A paused/stopped client only supplies a new baseline. Firing here
+        // would consume a card for a queued title that is not the playing track.
+        let fire = !self.consumed && changed && value.playing;
         self.baseline.insert(value.signal, value.clone());
         if !fire {
             return None;
@@ -472,6 +514,7 @@ impl AutoHand {
             deadline: now + CONFIRM_TIMEOUT_MS,
             before: self.baseline.clone(),
             departed: HashSet::new(),
+            stale_artwork: HashMap::new(),
         });
         Some(Event::Play { token })
     }
@@ -552,6 +595,42 @@ mod tests {
             artists: Vec::new(),
             metadata: Default::default(),
         }
+    }
+
+    #[test]
+    fn intermediate_queue_cover_cannot_confirm_itself_as_the_hand_cover_and_consume_another_card() {
+        let mut a = engine();
+        let mut old = observation("old"); old.artwork = "old-cover".into();
+        assert_eq!(a.observe(old.clone(), 0), None);
+        let mut queued = observation("queue"); queued.artwork = old.artwork;
+        let Some(Event::Play { token }) = a.observe(queued.clone(), 10) else { panic!("external change"); };
+        a.begin(target("hand"), Some(token), 20).unwrap();
+        queued.artwork = "queue-cover".into();
+        assert_eq!(a.observe(queued, 30), None);
+        let mut hand = observation("hand");
+        assert_eq!(a.observe(hand.clone(), 40), Some(Event::Confirmed { token, automatic: true }));
+        hand.artwork = "queue-cover".into();
+        for now in [300, 550, 810] { assert_eq!(a.observe(hand.clone(), now), None); }
+        hand.artwork = "hand-cover".into();
+        for now in [1060, 1320, 1580] { assert_eq!(a.observe(hand.clone(), now), None); }
+        assert!(!a.busy());
+        assert!(matches!(a.observe(observation("user-next"), 1600), Some(Event::Play { .. })), "a real fast external skip still plays one card");
+    }
+
+    #[test]
+    fn pausing_then_resuming_keeps_the_own_cover_handoff() {
+        let mut a = engine();
+        a.observe(observation("old"), 0);
+        let token = a.begin(target("hand"), None, 1).unwrap();
+        assert!(matches!(a.observe(observation("hand"), 2), Some(Event::Confirmed { .. })));
+        let mut hand = observation("hand"); hand.playing = false;
+        assert_eq!(a.observe(hand.clone(), 3), None);
+        assert!(a.user_pause());
+        assert!(!a.user_pause(), "only report a user pause once per round");
+        hand.playing = true; hand.artwork = "late-cover".into();
+        for now in [4, 300, 600] { assert_eq!(a.observe(hand.clone(), now), None); }
+        assert!(a.latest(token));
+        assert!(matches!(a.observe(observation("external-next"), 601), Some(Event::Play { .. })));
     }
     fn progress(title: &str, position: f64, updated_at: u64) -> Observation {
         Observation {
@@ -916,6 +995,95 @@ mod tests {
             a.observe(window("cartist"), 2000),
             Some(Event::Play { .. })
         ));
+    }
+
+    #[test]
+    fn rapid_real_external_skip_after_confirmed_target_consumes_one_card() {
+        let mut a = engine();
+        a.observe(observation("baseline"), 0);
+        let token = a.begin(target("manual"), None, 1).unwrap();
+        assert_eq!(
+            a.observe(observation("manual"), 2),
+            Some(Event::Confirmed {
+                token,
+                automatic: false
+            })
+        );
+        // Incident shape: a different title AND artist with a new revision
+        // arrives 1.725 s after the manual target confirmation. It is a real
+        // observed Playing change; without source attribution we must not
+        // silently swallow it. The coalescing patch returned None here.
+        let Some(Event::Play { token }) = a.observe(observation("external-skip"), 1727) else {
+            panic!();
+        };
+        assert_eq!(a.observe(observation("external-skip"), 1728), None);
+        // One observed external change consumed exactly one card; the next
+        // target can confirm and the following real change fires again.
+        assert!(a.begin(target("hand"), Some(token), 1729).is_some());
+        assert!(matches!(
+            a.observe(observation("hand"), 1730),
+            Some(Event::Confirmed { .. })
+        ));
+        assert!(matches!(
+            a.observe(observation("later-external"), 1731),
+            Some(Event::Play { .. })
+        ));
+    }
+
+    #[test]
+    fn user_pause_ends_the_round_and_a_later_change_starts_a_fresh_one() {
+        let mut a = engine();
+        a.observe(observation("baseline"), 0);
+        let Some(Event::Play { token }) = a.observe(observation("external"), 1) else { panic!() };
+        a.begin(target("hand"), Some(token), 2);
+        assert!(matches!(a.observe(observation("hand"), 3), Some(Event::Confirmed { .. })));
+        assert!(a.user_pause());
+        assert!(!a.busy());
+        // The paused track is the baseline; its resume is not a new card.
+        assert_eq!(a.observe(observation("hand"), 4), None);
+        // A later real external change consumes exactly one card.
+        assert!(matches!(a.observe(observation("next"), 5), Some(Event::Play { .. })));
+    }
+
+    #[test]
+    fn paused_or_stopped_new_track_only_updates_the_baseline() {
+        let mut a = engine();
+        a.observe(observation("a"), 0);
+        let paused = Observation {
+            playing: false,
+            ..observation("b")
+        };
+        assert_eq!(a.observe(paused, 1), None);
+        assert!(!a.busy());
+        // Resuming the same queued track is not a new external change.
+        assert_eq!(a.observe(observation("b"), 2), None);
+        // The next track that is actually playing still fires.
+        assert!(matches!(a.observe(observation("c"), 3), Some(Event::Play { .. })));
+    }
+
+    #[test]
+    fn startup_and_rebind_establish_a_baseline_before_firing() {
+        let mut a = engine();
+        assert_eq!(a.observe(observation("startup"), 0), None);
+        a.rebind();
+        assert_eq!(a.observe(observation("rebound"), 1), None);
+        assert!(matches!(a.observe(observation("external"), 2), Some(Event::Play { .. })));
+    }
+
+    #[test]
+    fn rebind_resets_the_baseline_without_cancelling_a_handoff() {
+        let mut a = engine();
+        a.observe(observation("a"), 0);
+        let token = a.begin(target("manual"), None, 1).unwrap();
+        a.rebind();
+        assert!(a.current(token) && a.busy());
+        assert_eq!(
+            a.observe(observation("manual"), 2),
+            Some(Event::Confirmed {
+                token,
+                automatic: false
+            })
+        );
     }
 
     #[test]

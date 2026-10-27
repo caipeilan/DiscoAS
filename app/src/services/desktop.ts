@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
-import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch, Preferences, GuiSettings,
+import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch, GuiSettings,
   HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint,
   HandDragSnapshot, HandDragIntent, HandDragEnd } from "../types";
 
@@ -18,7 +18,7 @@ export type DesktopCommand =
   | "discard_hand_card" | "clear_hand" | "reorder_hand" | "toggle_hand" | "hide_hand" | "toggle_hand_expanded"
   | "begin_hand_dock_drag" | "save_hand_dock"
   | "hand_dock_ready" | "position_hand_dock" | "set_hand_dock_hit_regions"
-  | "start_hand_preview" | "update_hand_preview" | "end_hand_preview"
+  | "end_hand_preview"
   | "begin_hand_drag" | "present_hand_drag" | "set_hand_drag_intent" | "end_hand_drag" | "hand_drag_ready"
   | "refresh_hand_discovery" | "hand_discovery_displayed" | "replace_hand_discovery_card" | "collect_hand_discovery_card" | "play_hand_discovery_card" | "reorder_hand_discovery"
   | "tray_menu_ready"
@@ -62,8 +62,6 @@ export type DesktopCommand =
   | "replace_discovery_song"
   | "mutate_discovery_history"
   | "get_history_covers"
-  | "start_discovery_preview"
-  | "update_discovery_preview"
   | "end_discovery_preview"
   | "set_preview_close_rect"
   | "report_cancelled"
@@ -71,6 +69,8 @@ export type DesktopCommand =
   | "show_discover"
   | "show_main"
   | "show_local_client"
+  | "get_client_desktop_status"
+  | "create_client_desktop"
   | "get_client_hide_enabled"
   | "get_display_monitors"
   | "set_shortcut_recording"
@@ -97,6 +97,17 @@ export interface ShowClientResult {
 }
 export const showLocalClient = () => call<ShowClientResult>("show_local_client");
 export const getClientHideEnabled = () => call<boolean>("get_client_hide_enabled");
+
+export interface ClientDesktopStatus {
+  supported: boolean;
+  moveSupported: boolean;
+  configured: boolean;
+  desktopId: string | null;
+  desktopName: string;
+}
+export const getClientDesktopStatus = (refresh = false) =>
+  call<ClientDesktopStatus>("get_client_desktop_status", { refresh });
+export const createClientDesktop = () => call<ClientDesktopStatus>("create_client_desktop");
 
 export interface DisplayMonitor {
   id: string;
@@ -157,10 +168,6 @@ export const mutateDiscoveryHistory = (mutation: HistoryMutation, source?: strin
   call<HistoryEntry[]>("mutate_discovery_history", { mutation, source });
 export const getHistoryCovers = (identities: HistoryIdentity[]) =>
   call<HistoryCover[]>("get_history_covers", { identities });
-export const startDiscoveryPreview = (settings: Preferences, gui: GuiSettings) =>
-  call<DiscoveryState>("start_discovery_preview", { settings, gui });
-export const updateDiscoveryPreview = (settings: Preferences, gui: GuiSettings) =>
-  call<void>("update_discovery_preview", { settings, gui });
 export const endDiscoveryPreview = () => call<void>("end_discovery_preview");
 export const setPreviewCloseRect = (rect: PreviewCloseRect) => call<void>("set_preview_close_rect", { rect });
 export const listenDiscoveryState = (handler: (state: DiscoveryState) => void) =>

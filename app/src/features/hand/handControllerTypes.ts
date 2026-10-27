@@ -11,7 +11,7 @@ export interface Drag {
 }
 export type Flying = { card: HandCard; pose: CardPose; complete: () => void; collecting?: boolean };
 export type Discarding = { card: HandCard; pose: CardPose; delay: number; complete: () => void };
-export type ArrivalMotion = { generation: number; element: HTMLElement; animation: Animation | null };
+export type ArrivalMotion = { generation: number; element: HTMLElement; animation: Animation | null; flip: Animation | null };
 export type ArrivalDrawing = { generation: number; bounds: HandRect };
 export interface HandMotionRefs {
   accepted: Ref<number>; unfolding: Ref<boolean>;

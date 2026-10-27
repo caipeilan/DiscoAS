@@ -3,10 +3,13 @@ import type { HandSnapshot } from "../../types";
 import { call, desktop } from "../../services/desktop";
 import { errorText } from "../../i18n";
 import { arrivalDrawingBounds } from "./handDrawingBounds";
+import type { ArrivalReady } from "./handSurface";
 import { animateHandMotion, releaseHandMotion, handRestTransform as restTransform } from "./handMotion";
 import type { CardPose } from "./handLayout";
 import type { Ref, Setter, Flying, HandMotionRefs } from "./handControllerTypes";
 interface MotionContext extends HandMotionRefs {
+  arrivalReady: ArrivalReady;
+  markArrivalReady: (id: string, generation: number) => void;
   snapshot: HandSnapshot; phase: string; hidden: boolean; cardsMounted: boolean; showCardWindow: boolean;
   busy: string; flying: Flying | null; poses: CardPose[]; posesRef: Ref<CardPose[]>; stage: Ref<HTMLDivElement | null>;
   setCardsMounted: Setter<boolean>; setPhase: Setter<string>; setError: Setter<string>;
@@ -17,7 +20,7 @@ interface MotionContext extends HandMotionRefs {
 export function useHandMotion(context: MotionContext) {
   const { snapshot, phase, hidden, cardsMounted, showCardWindow, busy, flying, poses, posesRef, stage,
     setCardsMounted, setPhase, setError, commitRegions, scheduleRegions, accepted, unfolding,
-    arrivalPlayed, arrivalMotion, arrivalDrawing, returning } = context;
+    arrivalPlayed, arrivalMotion, arrivalDrawing, returning, markArrivalReady } = context;
   useLayoutEffect(() => {
     if (phase !== "closed" || !cardsMounted || (!hidden && snapshot.expanded)) return;
     let cancelled = false;
@@ -58,9 +61,10 @@ export function useHandMotion(context: MotionContext) {
               arrival.animation?.play();
               scheduleRegions.current();
               if (snapshot.cards.find((c) => c.id === snapshot.arrival?.id)?.mysteryRevealed && arrival.animation)
-                arrival.element.querySelector(".hand-flip")?.animate([
+                arrival.flip = arrival.element.querySelector(".hand-flip")?.animate([
                   { transform: "rotateY(180deg)" }, { transform: "rotateY(90deg)", offset: .5 }, { transform: "rotateY(0deg)" },
-                ], { duration: 420, delay: 120, fill: "backwards" });
+                ], { duration: 420, delay: 120, fill: "backwards" }) ?? null;
+              if (!arrival.animation) markArrivalReady(snapshot.arrival?.id ?? "", snapshot.generation);
             }).catch((e) => setError(errorText(e)));
           });
         });
@@ -93,16 +97,22 @@ export function useHandMotion(context: MotionContext) {
     ], { duration: 480, easing: "cubic-bezier(.22,.75,.24,1)" });
     animation?.pause();
     if (animation) animation.currentTime = 0;
-    const motion = { generation: snapshot.generation, element, animation };
+    const motion = { generation: snapshot.generation, element, animation, flip: null as Animation | null };
     arrivalMotion.current = motion;
     arrivalDrawing.current = animation ? { generation: snapshot.generation, bounds: arrivalDrawingBounds(arrival.rect, pose) } : null;
-    const finishArrival = () => {
+    const finishArrival = async () => {
+      if (arrivalMotion.current !== motion) return;
+      // Only the arrival's own flip belongs to this handoff. Cover effects and
+      // hover transitions must not delay the card's highlight indefinitely.
+      if (motion.flip) await motion.flip.finished.catch(() => {});
       if (arrivalMotion.current !== motion) return;
       arrivalDrawing.current = null;
+      markArrivalReady(arrival.id, snapshot.generation);
       scheduleRegions.current();
     };
     if (animation) void animation.finished.then(finishArrival, finishArrival);
     return () => {
+      motion.flip?.cancel();
       releaseHandMotion(element);
       if (arrivalMotion.current === motion) {
         arrivalMotion.current = null;

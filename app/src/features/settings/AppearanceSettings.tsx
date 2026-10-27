@@ -1,6 +1,6 @@
 import type { GuiSettings } from "../../types";
 import { defaultGuiSettings } from "../../types";
-import { SettingRow, NumberField, ScaleField, Toggle } from "../../components/SettingsControls";
+import { SettingRow, NumberField, ScaleField } from "../../components/SettingsControls";
 import { FontPicker } from "../../components/FontPicker";
 import { Select } from "../../components/Select";
 import { t } from "../../i18n";
@@ -8,15 +8,9 @@ import { t } from "../../i18n";
 export function AppearanceSettings({
   gui,
   setGui,
-  previewActive,
-  onPreviewChange,
-  previewBusy,
 }: {
   gui: GuiSettings;
   setGui: React.Dispatch<React.SetStateAction<GuiSettings>>;
-  previewActive: boolean;
-  onPreviewChange: (active: boolean) => void;
-  previewBusy: boolean;
 }) {
   const set = <K extends keyof GuiSettings>(key: K, value: GuiSettings[K]) =>
     setGui((previous) => ({ ...previous, [key]: value }));
@@ -95,47 +89,19 @@ export function AppearanceSettings({
           onChange={(v) => set("setting_size", v)}
         />
       </SettingRow>
-      <SettingRow
-        title={t("卡片大小")}
-      >
-        <ScaleField
-          label={t("卡片大小")}
-          value={gui.card_size}
-          onChange={(v) => set("card_size", v)}
-        />
-      </SettingRow>
-      <SettingRow
-        title={t("退出按钮大小")}
-      >
-        <ScaleField
-          label={t("退出按钮大小")}
-          value={gui.cancel_button_size}
-          onChange={(v) => set("cancel_button_size", v)}
-        />
-      </SettingRow>
-      <SettingRow title={t("替换按钮大小")}>
-        <ScaleField label={t("替换按钮大小")} value={gui.replacement_button_size}
-          onChange={(value) => set("replacement_button_size", value)} />
-      </SettingRow>
-      <SettingRow title={t("发现信息条大小")}>
-        <ScaleField label={t("发现信息条大小")} value={gui.discovery_bar_size}
-          onChange={(value) => set("discovery_bar_size", value)} />
-      </SettingRow>
-      <SettingRow title={t("发现界面预览")}>
-        <fieldset className="preview-toggle" disabled={previewBusy}>
-          <Toggle label={t("发现界面预览")} value={previewActive} onChange={onPreviewChange} />
-        </fieldset>
-      </SettingRow>
       <div className="appearance-actions">
         <button
           type="button"
           className="button secondary"
           onClick={() =>
-            setGui({
-              ...defaultGuiSettings,
-              language: gui.language,
-              user_configured: gui.user_configured,
-            })
+            setGui(previous => ({
+              ...previous,
+              follow_system_theme: defaultGuiSettings.follow_system_theme,
+              night_mode: defaultGuiSettings.night_mode,
+              font_family: defaultGuiSettings.font_family,
+              font_size: defaultGuiSettings.font_size,
+              setting_size: defaultGuiSettings.setting_size,
+            }))
           }
         >
           {t("还原外观")}

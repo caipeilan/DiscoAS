@@ -48,7 +48,6 @@ fn publish_busy(
 struct Runtime {
     policy: AutoHand,
     request: Option<(u64, PlaySongArgs)>,
-    mode: AutoDetectionMode,
     source: Option<String>,
     title: String,
     pausing: Option<u64>,
@@ -177,23 +176,28 @@ impl AutoHandService {
                                 if still { paused = Some((token, session)); }
                             }
                         }
-                        let (platform, mode, title) = {
+                        let (platform, title) = {
                             let mut runtime = runtime.lock().unwrap();
                             if let Some(source) = runtime.source.clone() { runtime.policy.adopt(&source); }
-                            (runtime.policy.active().map(str::to_string), runtime.mode, runtime.title.clone())
+                            (runtime.policy.active().map(str::to_string), runtime.title.clone())
                         };
-                        let mut values = reader.sample(platform.as_deref(), mode, Some(&title));
+                        let mut values = reader.sample_automatic(platform.as_deref(), Some(&title));
+                        let rebound = reader.take_rebound();
                         if let Some(browser) = app.state::<crate::browser_playback::BrowserPlaybackService>().observation() { values.push(browser); }
                         {
                             let mut runtime = runtime.lock().unwrap();
                             if runtime.policy.active().is_none() {
                                 if let Some(platform) = reader.current_platform().or_else(|| values.iter().find(|value| value.playing).map(|value| value.platform.clone())) { runtime.policy.adopt(&platform); }
                             }
+                            if runtime.policy.active().is_some_and(|platform| rebound.contains(platform)) {
+                                runtime.policy.rebind();
+                            }
                         }
                         for value in values {
                             let platform = value.platform.clone();
                             let source = value.source.clone();
                             let browser = value.signal == discoas_core::auto_hand::Signal::Browser;
+                            let native_source = (value.signal == discoas_core::auto_hand::Signal::Interface && !source.is_empty()).then_some(source.as_str());
                             let key = (platform.clone(), value.signal);
                             // Diagnostics compare only meaningful fields; a revision-only
                             // media notification must not build a log line.
@@ -213,6 +217,7 @@ impl AutoHandService {
                                 let token = runtime.lock().unwrap().policy.generation();
                                 super::diagnostics::trace_auto_hand(token, "observation", &format!("source={} signal={:?} playing={} title={:x} artist={:x} artwork={} revision={}", value.source, value.signal, value.playing, md5::compute(&value.identity), md5::compute(&value.artist), value.artwork, value.revision));
                             }
+                            let paused_observation = !value.playing;
                             let event = runtime.lock().unwrap().policy.observe(value, native::now_ms());
                             match event {
                                 Some(Event::Play { token }) => {
@@ -221,10 +226,15 @@ impl AutoHandService {
                                         continue;
                                     }
                                     runtime.lock().unwrap().pausing = Some(token);
-                                    publish_busy(&app, &runtime, &mut previous);
-                                    super::hand_drag::hide(&app);
-                                    super::diagnostics::log_event(&app, "auto_hand", "track_changed_pause_requested");
-                                    super::diagnostics::trace_auto_hand(token, "external_change", &format!("platform={platform}"));
+                                    let mut lock_published = false;
+                                    let mut publish_pause = || {
+                                        if lock_published { return; }
+                                        lock_published = true;
+                                        publish_busy(&app, &runtime, &mut previous);
+                                        super::hand_drag::hide(&app);
+                                        super::diagnostics::log_event(&app, "auto_hand", "track_changed_pause_requested");
+                                        super::diagnostics::trace_auto_hand(token, "external_change", &format!("platform={platform}"));
+                                    };
                                     if !browser {
                                         let cancel_runtime = runtime.clone();
                                         let cancel_stopped = stopped.clone();
@@ -243,9 +253,10 @@ impl AutoHandService {
                                             let _handoff = service.handoff.lock().unwrap();
                                             let result = reader.pause_observation(
                                                 &platform,
-                                                (!source.is_empty()).then_some(source.as_str()),
+                                                native_source,
                                                 token,
                                                 &cancel,
+                                                &mut publish_pause,
                                             );
                                             if let Err(error) = &result {
                                                 // Never release the handoff as if a late pause
@@ -278,6 +289,10 @@ impl AutoHandService {
                                             Err(_) => continue,
                                         }
                                     }
+                                    // Native pause publishes the lock from the
+                                    // on_sent callback; the browser path has no
+                                    // directed native command before its async pause.
+                                    if browser { publish_pause(); }
                                     super::diagnostics::log_event(&app, "auto_hand", if browser { "browser_pause_requested" } else { "player_paused" });
                                     let app = app.clone();
                                     tauri::async_runtime::spawn(async move {
@@ -313,9 +328,28 @@ impl AutoHandService {
                                     if automatic {
                                         super::diagnostics::log_event(&app, "auto_hand", "target_confirmed");
                                         publish_result(&app, &runtime, token, None);
+                                        // The target is playing; our maintenance pause no
+                                        // longer owns the session. A later external pause
+                                        // is a user intervention, not our pause.
+                                        paused = None;
                                     }
                                 }
                                 _ => {}
+                            }
+                            if paused_observation
+                                && runtime.lock().unwrap().pausing.is_none()
+                                && paused.is_none()
+                            {
+                                let mut guard = runtime.lock().unwrap();
+                                if guard.policy.user_pause() {
+                                    drop(guard);
+                                    super::diagnostics::trace_auto_hand(
+                                        runtime.lock().unwrap().policy.generation(),
+                                        "user_pause_end_round",
+                                        "automatic=true",
+                                    );
+                                    publish_busy(&app, &runtime, &mut previous);
+                                }
                             }
                         }
                         if app.state::<crate::browser_playback::BrowserPlaybackService>().waiting_for_ad() {
@@ -406,11 +440,13 @@ impl AutoHandService {
             && hand.auto_play
             && source.as_deref().is_none_or(supports_platform);
         self.enabled.store(enabled, Ordering::Release);
+        // The saved detection field is read only for old-data compatibility.
+        // Current observers choose one primary source from the platform's
+        // actual capability, so a stale saved option cannot pin the strategy.
         let mut runtime = self.runtime.lock().unwrap();
-        if runtime.mode != hand.auto_play_detection || runtime.source != source {
-            runtime.policy.configure(false);
+        if runtime.source != source {
+            runtime.policy.rebind();
         }
-        runtime.mode = hand.auto_play_detection;
         runtime.source = source;
         runtime.policy.configure(enabled);
         drop(runtime);
@@ -791,4 +827,5 @@ mod tests {
             }
         }
     }
+
 }

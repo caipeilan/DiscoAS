@@ -6,7 +6,7 @@ import { ShortcutRecorder } from "../../ShortcutRecorder";
 import { SettingRow, NumberField, Toggle } from "../../components/SettingsControls";
 import { Select } from "../../components/Select";
 import { samePreferences, sameGuiPreferences } from "./preferences";
-import { DisplayMonitorSetting } from "./DisplayMonitorSetting";
+import { DiscoveryAppearanceSettings } from "./DiscoveryAppearanceSettings";
 import { ClientDesktopSettings } from "./ClientDesktopSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { t, errorText } from "../../i18n";
@@ -18,7 +18,6 @@ import { HandPlayShortcuts } from "./HandPlayShortcuts";
 import { HandSettings } from "./HandSettings";
 import { RenderingSettings } from "./RenderingSettings";
 import { Reveal } from "../../components/Motion";
-import { useDiscoveryPreview } from "./useDiscoveryPreview";
 import "./settingsDiscovery.css";
 import "./settingsLayout.css";
 import { InlineFeedback } from "../../components/InlineFeedback";
@@ -69,7 +68,6 @@ export function Settings({
   category: SettingsCategory;
   selectCategory: (category: SettingsCategory) => void;
 }) {
-  const preview = useDiscoveryPreview(draft, guiDraft);
   const panel = (id: SettingsSectionId, children: ReactNode) => <SettingsPanel id={id} category={category}>{children}</SettingsPanel>;
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -113,9 +111,7 @@ export function Settings({
       <div className="settings-content">
         <fieldset className="settings-fields" disabled={!!busy}>
         {panel("appearance", <>
-        <AppearanceSettings gui={guiDraft} setGui={setGuiDraft} previewActive={preview.active}
-          onPreviewChange={preview.change} previewBusy={preview.pending} />
-        {preview.error && <p className="inline-error padded-error" role="alert">{preview.error}</p>}
+        <AppearanceSettings gui={guiDraft} setGui={setGuiDraft} />
         </>)}
         {panel("rendering", <>
         <RenderingSettings value={desktopDraft.rendering_mode} onChange={rendering_mode => setDesktopDraft(current => ({ ...current, rendering_mode }))} />
@@ -194,8 +190,15 @@ export function Settings({
             <NumberField label={t("每次发现替换数")} value={draft.replacement_limit} min={0} max={100}
               suffix={t("次")} onChange={(value) => set("replacement_limit", value)} />
           </SettingRow>
+          <SettingRow title={t("收牌后保留发现界面")} description={t("手牌模式下，收牌后继续显示其余发现歌曲。") }>
+            <Toggle label={t("收牌后保留发现界面")} value={draft.hand.keep_discovery_open}
+              onChange={(value) => set("hand", { ...draft.hand, keep_discovery_open: value })} />
+          </SettingRow>
         </section>
         </>)}
+        {panel("discoveryAppearance", <DiscoveryAppearanceSettings gui={guiDraft} setGui={setGuiDraft}
+          monitor={desktopDraft.overlay_monitor}
+          onMonitorChange={(overlay_monitor) => setDesktopDraft(current => ({ ...current, overlay_monitor }))} />)}
         {panel("exclusion", <>
         <section className="settings-section">
           <h2>{t("排除偏好")}</h2>
@@ -242,15 +245,11 @@ export function Settings({
           </SettingRow>
         </section>)}
         {panel("hand", <>
-        <HandSettings settings={draft} gui={guiDraft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("hand_discovery", value)} />
+        <HandSettings settings={draft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("hand_discovery", value)} />
         </>)}
         {panel("window", <>
         <section className="settings-section">
           <h2>{t("窗口与播放")}</h2>
-          <DisplayMonitorSetting
-            value={desktopDraft.overlay_monitor}
-            onChange={(value) => setDesktopDraft((current) => ({ ...current, overlay_monitor: value }))}
-          />
           <Reveal open={desktopDraft.client_window_mode === "temporary"}>
             <SettingRow
               className="client-wait-row"
@@ -271,6 +270,8 @@ export function Settings({
           <ClientDesktopSettings
             mode={desktopDraft.client_window_mode}
             onChange={(client_window_mode) => setDesktopDraft((current) => ({ ...current, client_window_mode }))}
+            separateDesktop={desktopDraft.client_separate_desktop}
+            onSeparateDesktopChange={(client_separate_desktop) => setDesktopDraft((current) => ({ ...current, client_separate_desktop }))}
           />
         </section>
         </>)}

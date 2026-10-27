@@ -829,14 +829,17 @@ mod tests {
         crate::desktop::diagnostics::set_isolation_root(log_root.clone());
         let settings = crate::desktop_preferences::DesktopPreferences {
             client_window_mode: "persistent".into(),
+            client_separate_desktop: true,
             ..Default::default()
         };
         let prepare_started = std::time::Instant::now();
-        let handle = crate::desktop::client_isolation::prepare(
+        let handle = match crate::desktop::client_isolation::prepare(
             crate::platforms::names::NETEASE,
             &settings,
-        )
-        .expect("isolation prepared");
+        ) {
+            crate::desktop::client_isolation::Preparation::Ready(handle) => handle,
+            other => panic!("isolation prepared: {other:?}"),
+        };
         let prepare_elapsed = prepare_started.elapsed();
         let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
         let open_started = std::time::Instant::now();
@@ -855,13 +858,9 @@ mod tests {
         assert_eq!(after, original);
         #[cfg(windows)]
         {
-            use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
             let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
             assert!(!windows.is_empty());
-            assert_eq!(
-                unsafe { IsWindowVisible(windows[0].hwnd as *mut core::ffi::c_void) },
-                0
-            );
+            assert_ne!(crate::desktop::virtual_desktop::window_desktop(windows[0].hwnd).unwrap(), original);
         }
     }
 
@@ -957,33 +956,39 @@ mod tests {
     #[test]
     #[ignore = "opens a real NetEase scheme with a hidden client"]
     fn live_isolated_netease_uri_with_hidden_client_does_not_switch_desktop() {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_HIDE};
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
         let original = crate::desktop::virtual_desktop::current().expect("current desktop");
+        let windows = crate::client_window::windows(crate::platforms::names::NETEASE);
+        assert!(!windows.is_empty());
+        for window in &windows {
+            crate::client_window::show_minimized_without_activation(window.hwnd);
+            std::thread::sleep(Duration::from_millis(200));
+            crate::desktop::virtual_desktop::move_window(window.hwnd, original).expect("prepare client on current desktop");
+            assert!(crate::client_window::ensure_hidden(window.hwnd));
+        }
+        let foreground = unsafe { GetForegroundWindow() };
         let settings = crate::desktop_preferences::DesktopPreferences {
             client_window_mode: "persistent".into(),
+            client_separate_desktop: true,
             ..Default::default()
         };
-        let handle = crate::desktop::client_isolation::prepare(
+        let handle = match crate::desktop::client_isolation::prepare(
             crate::platforms::names::NETEASE,
             &settings,
-        )
-        .expect("isolation prepared");
-        for window in crate::client_window::windows(crate::platforms::names::NETEASE) {
-            // SAFETY: the HWND came from the client enumeration.
-            unsafe {
-                ShowWindowAsync(window.hwnd as *mut core::ffi::c_void, SW_HIDE);
-            }
-        }
-        std::thread::sleep(Duration::from_millis(400));
+        ) {
+            crate::desktop::client_isolation::Preparation::Ready(handle) => handle,
+            other => panic!("isolation prepared: {other:?}"),
+        };
         let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
         open_url_no_activate(&url).expect("scheme opened");
-        std::thread::sleep(Duration::from_secs(2));
-        assert_eq!(
-            crate::desktop::virtual_desktop::current().expect("current desktop"),
-            original
-        );
         crate::desktop::client_isolation::playback_started(handle);
+        for _ in 0..60 {
+            std::thread::sleep(Duration::from_millis(50));
+            assert_eq!(crate::desktop::virtual_desktop::current().expect("current desktop"), original);
+            assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+        }
+        assert_ne!(crate::desktop::virtual_desktop::window_desktop(windows[0].hwnd).unwrap(), original);
     }
 
     #[test]

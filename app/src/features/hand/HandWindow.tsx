@@ -8,6 +8,7 @@ import { groupSettings } from "./handLayout";
 import { HandDock } from "./HandDock";
 import { HandAutoPlayLock } from "./HandAutoPlayLock";
 import { HandCardContent } from "./HandCardContent";
+import { handSurfaceWaiting } from "./handSurface";
 import { useHandController } from "./useHandController";
 import { isHandRegionAnimation, isHandRegionTransition } from "./handRegionEvents";
 import { useAppearance } from "../settings/useAppearance";
@@ -20,7 +21,7 @@ export function HandWindow() {
     scheduleRegions, busy, autoLocked, autoNextId, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId, refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount, ordinaryCount,
-    retiringById, entering, finishCardTransition, layoutTransition } = useHandController();
+    retiringById, entering, finishCardTransition, layoutTransition, arrivalReady } = useHandController();
   useAppearance(snapshot.gui);
   const layoutPending = !!layoutTransition?.pending;
   const liquid = snapshot.discoverySettings?.liquid_strength ?? 100;
@@ -53,7 +54,6 @@ export function HandWindow() {
       const removing = discardById.get(card.id);
       const retiring = retiringById.get(card.id);
       const flyingCard = flying?.card.id === card.id ? flying : null;
-      const autoNext = card.id === autoNextId && !drag && !removing && !retiring && !flyingCard && !layoutPending;
       const i = cardIndices.get(card.id) ?? -1;
       const frozen = layoutPending ? layoutTransition?.poses.get(card.id) : undefined;
       const pose = frozen ?? retiring?.pose ?? removing?.pose ?? flyingCard?.pose ?? poses[i]; const held = !retiring && !removing && !flyingCard && drag?.id === card.id ? drag : null;
@@ -61,6 +61,18 @@ export function HandWindow() {
       const collecting = !!held && card.discovery && held.intake !== null;
       const settings = retiring ? { side: retiring.side } : groupSettings(card, snapshot.settings, snapshot.discoverySettings);
       const refreshing = !!card.discovery && !flyingCard && (!!discoveryPhase || card.placeholder || replacingId === card.id);
+      // Do not paint the next-card ring or the active face highlight while the
+      // real arrival/refill/flip surface is still moving. The collected-card
+      // arrival is gated by the exact generation, native presentation, cover
+      // readiness and arrival/flip completion, never a fixed delay.
+      const surfaceWaiting = handSurfaceWaiting(card.id, {
+        generation: snapshot.generation,
+        arrivalId: snapshot.arrival?.id,
+        arrivalReady,
+        entering,
+        refreshing,
+      });
+      const autoNext = card.id === autoNextId && !drag && !removing && !retiring && !flyingCard && !layoutPending && !surfaceWaiting;
       const shortcutIndex = snapshot.discoverySettings?.enabled && !snapshot.discoverySettings.merged ? (card.discovery ? -1 : i-discoveryCount) : i;
       const style = { "--hand-x": `${held ? held.pose.x : pose.x}px`, "--hand-y": `${held ? held.pose.y : pose.y}px`, width: pose.width, height: pose.height,
         "--hand-base-scale": pose.width / 156,
@@ -70,7 +82,7 @@ export function HandWindow() {
         "--hand-card-scale": held ? 1.12 : pose.scale, "--hand-order": i, "--discard-delay": `${removing?.delay ?? 0}ms`,
         "--refill-x": settings.side === "left" ? "-42px" : settings.side === "right" ? "42px" : "0px", "--refill-y": settings.side === "bottom" ? "42px" : "0px",
       } as CSSProperties;
-      return <div key={card.id} data-hand-id={card.id} data-auto-locked={autoLocked || undefined} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
+      return <div key={card.id} data-hand-id={card.id} data-auto-locked={autoLocked || undefined} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${surfaceWaiting ? " hand-surface-waiting" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
         role="button" tabIndex={-1} data-auto-next={autoNext || undefined} aria-label={`${card.song.mysteryMode ? t("神秘歌曲") : card.song.name}${autoNext ? ` · ${t("下一张自动打出")}` : ""}`} title={autoNext ? t("下一张自动打出") : undefined} aria-disabled={snapshot.preview || !!busy || autoLocked}
         style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); finishCardTransition(card.id); } }} onPointerDown={(e) => onCardPointerDown(card, e)} onPointerMove={(e) => onCardPointerMove(card, e)} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => lostPointerCapture(card.id)}>
         <div className="hand-flip"><div className="hand-card-face">

@@ -152,7 +152,10 @@ pub(crate) fn is_offscreen(hwnd: isize) -> bool {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::RECT;
-        use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic};
+        // A minimized window's -32000 rectangle is an OS sentinel, not its
+        // restore position. Explicit Show Client must not resize it as offscreen.
+        if unsafe { IsIconic(hwnd as *mut core::ffi::c_void) } != 0 { return false; }
         let mut rect = RECT::default();
         if unsafe { GetWindowRect(hwnd as *mut core::ffi::c_void, &mut rect) } == 0 {
             return false;
@@ -281,6 +284,18 @@ pub(crate) fn is_visible(hwnd: isize) -> bool {
     }
 }
 
+pub(crate) fn is_minimized(hwnd: isize) -> bool {
+    #[cfg(windows)]
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::IsIconic(hwnd as *mut core::ffi::c_void) != 0
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        false
+    }
+}
+
 pub(crate) fn hide_window(hwnd: isize) {
     #[cfg(windows)]
     {
@@ -294,6 +309,18 @@ pub(crate) fn hide_window(hwnd: isize) {
     {
         let _ = hwnd;
     }
+}
+
+/// Register a hidden/tray client's shell view without activating or rendering
+/// its main content on the current desktop.
+pub(crate) fn show_minimized_without_activation(hwnd: isize) {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_SHOWMINNOACTIVE};
+        ShowWindowAsync(hwnd as *mut core::ffi::c_void, SW_SHOWMINNOACTIVE);
+    }
+    #[cfg(not(windows))]
+    let _ = hwnd;
 }
 
 /// Hide a client window and wait briefly for the asynchronous
@@ -328,6 +355,40 @@ pub(crate) fn client_image(platform: &str) -> Option<String> {
     windows::main_image(Client::from_platform(platform)?)
 }
 pub(crate) use windows::TitleReader;
+
+/// Start the PID + verified main-HWND NAMECHANGE hint for the selected client.
+/// The hint only wakes the observer; it never creates an observation by itself.
+pub(crate) fn start_title_hint(platform: &str, wake: std::sync::mpsc::Sender<()>) {
+    #[cfg(windows)]
+    {
+        windows::start_title_hint(platform, wake);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (platform, wake);
+    }
+}
+
+/// Drain platforms whose main window emitted a NAMECHANGE; matching Watched
+/// caches must re-read SMTC properties instead of serving the previous title.
+pub(crate) fn take_title_hint_dirty() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        windows::take_title_hint_dirty()
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// Release the selected client's hook when automatic/manual observation stops.
+pub(crate) fn stop_title_hint() {
+    #[cfg(windows)]
+    {
+        windows::stop_title_hint();
+    }
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -400,7 +461,8 @@ fn minimize(client: Client, generation: u64, grace: Duration) -> Option<Result<(
 mod windows {
     use super::{Client, REQUEST_GENERATION};
     use std::{
-        sync::atomic::Ordering,
+        collections::{HashMap, HashSet},
+        sync::{atomic::Ordering, mpsc, Mutex, OnceLock},
         thread,
         time::{Duration, Instant},
     };
@@ -409,16 +471,204 @@ mod windows {
         System::Threading::{
             OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
         },
+        UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK},
         UI::WindowsAndMessaging::{
-            EnumWindows, GetClassNameW, GetWindow, GetWindowLongPtrW, GetWindowRect,
-            GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-            ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, SW_MINIMIZE, WS_CHILD,
-            WS_EX_TOOLWINDOW, WS_MINIMIZEBOX,
+            DispatchMessageW, EnumWindows, GetClassNameW, GetWindow, GetWindowLongPtrW,
+            GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
+            IsWindowVisible, MsgWaitForMultipleObjects, PeekMessageW, ShowWindowAsync,
+            TranslateMessage, CHILDID_SELF, EVENT_OBJECT_NAMECHANGE, GWL_EXSTYLE, GWL_STYLE,
+            GW_OWNER, MSG, OBJID_WINDOW, PM_REMOVE, QS_ALLINPUT, SW_MINIMIZE,
+            WINEVENT_OUTOFCONTEXT, WS_CHILD, WS_EX_TOOLWINDOW, WS_MINIMIZEBOX,
         },
     };
 
     const INTERVAL: Duration = Duration::from_millis(400);
     const SEARCH_TIMEOUT: Duration = Duration::from_secs(21);
+
+    static TITLE_HINT_STARTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    static TITLE_HINT_SENDERS: OnceLock<Mutex<HashMap<isize, (String, mpsc::Sender<()>)>>> = OnceLock::new();
+    static TITLE_HINT_ACTIVE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    static TITLE_HINT_DIRTY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+    fn title_hint_matches(event: u32, idobject: i32, idchild: i32) -> bool {
+        event == EVENT_OBJECT_NAMECHANGE
+            && idobject == OBJID_WINDOW
+            && idchild == CHILDID_SELF as i32
+    }
+
+    unsafe extern "system" fn title_hint_proc(
+        _hook: HWINEVENTHOOK,
+        event: u32,
+        hwnd: HWND,
+        idobject: i32,
+        idchild: i32,
+        _thread: u32,
+        _time: u32,
+    ) {
+        if !title_hint_matches(event, idobject, idchild) {
+            return;
+        }
+        let sender = TITLE_HINT_SENDERS
+            .get()
+            .and_then(|lock| lock.lock().ok()?.get(&(hwnd as isize)).cloned());
+        if let Some((platform, sender)) = sender {
+            if let Ok(mut dirty) = TITLE_HINT_DIRTY.get_or_init(|| Mutex::new(HashSet::new())).lock() {
+                dirty.insert(platform);
+            }
+            let _ = sender.send(());
+        }
+    }
+
+    pub(super) fn take_title_hint_dirty() -> Vec<String> {
+        let Some(dirty) = TITLE_HINT_DIRTY.get() else { return Vec::new(); };
+        let Ok(mut dirty) = dirty.lock() else { return Vec::new(); };
+        dirty.drain().collect()
+    }
+
+    pub(super) fn stop_title_hint() {
+        if let Ok(mut active) = TITLE_HINT_ACTIVE.get_or_init(|| Mutex::new(None)).lock() {
+            *active = None;
+        }
+    }
+
+    /// One hint thread per selected client platform. It is only a wake-up
+    /// notification, never an Observation: a title alone cannot trigger a card.
+    pub(super) fn start_title_hint(platform: &str, wake: mpsc::Sender<()>) {
+        let Some(client) = Client::from_platform(platform) else { stop_title_hint(); return; };
+        if let Ok(mut active) = TITLE_HINT_ACTIVE.get_or_init(|| Mutex::new(None)).lock() {
+            *active = Some(platform.to_string());
+        }
+        let started = TITLE_HINT_STARTED.get_or_init(|| Mutex::new(HashSet::new()));
+        if let Ok(mut started) = started.lock() {
+            if !started.insert(platform.to_string()) {
+                return;
+            }
+        }
+        let platform = platform.to_string();
+        thread::spawn(move || {
+            let mut window = None;
+            for _ in 0..30 {
+                if TITLE_HINT_ACTIVE.get().and_then(|active| active.lock().ok()?.clone()).as_deref() != Some(platform.as_str()) {
+                    if let Ok(mut started) = started.lock() { started.remove(&platform); }
+                    return;
+                }
+                window = find_main(client).or_else(|| find_main_with_visibility(client, true));
+                if window.is_some() {
+                    break;
+                }
+                thread::sleep(Duration::from_secs(1));
+            }
+            let Some(mut window) = window else {
+                if let Ok(mut started) = started.lock() {
+                    started.remove(&platform);
+                }
+                return;
+            };
+            let senders = TITLE_HINT_SENDERS.get_or_init(|| Mutex::new(HashMap::new()));
+            let attach = |window: &Window| -> HWINEVENTHOOK {
+                if let Ok(mut senders) = senders.lock() {
+                    senders.insert(window.hwnd as isize, (platform.clone(), wake.clone()));
+                }
+                unsafe {
+                    SetWinEventHook(
+                        EVENT_OBJECT_NAMECHANGE,
+                        EVENT_OBJECT_NAMECHANGE,
+                        std::ptr::null_mut(),
+                        Some(title_hint_proc),
+                        window.pid,
+                        0,
+                        WINEVENT_OUTOFCONTEXT,
+                    )
+                }
+            };
+            let mut hook = attach(&window);
+            if hook.is_null() {
+                if let Ok(mut senders) = senders.lock() {
+                    senders.remove(&(window.hwnd as isize));
+                }
+                if let Ok(mut started) = started.lock() {
+                    started.remove(&platform);
+                }
+                return;
+            }
+            let mut message = MSG::default();
+            let mut last_search = Instant::now();
+            loop {
+                let active = TITLE_HINT_ACTIVE
+                    .get()
+                    .and_then(|active| active.lock().ok()?.clone());
+                if active.as_deref() != Some(platform.as_str()) {
+                    break;
+                }
+                let mut pid = 0;
+                let valid = unsafe { IsWindow(window.hwnd as HWND) } != 0
+                    && unsafe { GetWindowThreadProcessId(window.hwnd as HWND, &mut pid) } != 0
+                    && pid == window.pid;
+                if !valid || hook.is_null() {
+                    if !hook.is_null() {
+                        unsafe { UnhookWinEvent(hook); }
+                    }
+                    hook = std::ptr::null_mut();
+                    if let Ok(mut senders) = senders.lock() {
+                        senders.remove(&(window.hwnd as isize));
+                    }
+                    if last_search.elapsed() >= Duration::from_secs(1) {
+                        last_search = Instant::now();
+                        if let Some(next) = find_main(client).or_else(|| find_main_with_visibility(client, true)) {
+                            window = next;
+                            hook = attach(&window);
+                            if !hook.is_null() {
+                                crate::desktop::diagnostics::log_isolation(
+                                    "title_hint_rebind",
+                                    &format!("platform={platform} hwnd=0x{:X} pid={}", window.hwnd, window.pid),
+                                );
+                            }
+                        }
+                    }
+                }
+                let _ = unsafe {
+                    MsgWaitForMultipleObjects(0, std::ptr::null(), 0, 100, QS_ALLINPUT)
+                };
+                while unsafe {
+                    PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE)
+                } != 0 {
+                    unsafe {
+                        TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                }
+            }
+            if !hook.is_null() {
+                unsafe { UnhookWinEvent(hook); }
+            }
+            if let Ok(mut senders) = senders.lock() {
+                senders.remove(&(window.hwnd as isize));
+            }
+            if let Ok(mut started) = started.lock() {
+                started.remove(&platform);
+            }
+        });
+    }
+
+    #[test]
+    fn title_hint_only_accepts_main_window_namechange() {
+        assert!(title_hint_matches(EVENT_OBJECT_NAMECHANGE, OBJID_WINDOW, CHILDID_SELF as i32));
+        assert!(!title_hint_matches(EVENT_OBJECT_NAMECHANGE, 1, 0));
+        assert!(!title_hint_matches(EVENT_OBJECT_NAMECHANGE, OBJID_WINDOW, 1));
+        assert!(!title_hint_matches(EVENT_OBJECT_NAMECHANGE + 1, OBJID_WINDOW, 0));
+    }
+
+    #[test]
+    fn main_window_title_event_wakes_and_invalidates_the_selected_client() {
+        let (wake, receive) = mpsc::channel();
+        let senders = TITLE_HINT_SENDERS.get_or_init(|| Mutex::new(HashMap::new()));
+        senders.lock().unwrap().insert(42, (crate::platforms::names::NETEASE.into(), wake));
+        unsafe { title_hint_proc(std::ptr::null_mut(), EVENT_OBJECT_NAMECHANGE,
+            42 as HWND, OBJID_WINDOW, CHILDID_SELF as i32, 0, 0); }
+        assert!(receive.try_recv().is_ok());
+        assert!(take_title_hint_dirty().iter().any(|platform| platform == crate::platforms::names::NETEASE));
+        senders.lock().unwrap().remove(&42);
+    }
 
     struct ProcessHandle(HANDLE);
     impl Drop for ProcessHandle {
@@ -590,6 +840,9 @@ mod windows {
         searched: Option<Instant>,
     }
     impl TitleReader {
+        pub(crate) fn source(&self) -> String {
+            self.window.as_ref().map(|window| format!("window:{}:{}", window.pid, window.hwnd)).unwrap_or_default()
+        }
         pub(crate) fn new(platform: &str) -> Option<Self> {
             Some(Self {
                 client: Client::from_platform(platform)?,

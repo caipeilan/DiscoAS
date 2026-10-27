@@ -43,6 +43,13 @@ MD FOR AGENT/
 .agents/
 .local-docs/
 .local-release/
+/.local-qa/
+/i18n-review/
+/viz/
+/tools/desktop-audio-meter/
+/app/tests/fixtures/auto-hand-preview.html
+/app/tests/fixtures/autoHandPreview.tsx
+/app/tests/fixtures/HandHoverPreview.tsx
 /nul
 
 # Public documentation is limited to the root README and its developer links.

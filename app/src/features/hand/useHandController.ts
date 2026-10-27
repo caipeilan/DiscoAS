@@ -4,17 +4,18 @@ import { defaultGuiSettings, defaultHandSettings, emptyState } from "../../types
 import { call, desktop, onDesktopEvent, notifyHandBusy, notifyHandClear } from "../../services/desktop";
 import { applyAppearance } from "../../appearance";
 import { currentLocale, errorText, setLanguage } from "../../i18n";
-import { handCardSize, mergeHandCards, handLayout, groupedHandLayout, groupSettings, raisedHandPose, reorderHandGroups, type CardPose } from "./handLayout";
+import { handCardSize, mergeHandCards, handLayout, groupedHandLayout, groupSettings, raisedHandPose, reorderHandGroups, handReplacementFocusId, type CardPose } from "./handLayout";
 import { defaultDockPoint, floatingDockRect, type DockPoint } from "./floatingDock";
 import { combineHandBounds, handPoseBounds, handLayoutTransitionBounds } from "./handDrawingBounds";
 import { releaseHandMotion } from "./handMotion";
 import { useHandInput } from "./useHandInput";
 import { useHandSurface } from "./useHandSurface";
 import { useHandMotion } from "./useHandMotion";
-import { readPose, type Drag, type Flying, type Discarding } from "./handControllerTypes";
+import { readPose, type Drag, type Flying, type Discarding, type ArrivalMotion } from "./handControllerTypes";
 
 import { idleAutoHandState, mergeAutoHandState, type AutoHandState } from "./autoHandState";
 import { autoHandNextId } from "./autoHandNext";
+import type { ArrivalReady } from "./handSurface";
 
 const fallback: HandSnapshot = {
   generation: 0, cards: [], settings: defaultHandSettings, gui: defaultGuiSettings,
@@ -40,6 +41,7 @@ export function useHandController() {
   const [refill, setRefill] = useState<HandCard | null>(null);
   const [refillCount, setRefillCount] = useState(0);
   const [replacing, setReplacing] = useState(-1);
+  const replacementSlot = useRef<{ id: string; index: number } | null>(null);
   const [error, setError] = useState("");
   const [clearConfirm, setClearConfirm] = useState(false);
   const [flying, setFlying] = useState<Flying | null>(null);
@@ -47,6 +49,7 @@ export function useHandController() {
   const [retiring, setRetiring] = useState<Array<{ card: HandCard; pose: CardPose; side: string }>>([]);
   const retiringRef = useRef(retiring);
   const [entering, setEntering] = useState<Set<string>>(new Set());
+  const [arrivalReady, setArrivalReady] = useState<ArrivalReady>(null);
   const [layoutTransition, setLayoutTransition] = useState<{ generation: number; pending: boolean; poses: Map<string, CardPose>; bounds: HandRect | null } | null>(null);
   const layoutPrepared = useRef((generation: number) => setLayoutTransition(previous => previous?.generation === generation && previous.pending ? { ...previous, pending: false } : previous));
   const discardingRef = useRef<Discarding[]>([]);
@@ -121,7 +124,7 @@ export function useHandController() {
   ]);
   const accepted = useRef(0);
   const arrivalPlayed = useRef(0);
-  const arrivalMotion = useRef<{ generation: number; element: HTMLElement; animation: Animation | null } | null>(null);
+  const arrivalMotion = useRef<ArrivalMotion | null>(null);
   const arrivalDrawing = useRef<{ generation: number; bounds: HandRect } | null>(null);
   const dragDrawing = useRef<HandRect | null>(null);
   const returning = useRef<string[]>([]);
@@ -200,6 +203,9 @@ export function useHandController() {
     if (next.gui !== current.current.gui) {
       setLanguage(next.gui.language); document.documentElement.lang = currentLocale(); applyAppearance(next.gui);
     }
+    if (next.arrival && (!current.current.arrival || current.current.arrival.id !== next.arrival.id || current.current.generation !== next.generation)) {
+      setArrivalReady(null);
+    }
     accepted.current = next.generation;
     current.current = next;
     setSnapshot(next); setHidden(false); setClearConfirm(false);
@@ -218,8 +224,12 @@ export function useHandController() {
       inputRef.current = "keyboard"; setInputMode("keyboard");
       selectedRef.current = next.cards[0]?.id ?? null; setSelected(selectedRef.current);
     }
-    else if (!next.cards.some((c) => c.id === selectedRef.current)) setSelected(null);
-    if (!next.cards.some((c) => c.id === hoverRef.current)) setHover(null);
+    else {
+      selectedRef.current = handReplacementFocusId(next.cards, selectedRef.current, replacementSlot.current);
+      setSelected(selectedRef.current);
+    }
+    hoverRef.current = handReplacementFocusId(next.cards, hoverRef.current, replacementSlot.current);
+    setHover(hoverRef.current);
   };
 
   const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : ms));
@@ -244,6 +254,7 @@ export function useHandController() {
       const index = state.cards.filter(c => c.discovery).findIndex(c => c.id === card.id);
       try {
         if (name === "discard_hand_card") {
+          replacementSlot.current = { id: card.id, index };
           setReplacing(index);
           await Promise.all([call("replace_hand_discovery_card", { args, batchEpoch }), pause(340)]);
           await decoded(); setReplacing(-1);
@@ -267,7 +278,13 @@ export function useHandController() {
           setRefill(null); await decoded(); await pause(180);
         }
       } catch (e) { finishFlight(); setError(errorText(e)); }
-      finally { if (mounted.current) { setRefill(null); setReplacing(-1); setDiscoveryPhase(""); setManualPlaying(false); busyRef.current = ""; setBusy(""); } }
+      finally {
+        replacementSlot.current = null;
+        if (mounted.current) {
+          setRefill(null); setReplacing(-1); setDiscoveryPhase(""); setManualPlaying(false); busyRef.current = ""; setBusy("");
+          if (name === "discard_hand_card") requestAnimationFrame(() => refreshPointerHover());
+        }
+      }
       return;
     }
     let flight: Promise<unknown> = name === "discard_hand_card" ? animateDiscard([card]) : Promise.resolve();
@@ -301,7 +318,7 @@ export function useHandController() {
   };
   const clearHandRef = useRef(clearHand); clearHandRef.current = clearHand;
   useEffect(() => { if (desktop && !snapshot.preview) void notifyHandBusy(!!busy || autoLocked); }, [busy, autoLocked, snapshot.preview]);
-  const { cancelDrag, endDrag, onCardPointerDown, onCardPointerMove, lostPointerCapture } = useHandInput({ snapshot, current, mounted,
+  const { cancelDrag, endDrag, onCardPointerDown, onCardPointerMove, lostPointerCapture, refreshPointerHover } = useHandInput({ snapshot, current, mounted,
     dockMoving, stage, busyRef, selectedRef, hoverRef, inputRef, pointer, toolbarBounds, posesRef, restPosesRef,
     dragRef, dragFrame, dragDrawing, setDrag, setInputMode, setHover, setSelected, setSnapshot, setError,
     toCanvas, scheduleRegions, commitRegions, operation });
@@ -378,9 +395,12 @@ export function useHandController() {
   }, []);
 
   const showCardWindow = snapshot.preview || (cardsMounted && (snapshot.cards.length > 0 || discarding.length > 0 || retiring.length > 0)) || !!flying;
+  const markArrivalReady = (id: string, generation: number) => {
+    if (generation === accepted.current) setArrivalReady({ id, generation });
+  };
   useHandMotion({ snapshot, phase, hidden, cardsMounted, showCardWindow, busy, flying, poses, posesRef, stage,
     setCardsMounted, setPhase, setError, commitRegions, scheduleRegions, accepted, unfolding, arrivalPlayed,
-    arrivalMotion, arrivalDrawing, returning, layoutPrepared });
+    arrivalMotion, arrivalDrawing, returning, layoutPrepared, arrivalReady, markArrivalReady });
   const surface = snapshot.surface;
   const discardById = useMemo(() => new Map(discarding.map((item) => [item.card.id, item])), [discarding]);
   const retiringById = useMemo(() => new Map(retiring.map(item => [item.card.id, item])), [retiring]);
@@ -414,6 +434,6 @@ export function useHandController() {
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId: groups.discovery[replacing]?.id,
     refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount: groups.discovery.length, ordinaryCount: groups.ordinary.length,
-    retiringById, entering, finishCardTransition, layoutTransition };
+    retiringById, entering, finishCardTransition, layoutTransition, arrivalReady };
 
 }

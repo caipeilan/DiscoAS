@@ -152,11 +152,19 @@ export function hoverGroupedHandIndex(poses: CardPose[], x: number, y: number, r
     const angle = -p.angle*Math.PI/180, dx = x-p.x, dy = y-p.y;
     return Math.abs(dx*Math.cos(angle)-dy*Math.sin(angle)) <= p.width*p.scale/2 && Math.abs(dx*Math.sin(angle)+dy*Math.cos(angle)) <= p.height*p.scale/2;
   };
-  let index = -1, distance = Infinity;
-  poses.forEach((pose, i) => {
-    if (!contains(pose)) return;
-    const value = Math.hypot((x-pose.x)/pose.width, (y-pose.y)/pose.height);
-    if (value < distance) { index = i; distance = value; }
-  });
-  return index >= 0 ? index : raised && contains(raised) ? raisedIndex : -1;
+  // HandWindow paints the active card above all others, then by card order.
+  if (raised && raisedIndex >= 0 && contains(raised)) return raisedIndex;
+  for (let i = poses.length - 1; i >= 0; i--) {
+    if (i !== raisedIndex && contains(poses[i])) return i;
+  }
+  return -1;
+}
+
+export function handReplacementFocusId(cards: HandCard[], focused: string | null,
+  replacement: { id: string; index: number } | null): string | null {
+  if (cards.some(card => card.id === focused)) return focused;
+  if (replacement && focused === replacement.id) {
+    return cards.filter(card => card.discovery)[replacement.index]?.id ?? null;
+  }
+  return null;
 }

@@ -130,7 +130,13 @@ pub async fn play_hand_card(
     if result.is_err() {
         automation.fail(token);
         // Preparation can fail/expire before the normal post-dispatch removal.
-        if result.as_ref().is_err_and(|error| error != "错误：手牌模式未开启" && error != "错误：预览中不能播放歌曲") {
+        // A missing background desktop is a configuration precondition, not a
+        // consumed play: preserve the card so setup work cannot drain the hand.
+        if result.as_ref().is_err_and(|error| {
+            error != "错误：手牌模式未开启"
+                && error != "错误：预览中不能播放歌曲"
+                && !preserves_card_on_error(error)
+        }) {
             let _operation = cache.operation.lock().await;
             let store = store(&app)?;
             if store.load()?.cards.iter().any(|card| card.id == id) {
@@ -232,7 +238,7 @@ async fn play_card(
     );
     if result
         .as_ref()
-        .is_err_and(|error| error == super::auto_hand::BUSY_ERROR)
+        .is_err_and(|error| preserves_card_on_error(error))
     {
         return result;
     }
@@ -240,6 +246,11 @@ async fn play_card(
     changed(app, cache).await?;
     result
 }
+fn preserves_card_on_error(error: &str) -> bool {
+    error == super::auto_hand::BUSY_ERROR
+        || error == super::client_isolation::PREPARATION_ERROR
+}
+
 async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {
     service(app)?.sync_hand_exclusions().await?;
     if MusicSetting::load(app)
@@ -298,4 +309,16 @@ pub async fn reorder_hand(
     // The hand already animates this order locally; keep its snapshot without reloading covers.
     hand::update_order(&app, &ids);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn background_preparation_failure_preserves_the_hand_card() {
+        assert!(preserves_card_on_error(crate::desktop::client_isolation::PREPARATION_ERROR));
+        assert!(preserves_card_on_error(crate::desktop::auto_hand::BUSY_ERROR));
+        assert!(!preserves_card_on_error("错误：播放器暂停请求失败"));
+    }
 }

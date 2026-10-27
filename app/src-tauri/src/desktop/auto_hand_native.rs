@@ -102,6 +102,7 @@ fn artwork_due(dirty: bool, now: Instant, next: Instant) -> bool {
 }
 
 struct Watched {
+    instance: u64,
     session: Session,
     token: i64,
     playback_token: Option<i64>,
@@ -126,7 +127,10 @@ impl Drop for Watched {
     }
 }
 impl Watched {
-    fn new(session: Session, wake: Option<mpsc::Sender<()>>) -> Option<Self> {
+    fn mark_dirty(&self) {
+        self.dirty.store(true, Ordering::Release);
+    }
+    fn new(session: Session, wake: Option<mpsc::Sender<()>>, instance: u64) -> Option<Self> {
         let dirty = Arc::new(AtomicBool::new(true));
         let changed = dirty.clone();
         let metadata_wake = wake.clone();
@@ -155,6 +159,7 @@ impl Watched {
             )
             .ok();
         Some(Self {
+            instance,
             session,
             playback_token,
             token,
@@ -179,6 +184,7 @@ impl Watched {
             self.last_read = Instant::now();
             if let Ok(properties) = self.session.TryGetMediaPropertiesAsync().and_then(wait) {
                 let title = track_title(&properties.Title().ok()?.to_string());
+                if title.is_empty() { return None; }
                 if !title.is_empty() {
                     let artist = discoas_core::auto_hand::normalize(&properties.Artist().unwrap_or_default().to_string());
                     let new_title = self.title != title || self.artist != artist;
@@ -211,6 +217,7 @@ impl Watched {
                 }
             } else {
                 self.dirty.store(true, Ordering::Release);
+                return None;
             }
         }
         if self.title.is_empty() {
@@ -287,6 +294,27 @@ pub struct Reader {
     last_platform: Option<String>,
     local_target: Option<String>,
     local_session: Option<String>,
+    next_instance: u64,
+    bindings: Bindings,
+}
+
+/// A recreated session or a change of primary observer starts a fresh baseline.
+/// The worker keeps the pending hand token while rebinding the policy.
+#[derive(Default)]
+struct Bindings {
+    selected: HashMap<String, (Signal, String, u64)>,
+    changed: HashSet<String>,
+}
+impl Drop for Reader {
+    fn drop(&mut self) { client_window::stop_title_hint(); }
+}
+impl Bindings {
+    fn select(&mut self, value: &Observation, instance: u64) {
+        let key = (value.signal, value.source.clone(), instance);
+        if self.selected.insert(value.platform.clone(), key.clone()).is_some_and(|old| old != key) {
+            self.changed.insert(value.platform.clone());
+        }
+    }
 }
 pub struct PausedSession {
     session: Session,
@@ -294,16 +322,17 @@ pub struct PausedSession {
     source: String,
 }
 #[derive(Debug, PartialEq)]
-enum PauseCommand { Pause, Toggle }
-fn next_pause_command(playing: bool, attempts: u8, last_toggle: bool, observed_quiet: bool, elapsed: Option<Duration>, toggle_enabled: bool) -> Option<PauseCommand> {
-    if !playing || attempts >= 4 { return None; }
+enum PauseCommand { Pause }
+/// Directed Pause is idempotent and never followed by a reverse Toggle. The
+/// first accepted Pause may settle late; do not retry while we have not seen
+/// actual quiet. Only a genuine Playing state observed *after* a quiet sample
+/// receives another directed Pause. That repeats for each quiet->Playing
+/// episode, then the round ends on 200 ms of actual quiet or explicit timeout.
+fn next_pause_command(playing: bool, attempts: u8, accepted: bool, quiet_seen: bool) -> Option<PauseCommand> {
+    if !playing { return None; }
     if attempts == 0 { return Some(PauseCommand::Pause); }
-    if observed_quiet && elapsed.is_some_and(|d| d >= Duration::from_millis(200)) {
-        return Some(PauseCommand::Pause);
-    }
-    if !last_toggle && elapsed.is_some_and(|d| d >= Duration::from_millis(500)) {
-        return Some(if toggle_enabled { PauseCommand::Toggle } else { PauseCommand::Pause });
-    }
+    debug_assert!(accepted, "a rejected pause must fail before another command");
+    if quiet_seen { return Some(PauseCommand::Pause); }
     None
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,23 +361,23 @@ impl PausedSession {
         if cancelled() { return Ok(()); }
         if self.status() == Some(Status::Playing) {
             super::diagnostics::trace_auto_hand(self.token, "external_resumed", &self.source);
-            self.pause(cancelled)?;
+            let mut on_sent = || {};
+            self.pause(cancelled, &mut on_sent)?;
         }
         Ok(())
     }
-    fn pause(&self, cancelled: &dyn Fn() -> bool) -> Result<(), String> {
+    fn pause(&self, cancelled: &dyn Fn() -> bool, on_sent: &mut dyn FnMut()) -> Result<(), String> {
         let started = Instant::now();
         let mut quiet_since = None;
-        let mut last_request = None;
+        let mut quiet_seen = false;
         let mut previous = None;
         let mut attempts = 0;
         let mut commands_sent = 0u32;
-        let mut observed_quiet = false;
-        let mut last_toggle = false;
+        let mut last_accepted = false;
         while started.elapsed() < Duration::from_millis(3000) {
             // Cancellation may only stop a round that has not sent a command.
-            // Once a Pause/Toggle is on the wire the client may apply it 100~500ms
-            // later, so we must keep the handoff until quiet or timeout.
+            // Once a Pause is on the wire the client may apply it arbitrarily
+            // late, so the handoff stays until actual quiet or timeout.
             let held = match pause_cancel_action(cancelled(), commands_sent) {
                 PauseCancel::Abort => return Err(CANCELLED_ERROR.into()),
                 PauseCancel::Continue => false,
@@ -360,40 +389,36 @@ impl PausedSession {
                 previous = status;
             }
             let quiet = matches!(status, Some(Status::Paused | Status::Stopped));
-            let toggle_enabled = self.session.GetPlaybackInfo().ok().and_then(|info| info.Controls().ok())
-                .is_some_and(|controls| controls.IsPlayPauseToggleEnabled().unwrap_or(false));
-            if let Some(command) = next_pause_command(status == Some(Status::Playing), attempts, last_toggle, observed_quiet, last_request.map(|at: Instant| at.elapsed()), toggle_enabled) {
+            if quiet { quiet_seen = true; }
+            if let Some(command) = next_pause_command(status == Some(Status::Playing), attempts, last_accepted, quiet_seen) {
                 if held {
-                    // A command is already in flight: never queue another one,
-                    // just wait for the client to actually settle.
+                    // Never queue a second command while the handoff is held;
+                    // wait for the client to actually settle.
                     if !quiet { quiet_since = None; std::thread::sleep(Duration::from_millis(10)); continue; }
                 } else {
-                    // Some clients accept TryPauseAsync without changing state. Their
-                    // directed toggle still works, but must only be sent once while
-                    // playing. Never broadcast a media key or queue repeated toggles.
-                    if command == PauseCommand::Toggle && self.status() != Some(Status::Playing) {
-                        std::thread::sleep(Duration::from_millis(10));
-                        continue;
-                    }
                     if cancelled() { return Err(CANCELLED_ERROR.into()); }
-                    let operation = match command { PauseCommand::Pause => self.session.TryPauseAsync(), PauseCommand::Toggle => self.session.TryTogglePlayPauseAsync() };
+                    let operation = match command { PauseCommand::Pause => self.session.TryPauseAsync() };
                     let accepted = operation.and_then(wait).map_err(|_| "错误：播放器暂停请求失败")?;
                     attempts += 1;
                     commands_sent += 1;
-                    last_toggle = command == PauseCommand::Toggle;
-                    last_request = Some(Instant::now());
+                    last_accepted = accepted;
                     quiet_since = None;
-                    observed_quiet = false;
+                    quiet_seen = false;
                     super::diagnostics::trace_auto_hand(self.token, "pause_reply", &format!("elapsed_ms={} kind={command:?} accepted={accepted} attempt={attempts}", started.elapsed().as_millis()));
                     if !accepted && !quiet { return Err("错误：播放器拒绝暂停".into()); }
+                    // The directed Pause is on the wire/accepted. Publish the
+                    // operation lock now; the remaining wait is only quiet confirmation.
+                    on_sent();
                     continue;
                 }
             }
             if quiet {
-                observed_quiet = true;
                 let since = quiet_since.get_or_insert_with(Instant::now);
                 if since.elapsed() >= Duration::from_millis(200) {
                     super::diagnostics::trace_auto_hand(self.token, "pause_stable", &format!("elapsed_ms={}", started.elapsed().as_millis()));
+                    // Already quiet (no command needed) still owns this round;
+                    // expose the lock before returning.
+                    on_sent();
                     return Ok(());
                 }
             } else { quiet_since = None; }
@@ -417,16 +442,19 @@ impl Reader {
             last_platform: None,
             local_target: None,
             local_session: None,
+            next_instance: 0,
+            bindings: Bindings::default(),
         }
     }
     #[cfg(test)]
     pub fn pause(&mut self, platform: &str) -> Result<PausedSession, String> {
-        self.pause_for(platform, None, 0, &|| false)
+        let mut on_sent = || {};
+        self.pause_for(platform, None, 0, &|| false, &mut on_sent)
     }
-    pub fn pause_observation(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool) -> Result<PausedSession, String> {
-        self.pause_for(platform, source, token, cancelled)
+    pub fn pause_observation(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool, on_sent: &mut dyn FnMut()) -> Result<PausedSession, String> {
+        self.pause_for(platform, source, token, cancelled, on_sent)
     }
-    fn pause_for(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool) -> Result<PausedSession, String> {
+    fn pause_for(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool, on_sent: &mut dyn FnMut()) -> Result<PausedSession, String> {
         if self.manager.is_none() {
             self.manager = Manager::RequestAsync().and_then(wait).ok();
         }
@@ -446,7 +474,7 @@ impl Reader {
             selected = Some(PausedSession { session, token, source: id });
         }
         let selected = selected.ok_or("错误：未找到对应播放器的媒体会话")?;
-        selected.pause(cancelled)?;
+        selected.pause(cancelled, on_sent)?;
         Ok(selected)
     }
 
@@ -463,6 +491,33 @@ impl Reader {
         mode: AutoDetectionMode,
         title: Option<&str>,
     ) -> Vec<Observation> {
+        self.sample_with_mode(active, Some(mode), title)
+    }
+    pub fn sample_automatic(&mut self, active: Option<&str>, title: Option<&str>) -> Vec<Observation> {
+        self.sample_with_mode(active, None, title)
+    }
+    pub fn take_rebound(&mut self) -> HashSet<String> {
+        std::mem::take(&mut self.bindings.changed)
+    }
+    fn sample_with_mode(
+        &mut self,
+        active: Option<&str>,
+        mode: Option<AutoDetectionMode>,
+        title: Option<&str>,
+    ) -> Vec<Observation> {
+        // Wake the observer from the verified main-HWND NAMECHANGE, but never
+        // turn the title itself into an Observation. A title-only event cannot
+        // consume a card; the SMTC/browser observation still confirms.
+        if let (Some(active), Some(wake)) = (active, self.wake.clone()) {
+            client_window::start_title_hint(active, wake);
+        }
+        for platform in client_window::take_title_hint_dirty() {
+            for (id, watched) in &self.watched {
+                if platform_for_app(id) == Some(platform.as_str()) {
+                    watched.mark_dirty();
+                }
+            }
+        }
         let local_target = (active == Some(names::LOCAL))
             .then_some(title)
             .flatten()
@@ -471,7 +526,7 @@ impl Reader {
             self.local_target = local_target.map(str::to_owned);
             self.local_session = None;
         }
-        let mode = active.map_or(mode, |p| mode.for_platform(p));
+        let mode = mode.map(|mode| active.map_or(mode, |p| mode.for_platform(p)));
         let scan = self.last_platform.as_deref() != active
                 || self
                     .last_scan
@@ -483,7 +538,9 @@ impl Reader {
             self.last_scan = Some(Instant::now());
             self.last_platform = active.map(str::to_string);
             let mut found = HashSet::new();
-            if let Some(sessions) = self.manager.as_ref().and_then(|m| m.GetSessions().ok()) {
+            let sessions = self.manager.as_ref().and_then(|m| m.GetSessions().ok());
+            if sessions.is_none() { self.manager = None; }
+            if let Some(sessions) = sessions {
                 for i in 0..sessions.Size().unwrap_or(0) {
                     let Ok(session) = sessions.GetAt(i) else {
                         continue;
@@ -503,7 +560,8 @@ impl Reader {
                     found.insert(id.clone());
                     let replace = self.watched.get(&id).is_none_or(|w| w.session != session);
                     if replace {
-                        if let Some(watched) = Watched::new(session, self.wake.clone()) {
+                        self.next_instance += 1;
+                        if let Some(watched) = Watched::new(session, self.wake.clone(), self.next_instance) {
                             self.watched.insert(id, watched);
                         }
                     }
@@ -546,15 +604,23 @@ impl Reader {
         }
         // System detection never reads captions. Skip the window metadata clones
         // instead of building a map that the loop would immediately discard.
-        if mode == AutoDetectionMode::System {
+        if mode == Some(AutoDetectionMode::System) {
             return observations;
         }
         // A caption alone cannot distinguish identical titles and artists. Keep
         // caption detection while borrowing available release/artwork evidence.
-        let native_metadata: HashMap<_, _> = observations.iter().map(|v| (v.platform.clone(), v.clone())).collect();
-        if mode == AutoDetectionMode::Window { observations.clear(); }
+        let native_metadata: HashMap<_, _> = if mode.is_some() {
+            observations.iter().map(|v| (v.platform.clone(), v.clone())).collect()
+        } else { HashMap::new() };
+        if mode == Some(AutoDetectionMode::Window) { observations.clear(); }
         for platform in PLATFORMS {
             if active.is_some_and(|p| p != platform) {
+                continue;
+            }
+            // Automatic mode publishes exactly one source. Prefer a usable
+            // session; captions provide a baseline only while it is unavailable.
+            // Ambiguous native sessions must never fall through to a guessed one.
+            if mode.is_none() && (ambiguous.contains(platform) || observations.iter().any(|v| v.platform == platform)) {
                 continue;
             }
             let title = self
@@ -574,8 +640,14 @@ impl Reader {
                     metadata: native.map(|v| v.metadata.clone()).unwrap_or_default(),
                     artwork: native.map(|v| v.artwork.clone()).unwrap_or_default(),
                     revision: native.map_or(0, |v| v.revision),
-                    source: native.map(|v| v.source.clone()).unwrap_or_default(),
+                    source: title.source(),
                 });
+            }
+        }
+        if mode.is_none() {
+            for value in &observations {
+                let instance = self.watched.get(&value.source).map_or(0, |w| w.instance);
+                self.bindings.select(value, instance);
             }
         }
         observations
@@ -597,6 +669,45 @@ fn matches_local_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observer_handoff_and_recreated_session_rebaseline_without_losing_the_pending_token() {
+        use discoas_core::auto_hand::{AutoHand, Target};
+        let mut policy = AutoHand::default();
+        policy.configure(true);
+        policy.adopt(names::NETEASE);
+        let mut bindings = Bindings::default();
+        let mut value = Observation {
+            platform: names::NETEASE.into(), identity: "current".into(), artist: String::new(),
+            signal: Signal::Interface, playing: true, ended: false, progress: None,
+            metadata: Default::default(), artwork: String::new(), revision: 1, source: "cloudmusic.exe".into(),
+        };
+        bindings.select(&value, 1);
+        assert!(bindings.changed.is_empty());
+        assert_eq!(policy.observe(value.clone(), 0), None);
+        value.signal = Signal::Window;
+        value.source = "window:123:456".into();
+        value.identity = "currentartist".into();
+        bindings.select(&value, 0);
+        assert!(bindings.changed.remove(names::NETEASE));
+        policy.rebind();
+        assert_eq!(policy.observe(value.clone(), 1), None, "fallback's first caption is a baseline");
+        let token = policy.reserve_manual(2).unwrap();
+        policy.begin(Target { platform: names::NETEASE.into(), song_id: "target-id".into(),
+            title: "target".into(), artists: Vec::new(), metadata: Default::default() }, Some(token), 3).unwrap();
+        value.signal = Signal::Interface;
+        value.source = "cloudmusic.exe".into();
+        value.identity = "target".into();
+        bindings.select(&value, 2);
+        assert!(bindings.changed.remove(names::NETEASE));
+        policy.rebind();
+        assert!(policy.current(token));
+        assert!(matches!(policy.observe(value.clone(), 4), Some(discoas_core::auto_hand::Event::Confirmed { token: seen, .. }) if seen == token));
+        bindings.select(&value, 2);
+        assert!(bindings.changed.is_empty(), "repeated sampling keeps its baseline");
+        bindings.select(&value, 3);
+        assert!(bindings.changed.remove(names::NETEASE), "same app ID with a new COM session is a new binding");
+    }
     #[test]
     fn missing_artwork_backs_off_one_two_four_five_without_dropping_events() {
         let mut wait = Duration::from_secs(1);
@@ -636,13 +747,45 @@ mod tests {
     }
 
     #[test]
-    fn a_lost_pause_uses_one_directed_toggle_without_queuing_more_toggles() {
-        assert_eq!(next_pause_command(true, 0, false, false, None, true), Some(PauseCommand::Pause));
-        assert_eq!(next_pause_command(true, 1, false, false, Some(Duration::from_millis(200)), true), None);
-        assert_eq!(next_pause_command(true, 1, false, false, Some(Duration::from_millis(500)), true), Some(PauseCommand::Toggle));
-        assert_eq!(next_pause_command(true, 2, true, false, Some(Duration::from_millis(1000)), true), None);
-        assert_eq!(next_pause_command(false, 2, true, true, Some(Duration::from_millis(1000)), true), None);
-        assert_eq!(next_pause_command(true, 2, true, true, Some(Duration::from_millis(1000)), true), Some(PauseCommand::Pause));
+    fn accepted_pause_retries_only_after_quiet_then_replay_without_toggle() {
+        assert_eq!(next_pause_command(true, 0, false, false), Some(PauseCommand::Pause));
+        // Accepted, still playing before any quiet: do not race the late apply.
+        assert_eq!(next_pause_command(true, 1, true, false), None);
+        assert_eq!(next_pause_command(true, 1, true, false), None);
+        // Quiet was actually observed, then the client really went Playing.
+        assert_eq!(next_pause_command(true, 1, true, true), Some(PauseCommand::Pause));
+        // After the idempotent retry, wait for a fresh quiet before any further retry.
+        assert_eq!(next_pause_command(true, 2, true, false), None);
+        assert_eq!(next_pause_command(false, 2, true, true), None);
+        assert_eq!(pause_cancel_action(true, 1), PauseCancel::Hold);
+        assert_eq!(pause_cancel_action(false, 1), PauseCancel::Continue);
+        assert_eq!(pause_cancel_action(true, 0), PauseCancel::Abort);
+    }
+
+    #[test]
+    fn deterministic_quiet_then_replay_sequence_sends_two_pauses_and_no_toggle() {
+        // Native trace: accepted at 0, Paused +172, Playing +286, second
+        // one-way Pause +292, stable +769. Model only the command decisions.
+        let mut attempts = 0u8;
+        let mut accepted = false;
+        let mut quiet_seen = false;
+        let mut commands = Vec::new();
+        for (elapsed_ms, playing, quiet) in [
+            (0_u64, true, false),
+            (172, false, true),
+            (286, true, false),
+            (292, true, false),
+            (769, false, true),
+        ] {
+            if quiet { quiet_seen = true; }
+            if let Some(command) = next_pause_command(playing, attempts, accepted, quiet_seen) {
+                commands.push((elapsed_ms, command));
+                attempts += 1;
+                accepted = true;
+                quiet_seen = false;
+            }
+        }
+        assert_eq!(commands, vec![(0, PauseCommand::Pause), (286, PauseCommand::Pause)]);
     }
     #[test]
     #[ignore = "reads installed media sessions on the interactive Windows desktop"]
@@ -742,7 +885,8 @@ mod tests {
                 if signature != last { println!("elapsed_ms={} value={value:?}", started.elapsed().as_millis()); last = signature; }
                 let changed = before.as_ref().is_some_and(|old| old.identity != value.identity || old.artist != value.artist || !old.artwork.is_empty() && !value.artwork.is_empty() && old.artwork != value.artwork);
                 if changed && !paused && std::env::var_os("DISCOAS_QA_PAUSE").is_some() {
-                    reader.pause_observation(&value.platform, (!value.source.is_empty()).then_some(value.source.as_str()), 100, &|| false).unwrap();
+                    let mut on_sent = || {};
+                    reader.pause_observation(&value.platform, (!value.source.is_empty()).then_some(value.source.as_str()), 100, &|| false, &mut on_sent).unwrap();
                     paused = true;
                     println!("pause_complete_ms={}", started.elapsed().as_millis());
                 }

@@ -51,21 +51,23 @@ test("finishing an animation hands its visible frame to the next CSS transition"
   } finally { f.restore(); }
 });
 
-async function motionHarness({ folded = false } = {}) {
+async function motionHarness({ folded = false, revealed = false, reduced = false } = {}) {
   const f = fixture(), layouts = [], effects = [], frames = new Map(), calls = [];
   const regions = defer(), covers = defer(), closing = defer(); let frameId = 0;
   const savedGlobals = { window: globalThis.window, requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame };
   const raf = callback => { frames.set(++frameId, callback); return frameId; };
   globalThis.requestAnimationFrame = raf; globalThis.cancelAnimationFrame = id => frames.delete(id);
-  globalThis.window = { matchMedia: () => ({ matches:false }) };
+  globalThis.window = { matchMedia: () => ({ matches:reduced }) };
   f.element.querySelectorAll = () => [{ decode: () => { calls.push("decode"); return covers.promise; } }];
-  const snapshot = { generation:7, expanded:!folded, cards:[{id:"one"}],
+  f.element.querySelector = () => ({ animate: (...args) => f.element.animate(...args) });
+  const snapshot = { generation:7, expanded:!folded, cards:[{id:"one", mysteryRevealed:revealed}],
     settings:{ side:"left" }, arrival: folded ? null : {id:"one", rect:{left:300,top:400,width:245,height:330}} };
   const pose = { x:80,y:250,width:156,height:220,angle:5,scale:1 };
   const context = { snapshot, phase:"closed", hidden:false,cardsMounted:true,showCardWindow:true,busy:"",flying:null,poses:[pose],posesRef:{current:[pose]},
     stage:{current:{ querySelector:()=>f.element, getAnimations:()=>folded ? [{finished:closing.promise}] : [] }},
     setCardsMounted:value=>calls.push(["mounted",value]),setPhase:value=>calls.push(["phase",value]),setError:value=>assert.fail(value),
     commitRegions:{current:()=>{ calls.push("regions"); return regions.promise; }},scheduleRegions:{current:()=>calls.push("schedule")},
+    arrivalReady:null,markArrivalReady:(id,generation)=>calls.push(["ready",id,generation]),
     accepted:{current:7},unfolding:{current:true},arrivalPlayed:{current:0},arrivalMotion:{current:null},arrivalDrawing:{current:null},returning:{current:[]} };
   globalThis.__handMotionTest = { React:{useEffect:f=>effects.push(f),useLayoutEffect:f=>layouts.push(f)},
     bridge:{desktop:true,call:async name=>calls.push(name)},i18n:{errorText:String},bounds:{arrivalDrawingBounds:()=>({})},
@@ -106,6 +108,31 @@ test("a cancelled fold completion cannot unmount a newly expanded hand", async (
     h.restore(); h.closing.resolve(); await settle();
     assert.equal(h.calls.some(call=>Array.isArray(call)&&call[0]==="mounted"),false);
   } catch (error) { h.restore(); throw error; }
+});
+
+test("arrival highlight waits for its own mystery flip, without waiting for unrelated cover animations", async () => {
+  const h = await motionHarness({revealed:true});
+  try {
+    h.element.getAnimations = () => [{playState:"running",finished:new Promise(()=>{})}];
+    h.regions.resolve(); h.covers.resolve(); await settle();
+    h.frame(); await settle(); h.frame(); await settle();
+    assert.equal(h.animations.length,2);
+    h.animations[0].finish(); await settle();
+    assert.equal(h.calls.some(call=>Array.isArray(call)&&call[0]==="ready"),false);
+    h.animations[1].finish(); await settle();
+    assert.deepEqual(h.calls.find(call=>Array.isArray(call)&&call[0]==="ready"),["ready","one",7]);
+  } finally { h.restore(); }
+});
+
+test("reduced-motion arrival still waits for presentation and cover decoding before exposing the highlight", async () => {
+  const h = await motionHarness({reduced:true,revealed:true});
+  try {
+    h.regions.resolve(); await settle(); h.frame(); await settle();
+    assert.equal(h.calls.some(call=>Array.isArray(call)&&call[0]==="ready"),false);
+    h.covers.resolve(); await settle(); h.frame(); await settle(); h.frame(); await settle();
+    assert.equal(h.animations.length,0);
+    assert.deepEqual(h.calls.find(call=>Array.isArray(call)&&call[0]==="ready"),["ready","one",7]);
+  } finally { h.restore(); }
 });
 
 test("a late completion cannot release a replacement animation", async () => {

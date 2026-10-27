@@ -12,6 +12,7 @@ pub struct DesktopPreferences {
     pub minimize_after_playback: bool,
     pub minimize_delay_seconds: f64,
     pub client_window_mode: String,
+    pub client_separate_desktop: bool,
     pub spotify_playback_mode: String,
     #[serde(default)]
     pub spotify_defaults_version: u32,
@@ -28,6 +29,7 @@ impl Default for DesktopPreferences {
             minimize_after_playback: true,
             minimize_delay_seconds: 4.0,
             client_window_mode: "off".into(),
+            client_separate_desktop: false,
             spotify_playback_mode: "extension".into(),
             spotify_defaults_version: 1,
             browser_playback_mode: "extension".into(),
@@ -106,6 +108,20 @@ pub fn should_show_main(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn separate_desktop_is_opt_in_and_roundtrips_independently_of_hiding() {
+        let legacy: DesktopPreferences = serde_json::from_str(r#"{"client_window_mode":"persistent"}"#).unwrap();
+        assert!(!legacy.client_separate_desktop);
+        let path = std::env::temp_dir().join(format!("discoas-separate-desktop-{}.json", rand::random::<u64>()));
+        for mode in ["off", "temporary", "persistent"] {
+            for enabled in [false, true] {
+                let settings = DesktopPreferences { client_window_mode: mode.into(), client_separate_desktop: enabled, ..Default::default() };
+                settings.save_to_path(&path).unwrap();
+                assert_eq!(DesktopPreferences::load_from_path(&path).unwrap(), settings);
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn rendering_settings_migrate_old_files_and_round_trip_every_mode() {
         let old: DesktopPreferences = serde_json::from_str(r#"{"start_hidden":true}"#).unwrap();

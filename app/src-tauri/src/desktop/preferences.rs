@@ -150,6 +150,7 @@ pub async fn save_desktop_preferences(
         crate::client_window::cancel_pending();
     }
     if old.client_window_mode != settings.client_window_mode
+        || old.client_separate_desktop != settings.client_separate_desktop
         || old.minimize_delay_seconds != settings.minimize_delay_seconds
     {
         super::client_isolation::cancel_pending();

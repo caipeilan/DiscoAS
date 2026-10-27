@@ -125,6 +125,8 @@ mod registry {
 }
 #[cfg(windows)]
 pub fn autostart_enabled() -> Result<bool, String> {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("DISCOAS_TEST_ROOT").is_some() { return Ok(false); }
     let Some(value) = registry::read()? else {
         return Ok(false);
     };
@@ -137,6 +139,9 @@ pub fn autostart_enabled() -> Result<bool, String> {
 }
 #[cfg(windows)]
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    // Isolated native settings QA must not change the installed app's Run entry.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("DISCOAS_TEST_ROOT").is_some() { return Ok(()); }
     let command = if enabled {
         Some(run_command(
             &std::env::current_exe().map_err(|e| e.to_string())?,
