@@ -151,6 +151,17 @@ test("network and playback errors stay concise and do not mistake server errors 
   setLanguage("zh_CN");
 });
 
+test("desktop preparation errors retain both recovery choices in every language", () => {
+  const message = "错误：无法准备或核验独立桌面，已保留手牌；请在播放连接的窗口与播放中重新检测，或退出DiscoAS的独立桌面";
+  setLanguage("zh_CN");
+  assert.equal(errorText(message), message);
+  setLanguage("zh_TW");
+  assert.match(errorText(message), /重新偵測，或退出DiscoAS的獨立桌面/);
+  setLanguage("en_US");
+  assert.match(errorText(message), /Recheck.*or leave the DiscoAS virtual desktop/);
+  setLanguage("zh_CN");
+});
+
 test("legacy pool messages use consistent terms without rewriting interpolated titles", () => {
   setLanguage("zh_CN");
   assert.equal(t("个来源"), "个卡池");

@@ -104,7 +104,7 @@ pub(crate) enum Preparation {
 }
 
 pub(crate) const PREPARATION_ERROR: &str =
-    "错误：无法准备或核验独立桌面，已保留手牌；请在播放连接的窗口与播放中重新检测";
+    "错误：无法准备或核验独立桌面，已保留手牌；请在播放连接的窗口与播放中重新检测，或退出DiscoAS的独立桌面";
 
 pub(crate) fn status() -> ClientDesktopStatus {
     let supported = virtual_desktop::supported();

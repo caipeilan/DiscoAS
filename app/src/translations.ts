@@ -1,5 +1,6 @@
 // Source Chinese is the stable message key. Each pair is Traditional Chinese and English.
 export const translations: Record<string, [string, string]> = {
+  "错误：无法准备或核验独立桌面，已保留手牌；请在播放连接的窗口与播放中重新检测，或退出DiscoAS的独立桌面": ["錯誤：無法準備或核驗獨立桌面，已保留手牌；請在播放連線的視窗與播放中重新偵測，或退出DiscoAS的獨立桌面", "Error: Unable to prepare or verify the separate desktop. Your card was kept. Recheck under Playback → Window and playback, or leave the DiscoAS virtual desktop."],
   "请先启用一个歌单": ["請先啟用一個歌單", "Enable a playlist first"],
   "错误：链接平台与当前启用歌单不一致": ["錯誤：連結平台與目前啟用歌單不一致", "Error: The link must match the enabled playlist's platform"],
   "错误：歌曲链接或 ID 无效": ["錯誤：歌曲連結或 ID 無效", "Error: Invalid song link or ID"],

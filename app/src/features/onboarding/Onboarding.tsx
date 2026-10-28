@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { Icon } from "../../Icon";
 import { t } from "../../i18n";
 import type { OnboardingState } from "./onboardingState";
+import { placeOnboarding } from "./onboardingPlacement";
 import "./onboarding.css";
 
 const copy = () => [
@@ -24,34 +25,47 @@ export function Onboarding({ state, surface, handMode = false, failure = false, 
 }) {
   const step = state.step;
   const visible = surface === "main" ? [1, 2, 6, 7, 8, 9, 10].includes(step) : [3, 4, 5].includes(step) || step === 2 && failure;
+  const layer = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const [placement, setPlacement] = useState<{ card: CSSProperties; target: CSSProperties } | null>(null);
+  const [placement, setPlacement] = useState<{ card: CSSProperties; target: CSSProperties | null } | null>(null);
   useLayoutEffect(() => {
-    if (!visible || step === 1 || step === 7) { setPlacement(null); return; }
+    if (!visible || step === 7) { setPlacement(null); return; }
     const targets: Record<number, string> = {
       2: ".discover-launch", 3: ".song-card", 4: ".song-replace-button:not(:disabled)", 5: ".discovery-heading .icon-button",
       6: '[data-onboarding="import"]', 7: ".import-dialog input:not(:disabled)",
       8: `[data-onboarding-source="${CSS.escape(JSON.stringify([state.targetPlatform, state.targetKind, state.targetId]))}"] [data-onboarding="enable"]`,
       9: '[aria-controls="settings-subnavigation"]', 10: ".settings-topbar",
     };
-    let target = document.querySelector<HTMLElement>(targets[step]);
+    const findTarget = () => targets[step] ? document.querySelector<HTMLElement>(targets[step]) : null;
+    let target = findTarget();
+    let lastRect: DOMRect | undefined;
     let frame = 0;
     const update = () => {
-      const latest = document.querySelector<HTMLElement>(targets[step]);
+      if (!card.current || !layer.current) return;
+      const latest = findTarget();
       if (latest !== target) { target = latest; target?.scrollIntoView({ block: "nearest" }); }
-      const rect = target?.getBoundingClientRect();
-      if (!rect || !card.current) return;
-      const width = card.current.offsetWidth, height = card.current.offsetHeight;
-      let left = rect.left, top = rect.bottom + 16;
-      if (top + height > innerHeight - 16) top = rect.top - height - 16;
-      if (top < 16) { top = Math.max(16, innerHeight - height - 16); left = rect.right + 16; }
-      setPlacement({ card: { left: Math.max(16, Math.min(left, innerWidth - width - 16)), top: Math.max(16, Math.min(top, innerHeight - height - 16)) },
-        target: { left: rect.left - 5, top: rect.top - 5, width: rect.width + 10, height: rect.height + 10 } });
+      let scale = 1;
+      for (let node: HTMLElement | null = layer.current; node; node = node.parentElement) {
+        const zoom = getComputedStyle(node).zoom;
+        const value = zoom.endsWith("%") ? parseFloat(zoom) / 100 : parseFloat(zoom);
+        if (Number.isFinite(value) && value > 0) scale *= value;
+      }
+      const viewport = { width: innerWidth, height: innerHeight,
+        top: document.querySelector(".window-titlebar")?.getBoundingClientRect().bottom ?? 0 };
+      layer.current.style.setProperty("--onboarding-viewport-width", `${viewport.width / scale}px`);
+      layer.current.style.setProperty("--onboarding-viewport-height", `${(viewport.height - viewport.top) / scale}px`);
+      // Keep the prior anchor while a replacement temporarily disables its button.
+      const rect = target?.getBoundingClientRect() ?? lastRect;
+      lastRect = rect;
+      const bounds = card.current.getBoundingClientRect();
+      setPlacement({ card: placeOnboarding(rect ?? null, { width: bounds.width / scale, height: bounds.height / scale }, viewport, scale, step === 1),
+        target: rect ? { left: rect.left / scale - 5, top: rect.top / scale - 5, width: rect.width / scale + 10, height: rect.height / scale + 10 } : null });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; update(); }); };
     target?.scrollIntoView({ block: "nearest" }); update();
     const observer = new ResizeObserver(schedule); if (target) observer.observe(target); if (card.current) observer.observe(card.current);
     const mutations = new MutationObserver(schedule); mutations.observe(document.body, { childList: true, subtree: true });
+    mutations.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", schedule); document.addEventListener("scroll", schedule, true);
     document.addEventListener("transitionend", schedule, true);
     return () => { observer.disconnect(); mutations.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); document.removeEventListener("scroll", schedule, true); document.removeEventListener("transitionend", schedule, true); };
@@ -60,8 +74,8 @@ export function Onboarding({ state, surface, handMode = false, failure = false, 
   const [title, body] = copy()[step];
   const text = failure ? t("没加载成功的说……要不先添加你的歌单？") : step === 8 && alreadyEnabled ? t("这份歌单已经启用。之后的发现会从这里抽取歌曲。") : body;
   const parts = text.split("**");
-  return <div className="onboarding-layer" data-step={step} data-surface={surface} data-inline={step === 7 || undefined}>
-    {placement && !failure && <div className="onboarding-target" style={placement.target} />}
+  return <div ref={layer} className="onboarding-layer" data-step={step} data-surface={surface} data-inline={step === 7 || undefined}>
+    {placement?.target && !failure && <div className="onboarding-target" style={placement.target} />}
     <div key={step} ref={card} className={`onboarding-card ${step === 1 ? "onboarding-welcome" : ""}`}
       style={placement?.card} data-anchored={!!placement || undefined} role="region" aria-label={t("使用引导")}>
       <div className="onboarding-meta"><span>{t("使用引导")} · {step}/10</span>
