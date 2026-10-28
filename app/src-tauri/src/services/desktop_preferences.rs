@@ -8,6 +8,7 @@ pub struct DesktopPreferences {
     pub launch_at_login: bool,
     pub start_hidden: bool,
     pub update_on_startup: bool,
+    pub pause_before_playback: bool,
     pub overlay_monitor: String,
     pub minimize_after_playback: bool,
     pub minimize_delay_seconds: f64,
@@ -25,6 +26,7 @@ impl Default for DesktopPreferences {
             launch_at_login: false,
             start_hidden: false,
             update_on_startup: true,
+            pause_before_playback: false,
             overlay_monitor: "current".into(),
             minimize_after_playback: true,
             minimize_delay_seconds: 4.0,
@@ -108,6 +110,21 @@ pub fn should_show_main(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pause_before_playback_is_opt_in_and_roundtrips_for_every_connection_mode() {
+        let legacy: DesktopPreferences = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.pause_before_playback);
+        for spotify in ["scheme", "pause_then_scheme", "extension"] {
+            for browser in ["direct", "extension"] {
+                let options = DesktopPreferences { pause_before_playback: true, spotify_playback_mode: spotify.into(), browser_playback_mode: browser.into(), ..Default::default() };
+                options.validate().unwrap();
+                let loaded: DesktopPreferences = serde_json::from_slice(&serde_json::to_vec(&options).unwrap()).unwrap();
+                assert!(loaded.pause_before_playback);
+                assert_eq!(loaded.spotify_playback_mode, spotify);
+                assert_eq!(loaded.browser_playback_mode, browser);
+            }
+        }
+    }
     #[test]
     fn separate_desktop_is_opt_in_and_roundtrips_independently_of_hiding() {
         let legacy: DesktopPreferences = serde_json::from_str(r#"{"client_window_mode":"persistent"}"#).unwrap();

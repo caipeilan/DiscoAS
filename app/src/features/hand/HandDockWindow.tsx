@@ -126,7 +126,7 @@ export function HandDockWindow() {
     <HandDock element={dock} point={point} areas={snapshot.workAreas.length ? snapshot.workAreas : [snapshot.workArea]}
       expanded={snapshot.expanded} preview={false} diameter={44 * snapshot.gui.font_size / 14}
       count={snapshot.count} capacity={snapshot.settings.capacity} busy={busy} confirm={confirm} message={error}
-      handEnabled={snapshot.settings.enabled} discovery={snapshot.discovery} refresh={() => { setError(""); void requestHandDiscoveryRefresh().catch(e => setError(errorText(e))); }}
+      handEnabled={snapshot.settings.enabled} createCards={snapshot.settings.create_cards} discovery={snapshot.discovery} refresh={() => { setError(""); void requestHandDiscoveryRefresh().catch(e => setError(errorText(e))); }}
       onWidthChange={setExpandedWidth}
       toCanvas={(x, y) => ({ x: (currentSurface.current?.left ?? 0) + x / (currentSurface.current?.scale ?? 1),
         y: (currentSurface.current?.top ?? 0) + y / (currentSurface.current?.scale ?? 1) })}

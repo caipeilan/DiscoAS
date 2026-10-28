@@ -101,7 +101,11 @@ pub fn gui_setting_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
 ///
 /// 创建各平台的 playlist/album 子目录，与旧版默认创建的目录一致。
 pub fn init_user_data_dirs(app: &tauri::AppHandle) -> AppResult<()> {
-    crate::services::bootstrap::seed_new_user(&user_data_dir(app)?)?;
+    let root = user_data_dir(app)?;
+    if crate::services::bootstrap::seed_new_user(&root)? {
+        crate::desktop::onboarding::initialize(&root).map_err(crate::error::AppError::Platform)?;
+    }
+    let _ = crate::desktop::onboarding::resume(&root);
     ensure_dir(&settings_dir(app)?)?;
     ensure_dir(&cover_pic_dir(app)?)?;
     // 与旧版一致：默认创建网易云和 QQ 的目录

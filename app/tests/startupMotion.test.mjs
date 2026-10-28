@@ -38,3 +38,14 @@ test('entrances follow an arc without changing the specified starting and ending
     assert.ok(motion.startupEntrance(0,0).every(frame=>point(frame).every(value=>value===0)));
   }
 });
+
+test('exit expansion follows a sine ease-out independently from opacity',()=>{
+  const frames=motion.startupExit();
+  const scale=frame=>Number(frame.transform.slice(6,-1));
+  assert.equal(scale(frames[0]),1);
+  assert.equal(scale(frames.at(-1)),1.62);
+  const deltas=frames.slice(1).map((frame,index)=>scale(frame)-scale(frames[index]));
+  assert.ok(deltas.every((delta,index)=>delta>=0&&(!index||delta<=deltas[index-1]+1e-7)));
+  assert.ok(scale(frames[Math.floor(frames.length/2)])>1.4);
+  assert.ok(motion.startupExit(false).every(frame=>scale(frame)===1));
+});

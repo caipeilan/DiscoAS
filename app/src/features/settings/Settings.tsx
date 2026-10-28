@@ -43,7 +43,7 @@ export function Settings({
   migrate,
   chooseMysteryCover,
   openDataFolder,
-  openLogFolder, discard, saveError = "", clearSaveError, category, selectCategory,
+  openLogFolder, discard, saveError = "", clearSaveError, category, selectCategory, restartOnboarding,
 }: {
   state: AppState;
   draft: Preferences;
@@ -62,6 +62,7 @@ export function Settings({
   chooseMysteryCover: () => Promise<void>;
   openDataFolder: () => void;
   openLogFolder: () => void;
+  restartOnboarding: () => void;
   discard: () => void;
   saveError?: string;
   clearSaveError?: () => void;
@@ -250,6 +251,8 @@ export function Settings({
         {panel("window", <>
         <section className="settings-section">
           <h2>{t("窗口与播放")}</h2>
+          <SettingRow title={t("切歌时暂停当前播放")}><Toggle label={t("切歌时暂停当前播放")} value={desktopDraft.pause_before_playback}
+            onChange={pause_before_playback => setDesktopDraft(current => ({ ...current, pause_before_playback }))} /></SettingRow>
           <Reveal open={desktopDraft.client_window_mode === "temporary"}>
             <SettingRow
               className="client-wait-row"
@@ -340,6 +343,9 @@ export function Settings({
           </SettingRow>
         </section>
         </>)}
+        {panel("onboarding", <section className="settings-section"><h2>{t("使用引导")}</h2>
+          <SettingRow title={t("使用引导")}><button type="button" className="button secondary" disabled={!!busy} onClick={restartOnboarding}>{busy === "onboarding" ? t("准备中") : t("重新开始引导")}</button></SettingRow>
+        </section>)}
         {panel("data", <>
         <section className="settings-section">
           <h2>{t("本地数据")}</h2>

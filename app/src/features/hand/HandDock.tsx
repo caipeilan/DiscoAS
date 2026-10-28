@@ -2,9 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import type { HandRect, DiscoveryState } from "../../types";
 import { appLogo } from "../../assets";
 import { Icon } from "../../Icon";
-import { t } from "../../i18n";
+import { t, errorText } from "../../i18n";
 import { getClientHideEnabled, onDesktopEvent, showLocalClient } from "../../services/desktop";
 import { floatingDockRect, settleDockPoint, type DockPoint, type DockDirection } from "./floatingDock";
+import { useAutoHandControl } from "./useAutoHandControl";
+import { call } from "../../services/desktop";
+import "./handControls.css";
 
 interface Props {
   element: RefObject<HTMLDivElement | null>;
@@ -18,11 +21,13 @@ interface Props {
   toggle: () => void; clear: () => void;
   message?: string;
   handEnabled?: boolean; discovery?: DiscoveryState | null; refresh?: () => void;
+  createCards?: boolean;
   onWidthChange?: (width: number) => void;
 }
 
 export function HandDock({ element, point, areas, expanded, preview, diameter, count, capacity, busy, confirm,
-  toCanvas, beginDrag, nativeDrag, dragging, move, toggle, clear, message, handEnabled = true, discovery, refresh, onWidthChange }: Props) {
+  toCanvas, beginDrag, nativeDrag, dragging, move, toggle, clear, message, handEnabled = true, discovery, refresh, onWidthChange, createCards = false }: Props) {
+  const auto = useAutoHandControl();
   const [moving, setMoving] = useState(false);
   const gesture = useRef<{ pointerId: number; x: number; y: number; dx: number; dy: number;
     origin: DockPoint; started: boolean; native?: boolean } | null>(null);
@@ -31,6 +36,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
   const [expandedWidth, setExpandedWidth] = useState(diameter);
   const [hideClientEnabled, setHideClientEnabled] = useState(false);
   const [clientBusy, setClientBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -180,7 +186,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
       <img src={appLogo} draggable={false} alt="" />
     </button>
     <div ref={content} className="hand-dock-actions" aria-hidden={!pillExpanded} inert={!pillExpanded}>
-      {message ? <span className="hand-dock-count" role="alert">{message}</span> : <>
+      {message || actionError ? <span className="hand-dock-count hand-dock-error" role="alert" title={message || actionError}>{message || actionError}</span> : <>
         {discovery && <div className="hand-discovery-controls"><button className="hand-refresh" aria-label={t("刷新迷你发现")} disabled={busy} onClick={refresh}><Icon name="refresh" size={16} /></button>
           <span>{t("卡池 {p0}", { p0: discovery.remainingSongs })}</span>
           {discovery.replacementEnabled && <span>{t("替换 {p0}", { p0: discovery.replacementsRemaining })}</span>}
@@ -192,6 +198,14 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
         {clientBusy ? t("显示中") : t("显示客户端")}
       </button>}
       {preview ? <button className="hand-clear" aria-label={t("退出预览")} data-hand-close onClick={toggle}><Icon name="close" size={16} /></button>
+        : null}
+      {!preview && handEnabled && auto.state.configured && <button type="button" className="hand-show-client hand-auto-toggle" aria-pressed={!!auto.state.enabled}
+        title={t(auto.state.enabled ? "自动打出已开启，点击临时关闭" : "自动打出已临时关闭，点击恢复")}
+        aria-label={t(auto.state.enabled ? "自动打出已开启，点击临时关闭" : "自动打出已临时关闭，点击恢复")}
+        disabled={auto.pending} onClick={() => { setActionError(""); void auto.toggle().catch(error => setActionError(errorText(error))); }}>AUTO</button>}
+      {!preview && handEnabled && createCards && <button type="button" className="hand-show-client" disabled={busy || auto.state.busy}
+        onClick={() => { setActionError(""); void call("open_create_hand").catch(error => setActionError(errorText(error))); }}>{t("创建手牌")}</button>}
+      {preview ? null
         : handEnabled && <button className={`hand-clear${confirm ? " hand-clear-confirm" : ""}`} disabled={!count || busy}
           aria-label={confirm ? t("确认清空") : t("清空手牌")} onClick={clear}><Icon name={confirm ? "check" : "remove"} size={16} /></button>}
     </div>

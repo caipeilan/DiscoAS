@@ -443,9 +443,9 @@ pub async fn import_playlist(
         &app,
         cache.inner(),
         PlaylistAlbum {
-            name: platform,
-            playlist_album_id: id,
-            typename,
+            name: platform.clone(),
+            playlist_album_id: id.clone(),
+            typename: typename.clone(),
             playlist_album_name: String::new(),
             playlist_album_remark: remark,
             update_time: String::new(),
@@ -457,6 +457,7 @@ pub async fn import_playlist(
     )
     .await
     .map_err(|e| crate::services::request_errors::short_error(&e))
+    .inspect(|_| { let _ = super::onboarding::imported(&app, &platform, &id, &typename); })
 }
 
 pub async fn import_local_audio(
@@ -471,12 +472,13 @@ pub async fn import_local_audio(
     }
     let local =
         discoas_core::platforms::local::LocalSource::new(paths).map_err(|e| e.to_string())?;
+    let id = local.id();
     refresh_source_job(
         &app,
         cache.inner(),
         PlaylistAlbum {
             name: discoas_core::platforms::names::LOCAL.into(),
-            playlist_album_id: local.id(),
+            playlist_album_id: id.clone(),
             typename: "playlist".into(),
             playlist_album_name: String::new(),
             playlist_album_remark: remark,
@@ -488,6 +490,7 @@ pub async fn import_local_audio(
         Some(local),
     )
     .await
+    .inspect(|_| { let _ = super::onboarding::imported(&app, discoas_core::platforms::names::LOCAL, &id, "playlist"); })
 }
 
 pub fn cancel_library_operation(app: tauri::AppHandle, request_id: String) -> bool {

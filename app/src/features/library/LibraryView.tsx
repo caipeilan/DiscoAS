@@ -63,7 +63,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
         <button
           className="button secondary"
           disabled={!!busy || startup}
-          onClick={() => openImport()}
+          data-onboarding="import" onClick={() => openImport()}
         >
           <Icon name="plus" />
           {t("添加歌单")}
@@ -161,6 +161,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
               data-selected={selected.has(sourceKeys.get(p)!) || undefined}
               key={sourceKeys.get(p)}
               data-motion-key={sourceKeys.get(p)}
+              data-onboarding-source={JSON.stringify([p.platform, p.kind, p.id])}
             >
               <input className="source-checkbox" type="checkbox" aria-label={t("选择 {p0}", { p0: p.title })} checked={selected.has(sourceKeys.get(p)!)} disabled={!!busy} onChange={() => toggleSelected(p)} />
               <Cover
@@ -199,6 +200,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
                 <button
                   className="button compact secondary"
                   disabled={!!busy || p.enabled}
+                  data-onboarding="enable"
                   onClick={() =>
                     enablePlaylist(p)
                   }

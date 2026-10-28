@@ -87,6 +87,8 @@ impl Drop for Bridge {
 struct BridgeCommand {
     request_id: u64,
     uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -151,6 +153,27 @@ fn track_uri(id: &str) -> Result<String, String> {
 }
 
 impl PlaybackService {
+    pub async fn pause_connected(&self) -> Result<bool, String> {
+        let Some(bridge) = self.bridge.lock().map_err(|_| "错误：Spotify 扩展不可用")?.clone() else { return Ok(false); };
+        {
+            let state = bridge.state.lock().map_err(|_| "错误：Spotify 扩展不可用")?;
+            if !state.seen.is_some_and(|last| last.elapsed() < Duration::from_secs(5)) { return Ok(false); }
+            if !state.playing { return Ok(true); }
+        }
+        let request_id = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        bridge.sender.send(BridgeCommand { request_id, uri: String::new(), action: Some("pause".into()) }).map_err(|_| "错误：Spotify 扩展未连接")?;
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_millis(1200) {
+            let finished = {
+                let state = bridge.state.lock().map_err(|_| "错误：Spotify 扩展不可用")?;
+                state.request_id == request_id && !state.playing
+            };
+            if finished { return Ok(true); }
+            if self.generation.load(Ordering::SeqCst) != request_id { return Err("错误：播放请求已更新".into()); }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+        Err("错误：无法暂停 Spotify".into())
+    }
     pub fn cancel_pending(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
@@ -190,6 +213,7 @@ impl PlaybackService {
                 .send(BridgeCommand {
                     request_id: generation,
                     uri: uri.clone(),
+                    action: None,
                 })
                 .map_err(|_| "错误：Spotify 扩展未连接".to_string())?;
             Some(bridge)
@@ -1129,6 +1153,7 @@ mod tests {
             .send(BridgeCommand {
                 request_id: 1,
                 uri: "spotify:track:0123456789ABCDEFGHIJKL".into(),
+                action: None,
             })
             .unwrap();
         bridge
@@ -1136,6 +1161,7 @@ mod tests {
             .send(BridgeCommand {
                 request_id: 2,
                 uri: "spotify:track:ABCDEFGHIJKL0123456789".into(),
+                action: None,
             })
             .unwrap();
         let command: serde_json::Value =

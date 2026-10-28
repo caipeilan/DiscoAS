@@ -24,6 +24,7 @@ export function HandSettings({ settings, onChange, onDiscoveryChange }: { settin
       <Reveal open={value.enabled}>
       <SettingRow title={t("进入手牌时揭晓神秘歌曲")}><Toggle label={t("进入手牌时揭晓神秘歌曲")} value={value.reveal_mystery} onChange={(v) => set("reveal_mystery", v)} /></SettingRow>
       <SettingRow title={t("手牌常驻")}><Toggle label={t("手牌常驻")} value={value.resident} onChange={(v) => set("resident", v)} /></SettingRow>
+      <SettingRow title={t("创建手牌")} description={t("开启后，通过输入链接或ID，创建对应曲目的手牌")}><Toggle label={t("创建手牌")} value={value.create_cards} onChange={v => set("create_cards", v)} /></SettingRow>
       {AUTO_PLAY_AVAILABLE && <>
       <SettingRow title={t("自动打出手牌（实验）")}>
         {autoPlaySupported

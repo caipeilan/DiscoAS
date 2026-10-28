@@ -99,6 +99,7 @@ pub enum DiscoveryWeightingMode {
     None,
     Traditional,
     Ranked,
+    Rotation,
 }
 
 /// Relative rank weights for the ranked discovery mode. The hard window and

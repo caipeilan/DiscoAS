@@ -20,6 +20,7 @@ pub struct HandSettings {
     pub resident: bool,
     pub keep_discovery_open: bool,
     pub auto_play: bool,
+    pub create_cards: bool,
     pub auto_play_position: AutoPlayPosition,
     pub auto_play_detection: AutoDetectionMode,
     pub shortcut: String,
@@ -97,6 +98,7 @@ impl Default for HandSettings {
         Self {
             enabled: false,
             auto_play: false,
+            create_cards: false,
             auto_play_position: AutoPlayPosition::First,
             auto_play_detection: AutoDetectionMode::Mixed,
             reveal_mystery: false,

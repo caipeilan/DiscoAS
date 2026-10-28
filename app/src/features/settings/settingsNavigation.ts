@@ -8,7 +8,7 @@ export const settingsCategories = [
 ] as const;
 export type SettingsCategory = typeof settingsCategories[number]["id"];
 export const settingsSections = {
-  appearance: "general", startup: "general",
+  appearance: "general", startup: "general", onboarding: "general",
   discovery: "discovery", discoveryAppearance: "discovery", exclusion: "discovery", weighting: "discovery", cover: "discovery",
   hand: "hand", window: "playback", spotify: "playback", browser: "playback",
   keyboard: "keyboard", rendering: "advanced", data: "advanced",

@@ -140,6 +140,24 @@ fn native_link_from_html(html: &str, id: &str) -> AppResult<String> {
     Ok(link)
 }
 
+pub(super) async fn fetch_track_detail(id: &str) -> AppResult<super::SongDetail> {
+    let id = music::numeric(id)?;
+    let response = PLAYBACK_CLIENT.get(playback_url(&id)?).send().await.map_err(crate::error::network_error)?;
+    let html = video::read(response).await?;
+    // The official native link verifies the requested identity before page text is used.
+    let link = native_link_from_html(&html, &id)?;
+    remember_playback_uri(id, &link);
+    let title = Regex::new(r"(?is)<title>\s*(.*?)\s*</title>").unwrap().captures(&html)
+        .and_then(|capture| capture.get(1)).map(|value| value.as_str()).unwrap_or("");
+    let title = title.strip_suffix("_单曲在线试听_酷我音乐").ok_or_else(|| music::error("酷我歌曲信息不可用"))?;
+    let (name, artist) = title.rsplit_once('_').ok_or_else(|| music::error("酷我歌曲信息不可用"))?;
+    let decode = |text: &str| text.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">");
+    let name = decode(name); let artists = vec![decode(artist)];
+    if name.trim().is_empty() { return Err(music::error("酷我歌曲信息不可用")); }
+    Ok(super::SongDetail { playback_metadata: crate::model::PlaybackMetadata { title: name.clone(), ..Default::default() },
+        real_window_name: super::build_window_name(&name, &artists), name, artist_names: artists, album_pic_url: String::new() })
+}
+
 fn validate_native_link(link: &str, id: &str) -> AppResult<()> {
     const KEYS: &[&str] = &[
         "play",

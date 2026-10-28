@@ -21,6 +21,7 @@ pub mod qq;
 pub mod source;
 pub mod spotify;
 pub mod storage;
+pub mod track_input;
 mod video;
 pub mod youtube;
 

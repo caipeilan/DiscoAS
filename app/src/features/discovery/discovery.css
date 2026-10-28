@@ -51,6 +51,7 @@
 :root .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { opacity: 1; pointer-events: auto; transform: translateY(-4px); }
 :root .discovery-body .song-replace-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--accent-text); }
 :root .discovery-body .song-replace-button:disabled { cursor: default; color: var(--text-tertiary); }
+:root .discovery-body[data-onboarding-step="4"] .song-replace-button { opacity: 1; pointer-events: auto; }
 :root .floating-content .discovery-body .song-replace-button { right: calc(20px * var(--card-scale, 1)); top: calc(20px * var(--card-scale, 1)); }
 :root .floating-content .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-replace-button,
 :root .floating-content .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { transform: translateY(calc(-6px * var(--card-scale, 1))); }

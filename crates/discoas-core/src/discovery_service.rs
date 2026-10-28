@@ -258,6 +258,11 @@ impl DiscoveryService {
             (setting.history_exclusion, setting.history_limit)
         };
         let (mut excluded, weights) = match mode {
+            DiscoveryWeightingMode::Rotation => (
+                history.excluded_song_ids(&source.name, rank_mode, limit),
+                history.weighting.rotation_weights(&source.name, &snapshot.playlist.song_ids,
+                    (setting.number_of_discovered_songs + if setting.have_mystery_song { setting.num_of_mystery_song } else { 0 }) as usize),
+            ),
             DiscoveryWeightingMode::Ranked => history.ranked_weights(
                 &source.name,
                 rank_mode,

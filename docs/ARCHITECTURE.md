@@ -28,6 +28,7 @@
 | 单卡替换、每批预算、状态 DTO 与信息条 | `crates/discoas-core/src/model.rs`、`discovery_service.rs`、`core/cache.rs`；前端 `app/src/features/discovery/` |
 | 手牌保存、收牌、持有排除与打出 | `crates/discoas-core/src/hand.rs`、`discovery_service.rs`；桌面 `app/src-tauri/src/desktop/hand.rs`、`hand_drag.rs`、`playback.rs`；前端 `app/src/features/hand/`、`HandDragWindow.tsx`、`features/settings/HandSettings.tsx` |
 | 自动打出手牌（实验） | 核心 `auto_hand.rs` 的换曲观察、去重与操作锁；桌面 `desktop/auto_hand.rs`、`auto_hand_native.rs`；普通手牌 `hand_actions.rs` 与共用 `playback.rs`；网页 `services/browser_bridge.rs`、`extensions/browser/` |
+| 创建手牌 | 核心 `platforms/track_input.rs` 解析当前平台的单曲身份与详情；桌面 `desktop/create_hand.rs` 校验设置、锁、容量和平台，准备封面后交给 `HandStore`；前端 `features/hand/CreateHandDialog.tsx` |
 | 迷你发现 | `HandDiscoverySettings`、`DiscoveryService::for_hand`、`Cache::independent`；桌面 `desktop/hand_discovery.rs`；共享手牌窗口与 Logo 浮窗 |
 | 原生指针、按键观察和浮窗生命周期 | `app/src-tauri/src/desktop/hand_input.rs`、`preview_keyboard.rs`、`discovery_preview.rs`；前端 `app/src/features/discovery/`、`features/hand/` |
 | 导入进度、取消与网络任务提交 | `platforms::PlaylistFetcher::fetch_with_progress`、`app/src-tauri/src/services/library_jobs.rs`、`desktop/library.rs` |
@@ -37,6 +38,7 @@
 | 兼容歌单 JSON 或改变缓存存储 | `crates/discoas-core/src/platforms/storage.rs`、`core/playlist.rs` |
 | 调整歌单管理、迁移或设置保存规则 | `app/src-tauri/src/services/` |
 | 新用户默认作者歌单与中断恢复 | `app/src-tauri/src/services/bootstrap.rs`、`app/src-tauri/resources/default-playlist.json`、`app/src-tauri/src/paths.rs` |
+| 使用引导 | `app/src-tauri/src/desktop/onboarding.rs` 保存步骤与修订号；前端 `features/onboarding/`、`App.tsx`、`DiscoveryView.tsx` 跟随真实发现、替换、导入、启用和关闭操作推进 |
 | 批量删除来源、取消对应网络任务 | `app/src-tauri/src/services/library.rs`、`desktop/library.rs`、`app/src/features/library/` |
 | 枚举用户系统字体与多语言字体名 | `app/src-tauri/src/desktop/fonts.rs`、`app/src/components/FontPicker.tsx`、`fontOptions.ts` |
 | 紧凑下拉框、隐藏帮助及缩放定位 | `app/src/components/Select.tsx`、`Popover.tsx`、`SettingsControls.tsx`、`popoverPlacement.ts` |
@@ -74,6 +76,14 @@
 2.0.14 的设置整理将全局发现、手牌展开／收纳、前九张打出和键盘选歌统一放在「快捷键」，手牌与迷你发现关闭时仍可编辑绑定。发现显示器、卡片与按钮大小归入「发现外观与布局」，「收牌后保留发现界面」归入「发现偏好」；通用外观与发现尺寸分别还原，保留另一组草稿及语言。客户端隐藏与独立桌面继续位于「播放连接 → 窗口与播放」。
 
 ## 依赖规则
+
+2.0.15 的「切歌时暂停当前播放」位于共用 `desktop/playback.rs` 派发入口，覆盖发现、手牌、快捷键、原生客户端与扩展播放。普通切歌定向暂停当前 Windows 媒体会话，受控浏览器和 Spotify 扩展保留幂等暂停回退；已有自动出牌暂停不重复执行。浏览器是否能暂停按成功建立的受控播放连接判断，与自动换曲观察开关分开。
+
+浮窗 AUTO 使用会话内临时状态。保存设置、刷新歌单和切换卡池保留临时关闭状态；重新启动应用恢复保存的开关。当前手牌派发继续确认和解锁，恢复 AUTO 后先建立新基线。控制状态修订号和出牌 token 一起过滤迟到回复。
+
+「轮换均衡加权」根据去重后的歌单曲数 N 和每批发现数 K 自动计算周期 `C = ceil(N / min(N, K))`。入选按 C 轮恢复，选择按 2C 轮恢复，取两种恢复进度的较小值 p，权重为 `1 + 99 × p²`；未出现的曲目为 100。实际展示批次才推进轮次，替换和未展示预加载沿用现有记录规则，硬排除与手牌持有排除继续生效。
+
+使用引导仅为新数据目录自动开启；已有用户从「通用 → 使用引导」回顾。回顾先刷新并启用资源文件中的作者歌单，再进入第一步；主窗口与发现窗口共用带修订号的持久步骤，导入取消和迟到结果用期望步骤校验。中途重启时，发现阶段回到发现入口，导入弹窗阶段回到添加入口。调试版在指定 `DISCOAS_TEST_ROOT` 时支持 `--qa-create-hand`、`--qa-auto-off`，用于原生弹窗和临时状态预览。
 
 - `discoas-core` 不依赖 Tauri、WebView 或 Windows 原生 API。调用者传入数据目录和当前来源快照；核心返回元数据、批次或播放 URI，不打开窗口和播放器。
 - `app/src-tauri/src/services` 接收明确的文件路径和普通数据，不接收 `AppHandle`，不发送窗口事件。`desktop` 负责解析应用路径、原生操作和调用顺序。
@@ -293,6 +303,7 @@ npm run tauri dev
 | 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
 | Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |
 | 自动打出手牌 | 核心 `auto_hand`、音乐设置加载／保存；桌面 `desktop::auto_hand`、`services::preferences`、`services::browser_bridge`；`test:auto-hand`、`test:browser`、`test:preferences` 及手牌动画／区域检查；Windows 独立数据下的定向暂停、连续出牌、自身切歌去重、失败丢牌、锁定与解锁 |
+| 使用引导与创建手牌 | `npm run test:onboarding`；核心 `platforms::track_input`、`hand`；桌面 `desktop::onboarding`；独立数据下实际刷新作者歌单、发现、替换、关闭、导入、启用及新建手牌封面 |
 
 `test:hand` 组合手牌布局、动画与区域提交测试。`test:preferences` 包含分组保存、部分失败与迟到快照合并。主窗口自绘控制单独验证最小化、最大化／还原、拖动、边缘缩放和关闭收至托盘；原生窗口改动核验任务栏、显示缩放、焦点与透明区域穿透。性能对比只覆盖被改动的交互和静止状态。完整交付前编译 Windows NSIS 安装包，复用已经完成的相关检查。
 

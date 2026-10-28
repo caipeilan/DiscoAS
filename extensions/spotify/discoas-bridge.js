@@ -25,11 +25,12 @@
 
   async function play(message) {
     if (!Number.isSafeInteger(message.requestId) || message.requestId < requestId
-      || !/^spotify:track:[A-Za-z0-9]{22}$/.test(message.uri ?? "")) return;
+      || (message.action !== "pause" && !/^spotify:track:[A-Za-z0-9]{22}$/.test(message.uri ?? ""))) return;
     requestId = message.requestId;
     const current = requestId;
     try {
-      await Spicetify.Player.playUri(message.uri);
+      if (message.action === "pause") { if (Spicetify.Player.isPlaying()) await Spicetify.Player.pause(); }
+      else await Spicetify.Player.playUri(message.uri);
       if (current === requestId) report();
     } catch {
       if (current === requestId) report(true, current);

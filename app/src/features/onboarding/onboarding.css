@@ -1,0 +1,21 @@
+.onboarding-layer { position: fixed; inset: 0; z-index: 1200; pointer-events: none; }
+.onboarding-target { position: fixed; border: 2px solid var(--accent); border-radius: 14px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent); transition: top 180ms var(--ease-out), left 180ms var(--ease-out), width 180ms var(--ease-out), height 180ms var(--ease-out); }
+.onboarding-card { pointer-events: auto; position: fixed; width: min(360px, calc(100vw - 32px)); box-sizing: border-box; left: 20px; bottom: 20px; padding: 20px; border: 1px solid var(--control-border); border-radius: 20px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); animation: onboarding-enter 180ms var(--ease-out) both; }
+.onboarding-card[data-anchored] { bottom: auto; }
+.onboarding-welcome { left: 50%; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); padding: 28px; }
+.onboarding-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-secondary); font-size: 12px; }
+.onboarding-meta .icon-button { width: 28px; height: 28px; }
+.onboarding-card h2 { font-size: 19px; line-height: 1.45; letter-spacing: -.02em; margin: 12px 0 8px; }
+.onboarding-card p { font-size: 14px; line-height: 1.7; margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.onboarding-card p strong { color: var(--text); }
+.onboarding-card .onboarding-note { padding: 10px 12px; margin-top: 12px; border-radius: 10px; background: var(--surface-subtle); font-size: 12px; }
+.onboarding-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 14px; margin-top: 18px; }
+.onboarding-actions:empty { display: none; }
+.onboarding-actions .text-button:first-child { margin-right: auto; }
+.onboarding-layer[data-inline] { position: static; }
+.onboarding-layer[data-inline] .onboarding-card { position: static; width: auto; margin: 0 0 16px; padding: 14px 16px; background: var(--surface-subtle); box-shadow: none; border-color: var(--border); border-radius: 12px; }
+.onboarding-layer[data-inline] .onboarding-card h2 { font-size: 16px; margin-top: 6px; }
+.onboarding-layer[data-inline] .onboarding-card p { font-size: 13px; }
+.onboarding-layer[data-inline] .onboarding-actions { margin-top: 10px; }
+@keyframes onboarding-enter { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .onboarding-card { animation: none; } .onboarding-target { transition: none; } }

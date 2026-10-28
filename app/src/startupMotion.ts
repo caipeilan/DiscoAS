@@ -21,6 +21,7 @@ export function startupEntrance(x: number, y: number): Keyframe[] {
 export function startupExit(motion = true): Keyframe[] {
   return Array.from({ length: 61 }, (_, i) => {
     const offset = i / 60, progress = startupProgress(offset);
-    return { offset, opacity: 1 - progress, transform: `scale(${motion ? 1 + .62 * progress : 1})` };
+    const expansion = Math.sin(Math.PI * offset / 2);
+    return { offset, opacity: 1 - progress, transform: `scale(${motion ? 1 + .62 * expansion : 1})` };
   });
 }

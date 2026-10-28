@@ -8,7 +8,9 @@ import { t } from "../../i18n";
 import { defaultDiscoveryKeybindings } from "../settings/discoveryKeybindings";
 import { useKeyboardSelection } from "./useKeyboardSelection";
 import type { PreviewKeyEvent } from "./useKeyboardSelection";
-import { setPreviewCloseRect } from "../../services/desktop";
+import { call, setPreviewCloseRect } from "../../services/desktop";
+import { Onboarding } from "../onboarding/Onboarding";
+import { useOnboarding } from "../onboarding/useOnboarding";
 import "./discovery.css";
 
 export function DiscoveryView({ state, status, loading, songError, songs, playing, collecting, replacing, slotRevision, previewGui, previewPointer, previewKey, cancelling, batchRevision, overlayPhase, busy = "", cancel, discover, play, replace, manageLibrary }: {
@@ -49,6 +51,22 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
     keybindings: state.settings.discovery_keybindings || defaultDiscoveryKeybindings,
   });
   const showBar = status.exclusionEnabled || status.replacementEnabled;
+  const guide = useOnboarding();
+  const guideStep = guide.state.step;
+  const guideOpened = useRef(false);
+  const replacementCheckpoint = useRef<{ step: number; signature: string }>({ step: 0, signature: "" });
+  useEffect(() => {
+    if (preview) return;
+    if (overlayPhase === "open") guideOpened.current = true;
+    if (guideStep === 2 && active && songs.length) void guide.advance(2, 3);
+    if (guideOpened.current && overlayPhase === "closed" && guideStep >= 3 && guideStep <= 5) {
+      guideOpened.current = false;
+      void guide.advance(guideStep, 6);
+    }
+    const signature = slotRevision.join(":");
+    if (guideStep === 4 && replacementCheckpoint.current.step === 4 && replacementCheckpoint.current.signature !== signature) void guide.advance(4, 5);
+    replacementCheckpoint.current = { step: guideStep, signature };
+  }, [guideStep, active, songs.length, overlayPhase, preview, slotRevision, guide.advance]);
   useEffect(() => {
     let frame = 0;
     const update = () => {
@@ -87,7 +105,7 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
     };
   }, [gui, loading, overlayPhase, preview, songs, showBar]);
   return (
-    <div className="discovery-body" ref={body} data-input-mode={inputMode} data-preview={preview || undefined}
+    <div className="discovery-body" ref={body} data-input-mode={inputMode} data-preview={preview || undefined} data-onboarding-step={preview ? undefined : guideStep || undefined}
       data-hand-mode={state.settings.hand?.enabled || undefined} data-collecting={collecting || undefined}
       onPointerMove={pointerMove} onPointerDown={pointerDown} onPointerLeave={pointerLeave}
       style={{ "--replacement-scale": gui.replacement_button_size || 1, "--discovery-bar-scale": gui.discovery_bar_size || 1,
@@ -202,6 +220,11 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
           {status.replacementEnabled && <span>{t("还可替换{p0}次", { p0: status.replacementsRemaining })}</span>}
         </div>
       )}
+      {!preview && <Onboarding state={guide.state} surface="discovery" handMode={state.settings.hand?.enabled}
+        failure={!!songError} busy={loading || cancelling || !!playing || replacing !== null}
+        retry={() => { void discover(true); }}
+        advance={next => { void guide.advance(guideStep, next).then(async () => { if (next === 6) { await cancel(); await call("show_main"); } }); }}
+        back={() => { void guide.advance(guideStep, guideStep - 1).then(async () => { if (guideStep === 3) { await cancel(); await call("show_main"); } }); }} />}
     </div>
   );
 }

@@ -48,7 +48,7 @@ export function WeightingSettings({ mode, traditional, ranked, onChange, songCou
       });
       return;
     }
-    onChange({ weighting_mode: "none", discovery_weighting: { ...traditional, enabled: false } });
+    onChange({ weighting_mode: next, discovery_weighting: { ...traditional, enabled: false } });
   };
   useEffect(() => {
     const previous = previousSource.current;
@@ -71,9 +71,11 @@ export function WeightingSettings({ mode, traditional, ranked, onChange, songCou
         options={[
           { value: "none", label: t("不加权") },
           { value: "traditional", label: t("传统加权") },
-          { value: "ranked", label: t("排序相对加权") },
+          { value: "ranked", label: t("排序相对加权（适合1k+曲目歌单）") },
+          { value: "rotation", label: t("轮换均衡加权（适合<1k曲目歌单）") },
         ]} />
     </SettingRow>
+    {mode === "rotation" && <p className="setting-explanation">{t("最近出现的曲目暂时降低权重，随后逐渐恢复；刚选中的曲目恢复得更慢。恢复速度随歌单曲数和每批发现数量自动调整。")}</p>}
     {mode === "traditional" && <TraditionalWeightingSettings value={traditional} onChange={(value) => onChange({ discovery_weighting: value })}
       songCount={songCount} sourceIdentity={sourceIdentity} drawCount={drawCount} />}
     {mode === "ranked" && <RankedWeightingSettings value={ranked} onChange={(value) => onChange({ ranked_weighting: value })}

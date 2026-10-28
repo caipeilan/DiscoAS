@@ -21,16 +21,36 @@ pub const BUSY_ERROR: &str = "正在出牌，请稍候";
 pub struct AutoHandState {
     pub token: u64,
     pub busy: bool,
+    pub configured: bool,
+    pub enabled: bool,
+    pub revision: u64,
 }
 fn state(runtime: &Runtime) -> AutoHandState {
     AutoHandState {
         token: runtime.policy.generation(),
         busy: runtime.policy.busy() || runtime.pausing.is_some(),
+        configured: runtime.configured,
+        enabled: runtime.configured && !runtime.temporarily_paused,
+        revision: runtime.revision,
     }
 }
 #[tauri::command]
 pub fn get_auto_hand_state(service: tauri::State<'_, AutoHandService>) -> AutoHandState {
     service.state()
+}
+#[tauri::command]
+pub fn set_auto_hand_enabled(app: tauri::AppHandle, service: tauri::State<'_, AutoHandService>, enabled: bool) -> Result<AutoHandState, String> {
+    let mut runtime = service.runtime.lock().unwrap();
+    if !runtime.configured { return Err("错误：请先开启自动打出手牌".into()); }
+    runtime.temporarily_paused = !enabled;
+    runtime.revision += 1;
+    runtime.policy.configure_temporary(enabled);
+    service.enabled.store(enabled, Ordering::Release);
+    let value = state(&runtime);
+    drop(runtime);
+    service.wake();
+    let _ = app.emit("auto-hand-state-changed", value);
+    Ok(value)
 }
 fn publish_busy(
     app: &tauri::AppHandle,
@@ -46,6 +66,10 @@ fn publish_busy(
 
 #[derive(Default)]
 struct Runtime {
+    configured: bool,
+    saved_enabled: bool,
+    temporarily_paused: bool,
+    revision: u64,
     policy: AutoHand,
     request: Option<(u64, PlaySongArgs)>,
     source: Option<String>,
@@ -298,7 +322,7 @@ impl AutoHandService {
                                     tauri::async_runtime::spawn(async move {
                                         let active = {
                                             let service = app.state::<AutoHandService>();
-                                            service.enabled.load(Ordering::Acquire)
+                                            service.current(token)
                                                 && !service.stopped.load(Ordering::Acquire)
                                         };
                                         if !active {
@@ -435,15 +459,22 @@ impl AutoHandService {
             .iter()
             .find(|s| s.enabled)
             .map(|s| s.name.clone());
-        let enabled = AUTO_PLAY_AVAILABLE
-            && hand.enabled
-            && hand.auto_play
-            && source.as_deref().is_none_or(supports_platform);
-        self.enabled.store(enabled, Ordering::Release);
+        let saved_enabled = AUTO_PLAY_AVAILABLE && hand.enabled && hand.auto_play;
+        let enabled = saved_enabled && source.as_deref().is_none_or(supports_platform);
         // The saved detection field is read only for old-data compatibility.
         // Current observers choose one primary source from the platform's
         // actual capability, so a stale saved option cannot pin the strategy.
         let mut runtime = self.runtime.lock().unwrap();
+        if runtime.saved_enabled != saved_enabled {
+            runtime.temporarily_paused = false;
+        }
+        if runtime.configured != enabled || runtime.saved_enabled != saved_enabled {
+            runtime.revision += 1;
+        }
+        runtime.saved_enabled = saved_enabled;
+        runtime.configured = enabled;
+        let enabled = enabled && !runtime.temporarily_paused;
+        self.enabled.store(enabled, Ordering::Release);
         if runtime.source != source {
             runtime.policy.rebind();
         }
@@ -509,6 +540,9 @@ impl AutoHandService {
     }
     pub fn current(&self, token: u64) -> bool {
         self.runtime.lock().unwrap().policy.current(token)
+    }
+    pub(super) fn automatic_pending(&self, token: u64) -> bool {
+        self.runtime.lock().unwrap().policy.automatic_pending(token)
     }
     pub fn prepare(&self, token: u64, args: PlaySongArgs) {
         let mut runtime = self.runtime.lock().unwrap();
@@ -826,6 +860,35 @@ mod tests {
                 assert!(service.worker.lock().unwrap().is_none());
             }
         }
+    }
+
+    #[test]
+    fn temporary_pause_survives_source_changes_and_unrelated_saved_settings() {
+        let service = AutoHandService::default();
+        let mut settings = MusicSetting::default();
+        settings.hand.enabled = true;
+        settings.hand.auto_play = true;
+        settings.playlist_albums.push(PlaylistAlbum {
+            name: names::NETEASE.into(), enabled: true, playlist_album_id: "test".into(),
+            typename: "playlist".into(), playlist_album_name: String::new(),
+            playlist_album_remark: String::new(), update_time: String::new(),
+        });
+        service.configure(&settings);
+        service.runtime.lock().unwrap().temporarily_paused = true;
+        settings.replacement_limit += 1;
+        service.configure(&settings);
+        assert!(!service.state().enabled);
+        settings.playlist_albums[0].name = names::APPLE_MUSIC.into();
+        service.configure(&settings);
+        assert!(service.runtime.lock().unwrap().temporarily_paused);
+        settings.playlist_albums[0].name = names::NETEASE.into();
+        service.configure(&settings);
+        assert!(!service.state().enabled);
+        settings.hand.auto_play = false;
+        service.configure(&settings);
+        settings.hand.auto_play = true;
+        service.configure(&settings);
+        assert!(service.state().enabled);
     }
 
 }

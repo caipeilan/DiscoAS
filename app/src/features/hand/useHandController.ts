@@ -72,8 +72,8 @@ export function useHandController() {
     for (const card of snapshot.cards) (card.discovery ? discovery : ordinary).push(card);
     return { discovery, ordinary };
   }, [snapshot.cards]);
-  const autoNextId = useMemo(() => autoHandNextId(snapshot.cards, snapshot.settings, snapshot.preview),
-    [snapshot.cards, snapshot.settings.enabled, snapshot.settings.auto_play, snapshot.settings.auto_play_position, snapshot.preview]);
+  const autoNextId = useMemo(() => autoState.enabled === false ? null : autoHandNextId(snapshot.cards, snapshot.settings, snapshot.preview),
+    [snapshot.cards, snapshot.settings.enabled, snapshot.settings.auto_play, snapshot.settings.auto_play_position, snapshot.preview, autoState.enabled]);
   const displayed = useMemo(() => refill && snapshot.discoverySettings?.enabled && groups.discovery.length < refillCount
     ? groups.discovery.concat(refill, groups.ordinary) : snapshot.cards,
   [snapshot.cards, groups, snapshot.discoverySettings?.enabled, refill, refillCount]);

@@ -12,6 +12,8 @@ pub mod fonts;
 pub mod geometry;
 pub mod hand;
 pub mod hand_actions;
+pub mod create_hand;
+pub mod onboarding;
 pub mod hand_discovery;
 pub mod hand_dock;
 pub mod hand_drag;

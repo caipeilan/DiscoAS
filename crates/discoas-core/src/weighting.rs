@@ -25,6 +25,19 @@ fn key(platform: &str, id: &str) -> String {
     format!("{platform}\u{1f}{id}")
 }
 impl WeightSnapshot {
+    pub(crate) fn rotation_weights(&self, platform: &str, ids: &[String], draw_count: usize) -> HashMap<String, f64> {
+        let count = ids.iter().filter(|id| !id.trim().is_empty()).collect::<HashSet<_>>().len();
+        let cycle = count.div_ceil(draw_count.max(1).min(count.max(1))).max(1) as f64;
+        let round = self.round(platform);
+        ids.iter().map(|id| {
+            let event = self.songs.get(&key(platform, id));
+            let progress = |last: Option<u64>, duration: f64| last.map_or(1.0, |last| (round.saturating_sub(last) as f64 / duration).min(1.0));
+            let shown = progress(event.and_then(|event| event.discovered), cycle);
+            let chosen = progress(event.and_then(|event| event.selected), cycle * 2.0);
+            let recovery = shown.min(chosen);
+            (id.clone(), 1.0 + 99.0 * recovery * recovery)
+        }).collect()
+    }
     pub(crate) fn weights(
         &self,
         platform: &str,
@@ -164,6 +177,41 @@ fn weight_at(round: u64, event: &SongEvents, config: &DiscoveryWeighting) -> f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotation_balances_recent_tracks_and_recovers_selected_tracks_more_slowly() {
+        let ids: Vec<String> = (0..8).map(|id| id.to_string()).collect();
+        let mut snapshot = WeightSnapshot::default();
+        let song = |id: &str| SongCardDto { platform: "p".into(), song_id: id.into(), ..Default::default() };
+        snapshot.displayed(&[song("0"), song("1")], true);
+        snapshot.selected(&song("0"));
+        let fresh = snapshot.rotation_weights("p", &ids, 2);
+        assert_eq!(fresh["0"], 1.0);
+        assert_eq!(fresh["1"], 1.0);
+        assert_eq!(fresh["2"], 100.0);
+        for _ in 0..4 { snapshot.displayed(&[song("7")], true); }
+        let recovered = snapshot.rotation_weights("p", &ids, 2);
+        assert_eq!(recovered["1"], 100.0);
+        assert_eq!(recovered["0"], 25.75);
+        assert_eq!(snapshot.rotation_weights("another", &ids, 2)["0"], 100.0);
+        for _ in 0..4 { snapshot.displayed(&[song("7")], true); }
+        assert_eq!(snapshot.rotation_weights("p", &ids, 2)["0"], 100.0);
+    }
+
+    #[test]
+    fn rotation_counts_unique_nonempty_songs_and_replacements_do_not_advance_rounds() {
+        let mut snapshot = WeightSnapshot::default();
+        let song = |id: &str| SongCardDto { platform: "p".into(), song_id: id.into(), ..Default::default() };
+        snapshot.displayed(&[song("a")], true);
+        snapshot.displayed(&[song("b")], false);
+        assert_eq!(snapshot.round("p"), 1);
+        let ids = vec!["a".into(), "a".into(), "b".into(), "".into()];
+        snapshot.displayed(&[song("b")], true);
+        assert_eq!(snapshot.rotation_weights("p", &ids, 1)["a"], 25.75);
+        assert_eq!(snapshot.rotation_weights("p", &ids, 50)["a"], 100.0);
+        assert!(snapshot.rotation_weights("p", &[], 0).is_empty());
+        assert!(snapshot.rotation_weights("p", &ids, 0).values().all(|weight| weight.is_finite() && *weight >= 1.0));
+    }
     #[test]
     fn decimal_penalties_recover_smoothly_and_boost_without_integer_truncation() {
         let config = DiscoveryWeighting {

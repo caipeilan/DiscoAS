@@ -76,3 +76,19 @@ test("a superseded request cannot publish a delayed failure for a newer selectio
   assert.equal(bridge.socket.sent.at(-1).uri, trackB);
   assert.equal(bridge.socket.sent.some((message) => message.rejected), false);
 });
+
+test("pause is directed, reports its request, and never resumes an already paused player", async () => {
+  const bridge=setup(); let playing=true, pauses=0;
+  bridge.Player.isPlaying=()=>playing;
+  bridge.Player.pause=async()=>{pauses++;playing=false;};
+  bridge.authenticate();
+  bridge.send({requestId:1,action:"pause",uri:""});
+  await new Promise(setImmediate);
+  assert.equal(pauses,1);
+  assert.equal(bridge.socket.sent.at(-1).requestId,1);
+  assert.equal(bridge.socket.sent.at(-1).playing,false);
+  bridge.send({requestId:2,action:"pause",uri:""});
+  await new Promise(setImmediate);
+  assert.equal(pauses,1);
+  assert.equal(bridge.socket.sent.at(-1).requestId,2);
+});

@@ -79,6 +79,18 @@ fn finish_startup(app: tauri::AppHandle) {
         } else {
             dismiss_splash(&app);
         }
+        #[cfg(debug_assertions)]
+        if std::env::var_os("DISCOAS_TEST_ROOT").is_some() {
+            let preview_create = std::env::args().any(|arg| arg == "--qa-create-hand");
+            let pause_auto = std::env::args().any(|arg| arg == "--qa-auto-off");
+            if preview_create || pause_auto {
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                    if pause_auto { let _ = desktop::auto_hand::set_auto_hand_enabled(app.clone(), app.state(), false); }
+                    if preview_create { let _ = desktop::create_hand::open_create_hand(app); }
+                });
+            }
+        }
     }
 }
 
@@ -171,6 +183,7 @@ pub fn run() {
         .manage(core::cache::Cache::new())
         .manage(commands::DiscoveryPublication::default())
         .manage(desktop::discovery_preview::PreviewState::default())
+        .manage(desktop::onboarding::OnboardingService::default())
         .manage(library::DesktopStatus::default())
         .manage(services::library_jobs::LibraryJobs::default())
         .manage(spotify_playback::PlaybackService::default())
@@ -346,6 +359,12 @@ pub fn run() {
             commands::play_song,
             desktop::hand::hand_ready,
             desktop::auto_hand::get_auto_hand_state,
+            desktop::onboarding::get_onboarding_state,
+            desktop::onboarding::advance_onboarding,
+            desktop::onboarding::start_onboarding,
+            desktop::create_hand::open_create_hand,
+            desktop::create_hand::create_hand_card,
+            desktop::auto_hand::set_auto_hand_enabled,
             desktop::hand::present_hand,
             desktop::hand::hand_arrival_ready,
             desktop::hand::set_hand_hit_regions,

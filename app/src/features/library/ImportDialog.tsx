@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Icon } from "../../Icon";
 import { platforms } from "../../types";
 import { platformInfo } from "../../platforms";
@@ -18,6 +19,7 @@ export function ImportDialog({
   cancelling,
   cancel,
   initialPaths = [],
+  guide,
 }: {
   busy: boolean;
   close: () => void;
@@ -26,6 +28,7 @@ export function ImportDialog({
   cancelling: boolean;
   cancel: () => void;
   initialPaths?: string[];
+  guide?: ReactNode;
 }) {
   const [platform, setPlatform] = useState("NeteaseCloudMusic");
   const [paths, setPaths] = useState<string[]>(initialPaths);
@@ -84,6 +87,7 @@ export function ImportDialog({
             <Icon name="close" />
           </button>
         </div>
+        {guide}
         <fieldset className="motion-fields" disabled={busy || platform === "LocalMusic"}>
         <Reveal open={platform !== "LocalMusic"}>
         <label className="field-label import-link-field">

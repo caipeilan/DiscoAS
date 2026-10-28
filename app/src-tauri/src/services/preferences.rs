@@ -29,7 +29,7 @@ pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindin
     match setting.weighting_mode() {
         DiscoveryWeightingMode::Traditional => setting.discovery_weighting.validate()?,
         DiscoveryWeightingMode::Ranked => setting.ranked_weighting.validate()?,
-        DiscoveryWeightingMode::None => {}
+        DiscoveryWeightingMode::None | DiscoveryWeightingMode::Rotation => {}
     }
     setting.hand.validate()?;
     setting.hand_discovery.validate()?;

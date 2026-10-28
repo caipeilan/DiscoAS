@@ -27,6 +27,18 @@ use windows_future::{AsyncStatus, IAsyncOperation};
 /// Returned when a pause loop is interrupted by stop/disable instead of a player error.
 pub const CANCELLED_ERROR: &str = "错误：自动打出已取消";
 
+/// Pause the currently selected Windows media session, independent of the next song's platform.
+pub fn pause_current(cancelled: &dyn Fn() -> bool) -> Result<bool, String> {
+    let _apartment = Apartment::init().map_err(|_| "错误：无法读取播放器媒体会话")?;
+    let manager = Manager::RequestAsync().and_then(wait).map_err(|_| "错误：无法读取播放器媒体会话")?;
+    let Ok(session) = manager.GetCurrentSession() else { return Ok(false); };
+    if session.GetPlaybackInfo().ok().and_then(|info| info.PlaybackStatus().ok()) != Some(Status::Playing) { return Ok(false); }
+    let source = session.SourceAppUserModelId().map_err(|_| "错误：无法读取播放器媒体会话")?.to_string();
+    let paused = PausedSession { session, token: 0, source };
+    paused.pause(cancelled, &mut || {})?;
+    Ok(true)
+}
+
 pub const PLATFORMS: [&str; 6] = [
     names::NETEASE,
     names::QQ,

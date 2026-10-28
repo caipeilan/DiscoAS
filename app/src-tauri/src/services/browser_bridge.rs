@@ -137,6 +137,9 @@ impl Drop for Bridge {
     }
 }
 impl Bridge {
+    pub fn has_controlled_session(&self, request: u64) -> bool {
+        self.state.lock().ok().is_some_and(|state| state.connected && state.seen.is_some_and(|seen| seen.elapsed() < FRESH) && state.result.as_ref().is_some_and(|(id, result)| *id == request && result.is_ok()))
+    }
     pub fn set_observing(&self, enabled: bool) {
         self.state.lock().unwrap().observing = enabled;
     }
@@ -796,5 +799,20 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn manual_pause_remains_available_when_automatic_observation_is_off() {
+        let (sender, receiver) = mpsc::channel();
+        let bridge = Bridge { sender, state: Arc::new(Mutex::new(Connection::default())), stopped: Arc::new(AtomicBool::new(false)), extension_path: PathBuf::new() };
+        assert!(!bridge.has_controlled_session(7));
+        { let mut state = bridge.state.lock().unwrap(); state.connected = true; state.seen = Some(Instant::now()); state.result = Some((7, Ok(()))); }
+        assert!(bridge.has_controlled_session(7));
+        assert!(!bridge.has_controlled_session(8));
+        assert!(!bridge.state.lock().unwrap().observing);
+        assert!(bridge.state.lock().unwrap().observation.is_none());
+        bridge.pause(7).unwrap();
+        assert_eq!(receiver.recv().unwrap().kind, "pause");
+        bridge.state.lock().unwrap().connected = false;
+        assert!(!bridge.has_controlled_session(7));
     }
 }

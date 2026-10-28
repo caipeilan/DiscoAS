@@ -37,14 +37,14 @@ export interface DiscoveryKeybindings {
 }
 export interface HandSettings {
   enabled: boolean; reveal_mystery: boolean; resident: boolean; keep_discovery_open: boolean;
-  auto_play: boolean; auto_play_position: "first" | "last";
+  auto_play: boolean; create_cards: boolean; auto_play_position: "first" | "last";
   auto_play_detection: "system" | "window" | "mixed";
   shortcut: string; play_shortcuts: string[]; side: "left" | "right" | "bottom"; capacity: number;
   scale: number; edge_distance: number; position: number; overlap: number; tilt: number;
 }
 export const defaultHandSettings: HandSettings = {
   enabled: false, reveal_mystery: false, resident: false, keep_discovery_open: false,
-  auto_play: false, auto_play_position: "first",
+  auto_play: false, create_cards: false, auto_play_position: "first",
   auto_play_detection: "mixed",
   shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
   play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
@@ -88,7 +88,7 @@ export interface DiscoveryWeighting {
   boost_per_batch: number;
   max_weight: number;
 }
-export type DiscoveryWeightingMode = "none" | "traditional" | "ranked";
+export type DiscoveryWeightingMode = "none" | "traditional" | "ranked" | "rotation";
 export interface RankedWeighting {
   soft_band: number;
   time_cooling: boolean;
@@ -168,6 +168,7 @@ export interface DesktopPreferences {
   launch_at_login: boolean;
   start_hidden: boolean;
   update_on_startup: boolean;
+  pause_before_playback: boolean;
   overlay_monitor: string;
   minimize_after_playback: boolean;
   minimize_delay_seconds: number;
@@ -346,6 +347,7 @@ export const emptyState: AppState = {
     launch_at_login: false,
     start_hidden: false,
     update_on_startup: true,
+    pause_before_playback: false,
     overlay_monitor: "current",
     minimize_after_playback: true,
     minimize_delay_seconds: 4,

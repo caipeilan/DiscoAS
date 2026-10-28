@@ -108,6 +108,21 @@ fn parse_track(track: &Value) -> AppResult<Value> {
         json!({"id":id,"name":title,"artists":artists,"cover_url":cover(&track["album"]["url_cover"])}),
     )
 }
+pub(super) async fn fetch_track(id: &str) -> AppResult<Value> {
+    let id = music::numeric(id)?;
+    let response = video::client("https://www.qishui.com/")?
+        .get(format!("https://www.qishui.com/share/track?track_id={id}"))
+        .send().await.map_err(crate::error::network_error)?;
+    track_from_share_page(&video::read(response).await?, &id)
+}
+fn track_from_share_page(html: &str, id: &str) -> AppResult<Value> {
+    let data = router_data(html)?;
+    let page = &data["loaderData"]["track_page"];
+    if page["track_id"].as_str() != Some(id) { return Err(music::error("汽水分享页歌曲与请求不一致")); }
+    let track = parse_track(&page["audioWithLyricsOption"]["trackInfo"])?;
+    if track["id"].as_str() != Some(id) { return Err(music::error("汽水分享页歌曲与请求不一致")); }
+    Ok(json!({"tracks_info": [track]}))
+}
 fn parse_source(id: &str, kind: TypeName, data: &Value) -> AppResult<Value> {
     let label = kind.as_str();
     let page = &data["loaderData"][format!("{label}_page")];
@@ -368,5 +383,13 @@ mod tests {
                 assert!(mime.starts_with("image/"), "{url}: {mime}");
             }
         }
+    }
+    #[test]
+    fn single_track_share_reads_only_matching_catalog_metadata() {
+        let html = r#"<script>window._ROUTER_DATA={"loaderData":{"track_page":{"track_id":"123","audioWithLyricsOption":{"url":"unused-media-reference","trackInfo":{"id":"123","name":"歌曲","artists":[{"name":"作者"}],"album":{}}}}}};</script>"#;
+        let data = track_from_share_page(html, "123").unwrap();
+        assert_eq!(data["tracks_info"][0]["name"], "歌曲");
+        assert!(!data.to_string().contains("unused-media-reference"));
+        assert!(track_from_share_page(html, "124").is_err());
     }
 }

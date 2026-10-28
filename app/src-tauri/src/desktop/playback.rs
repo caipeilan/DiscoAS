@@ -40,6 +40,19 @@ async fn dispatch_with_origin(
     let token =
         app.state::<super::auto_hand::AutoHandService>()
             .begin(args, card.as_ref(), automatic)?;
+    if options.pause_before_playback && !app.state::<super::auto_hand::AutoHandService>().automatic_pending(token) {
+        let pending_app = app.clone();
+        let paused = tauri::async_runtime::spawn_blocking(move || super::auto_hand_native::pause_current(&|| !pending_app.state::<super::auto_hand::AutoHandService>().current(token))).await;
+        let mut controlled = matches!(paused, Ok(Ok(true)));
+        if !controlled && app.state::<crate::browser_playback::BrowserPlaybackService>().has_controlled_session() {
+            controlled = app.state::<crate::browser_playback::BrowserPlaybackService>().pause().await.is_ok();
+        }
+        if !controlled { controlled = app.state::<crate::spotify_playback::PlaybackService>().pause_connected().await.unwrap_or(false); }
+        if !app.state::<super::auto_hand::AutoHandService>().current(token) { return Err("错误：播放请求已更新".into()); }
+        if !controlled && matches!(paused, Ok(Err(_)) | Err(_)) {
+            super::diagnostics::log_event(app, "playback", "pause_before_playback_failed");
+        }
+    }
     let result = dispatch_to_platform(app, args, card.as_ref(), url, &options).await;
     if result.is_err() && automatic.is_none() {
         app.state::<super::auto_hand::AutoHandService>().fail(token);

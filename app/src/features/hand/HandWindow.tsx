@@ -44,7 +44,7 @@ export function HandWindow() {
     onAnimationEnd={(event) => { if (isHandRegionAnimation(event)) scheduleRegions.current(); }}>
     {(!desktop || snapshot.preview) && <HandDock element={toolbarElement} point={dockPosition} areas={dockAreas} expanded={snapshot.expanded} preview={snapshot.preview}
       diameter={diameter} count={ordinaryCount} capacity={snapshot.settings.capacity} busy={!!busy} confirm={clearConfirm}
-      handEnabled={snapshot.settings.enabled || snapshot.preview && !snapshot.discoverySettings?.enabled} discovery={snapshot.discovery} refresh={refreshDiscovery}
+      handEnabled={snapshot.settings.enabled || snapshot.preview && !snapshot.discoverySettings?.enabled} createCards={snapshot.settings.create_cards} discovery={snapshot.discovery} refresh={refreshDiscovery}
       toCanvas={toCanvas} dragging={setDockMoving}
       beginDrag={() => Promise.resolve()}
       move={moveDock} toggle={toggleDock} clear={clearDock} />}

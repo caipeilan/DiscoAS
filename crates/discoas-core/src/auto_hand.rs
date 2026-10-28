@@ -219,6 +219,14 @@ pub struct AutoHand {
     consumed: bool,
 }
 impl AutoHand {
+    /// A dock toggle affects future triggers while the current handoff completes.
+    pub fn configure_temporary(&mut self, enabled: bool) {
+        if self.pending.is_some() { self.enabled = enabled; }
+        else { self.configure(enabled); }
+    }
+    pub fn automatic_pending(&self, token: u64) -> bool {
+        self.pending.as_ref().is_some_and(|pending| pending.token == token && pending.automatic)
+    }
     pub fn configure(&mut self, enabled: bool) {
         if self.enabled == enabled {
             return;
@@ -1129,6 +1137,23 @@ mod tests {
         ));
         assert!(!a.busy());
         assert!(a.begin(target("manual"), None, 6).is_some());
+    }
+    #[test]
+    fn temporary_auto_pause_preserves_current_handoff_and_resumes_from_a_new_baseline() {
+        let mut a = engine();
+        a.observe(observation("a"), 0);
+        let Some(Event::Play { token }) = a.observe(observation("b"), 1) else { panic!() };
+        a.begin(target("c"), Some(token), 2);
+        a.configure_temporary(false);
+        assert!(a.current(token));
+        assert!(a.busy());
+        assert!(matches!(a.observe(observation("c"), 3), Some(Event::Confirmed { token: actual, .. }) if actual == token));
+        assert!(!a.busy());
+        assert_eq!(a.observe(observation("d"), 4), None);
+        a.configure_temporary(true);
+        a.adopt(names::QQ);
+        assert_eq!(a.observe(observation("e"), 5), None);
+        assert!(matches!(a.observe(observation("f"), 6), Some(Event::Play { .. })));
     }
     #[test]
     fn manual_handoff_locks_from_preparation_even_with_automatic_play_disabled() {

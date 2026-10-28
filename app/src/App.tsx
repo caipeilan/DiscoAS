@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { About } from "./About";
 import { Sidebar } from "./components/Sidebar";
 import type { Page } from "./components/Sidebar";
@@ -18,6 +18,9 @@ import { useAppState } from "./hooks/useAppState";
 import { useNotice } from "./hooks/useNotice";
 import { call, onDesktopEvent } from "./services/desktop";
 import { t, errorText } from "./i18n";
+import { CreateHandDialog } from "./features/hand/CreateHandDialog";
+import { Onboarding } from "./features/onboarding/Onboarding";
+import { useOnboarding } from "./features/onboarding/useOnboarding";
 import type { SettingsCategory } from "./features/settings/settingsNavigation";
 import { isSettingsCategory } from "./features/settings/settingsNavigation";
 import "./App.css";
@@ -33,10 +36,50 @@ export default function App() {
     return isSettingsCategory(remembered) ? remembered : "general";
   });
   const [saveError, setSaveError] = useState("");
+  const [creatingHand, setCreatingHand] = useState(false);
+  const createHandler = useRef(() => {});
+  useEffect(() => {
+    const subscription = onDesktopEvent("open-create-hand", () => createHandler.current());
+    return () => { void subscription.then(stop => stop()).catch(() => {}); };
+  }, []);
   const content = useRef<HTMLElement>(null);
   const library = useLibrary(app, notice);
+  createHandler.current = () => {
+    if (busy) { notice(t("请等待当前操作完成后再创建手牌。"), true); return; }
+    library.closeImport(); library.closeRemove(); library.closeRemark(); setCreatingHand(true);
+  };
   useAppearance(guiDraft);
   const settings = useSettings(app, notice, setSaveError);
+  const reportGuideError = useCallback((error: unknown) => notice(errorText(error), true), [notice]);
+  const guide = useOnboarding(reportGuideError);
+  const guideStep = guide.state.step;
+  const advanceGuide = (next: number) => { void guide.advance(guideStep, next).catch(reportGuideError); };
+  const importWasOpen = useRef(false);
+  useEffect(() => {
+    if ([1, 2, 6, 8, 9].includes(guideStep)) setPage("library");
+    if (guideStep === 10) { setSettingsCategory("discovery"); setPage("settings"); }
+    if ([2, 6, 8].includes(guideStep)) { library.setQuery(""); library.setFilter(""); }
+  }, [guideStep]);
+  useEffect(() => {
+    if (guideStep === 6 && library.importing) void guide.advance(6, 7).catch(reportGuideError);
+    else if (guideStep === 7 && importWasOpen.current && !library.importing) void guide.advance(7, 9).catch(reportGuideError);
+    importWasOpen.current = library.importing;
+  }, [guideStep, library.importing, guide.advance, reportGuideError]);
+  const restartOnboarding = async () => {
+    if (busy) return;
+    app.setBusy("onboarding");
+    try { await call("start_onboarding"); }
+    catch (error) { reportGuideError(error); }
+    finally { app.setBusy(""); }
+  };
+  const backGuide = async () => {
+    const next = guideStep === 6 ? 5 : guideStep - 1;
+    await guide.advance(guideStep, next);
+    if (guideStep === 7) library.closeImport();
+    if (next === 7) library.openImport();
+    if (next >= 3 && next <= 5) await call("show_discover");
+    if (next === 9) setPage("library");
+  };
   useEffect(() => {
     let active = true, stop: (() => void) | undefined;
     void onDesktopEvent("open-settings-requested", ({ category }) => {
@@ -61,10 +104,17 @@ export default function App() {
   }, [library.importing, library.remove, library.editing, busy]);
   const navigate = async (next: Page) => {
     setPage(next);
+    if (next === "settings" && guideStep === 9) {
+      setSettingsCategory("discovery");
+      await guide.advance(9, 10).catch(reportGuideError);
+    }
   };
   const openDiscover = () => {
     call("show_discover").catch((e) => notice(errorText(e), true, { label: t("查看发现设置"), run: () => { setSettingsCategory("discovery"); setPage("settings"); } }));
   };
+  const guideView = !app.startup && <Onboarding state={guide.state} surface="main" busy={!!busy}
+    alreadyEnabled={state.playlists.some(entry => entry.enabled && entry.platform === guide.state.targetPlatform && entry.kind === guide.state.targetKind && entry.id === guide.state.targetId)}
+    advance={advanceGuide} back={() => { void backGuide().catch(reportGuideError); }} />;
   const body = (
     <div className="app-shell">
       <Sidebar page={page} playlistCount={state.playlists.length} navigate={navigate} version={state.version}
@@ -87,7 +137,10 @@ export default function App() {
             cancelOperation={library.cancelOperation} operationSummary={library.operationSummary}
             importDialogOpen={library.importing}
             openImport={library.openImport} confirmRemove={library.confirmRemove}
-            migrate={settings.migrate} enablePlaylist={library.enablePlaylist}
+            migrate={settings.migrate} enablePlaylist={async entry => {
+              const success = await library.enablePlaylist(entry);
+              if (success && guideStep === 8 && entry.platform === guide.state.targetPlatform && entry.id === guide.state.targetId && entry.kind === guide.state.targetKind) await guide.advance(8, 9).catch(reportGuideError);
+            }}
             updatePlaylist={library.updatePlaylist} importSample={library.importSample}
             discover={() => { openDiscover(); }}
           />
@@ -99,7 +152,7 @@ export default function App() {
             busy={busy} save={settings.saveSettings} migrate={settings.migrate}
             discard={settings.discardSettings} saveError={saveError} clearSaveError={() => setSaveError("")} category={settingsCategory} selectCategory={setSettingsCategory}
             chooseMysteryCover={settings.chooseMysteryCover}
-            openDataFolder={settings.openDataFolder} openLogFolder={settings.openLogFolder} />
+            openDataFolder={settings.openDataFolder} openLogFolder={settings.openLogFolder} restartOnboarding={() => { void restartOnboarding(); }} />
         )}
         {page === "history" && <HistoryView />}
         {page === "about" && <About version={state.version} />}
@@ -108,12 +161,14 @@ export default function App() {
       <Presence show={!!toast}>{toast && <Toast toast={toast} dismiss={dismiss} />}</Presence>
       <Presence show={library.importing} modal>
         <ImportDialog busy={busy === "import"} initialPaths={library.droppedPaths} close={library.closeImport} submit={library.importPlaylist}
-          progress={library.progress} cancelling={library.cancelling} cancel={library.cancelOperation} />
+          progress={library.progress} cancelling={library.cancelling} cancel={library.cancelOperation} guide={guideStep === 7 ? guideView : undefined} />
       </Presence>
+      <Presence show={creatingHand} modal><CreateHandDialog platform={state.playlists.find(source => source.enabled)?.platform ?? ""} close={() => setCreatingHand(false)} /></Presence>
       <Presence show={!!library.remove} modal>{library.remove && (
         <RemoveDialog remove={library.remove} busy={busy} close={library.closeRemove} confirm={library.removePlaylist} />
       )}</Presence>
       <Presence show={!!library.editing} modal>{library.editing && <RemarkDialog key={`${library.editing.platform}-${library.editing.kind}-${library.editing.id}`} entry={library.editing} busy={busy === "remark"} close={library.closeRemark} save={library.saveRemark} />}</Presence>
+      {!library.importing && guideView}
     </div>
   );
   return <MainWindowFrame onError={(error) => notice(errorText(error), true)}>{body}</MainWindowFrame>;

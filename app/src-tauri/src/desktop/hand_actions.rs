@@ -251,7 +251,7 @@ fn preserves_card_on_error(error: &str) -> bool {
         || error == super::client_isolation::PREPARATION_ERROR
 }
 
-async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {
+pub(super) async fn changed(app: &tauri::AppHandle, cache: &Arc<Cache>) -> Result<(), String> {
     service(app)?.sync_hand_exclusions().await?;
     if MusicSetting::load(app)
         .map_err(|e| e.to_string())?

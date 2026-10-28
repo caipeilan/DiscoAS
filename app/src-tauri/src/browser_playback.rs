@@ -23,6 +23,9 @@ pub struct BrowserBridgeStatus {
     extension_paths: Option<ExtensionPaths>,
 }
 impl BrowserPlaybackService {
+    pub fn has_controlled_session(&self) -> bool {
+        self.bridge.lock().ok().and_then(|bridge| bridge.as_ref().map(|bridge| bridge.has_controlled_session(self.newest.load(Ordering::SeqCst)))).unwrap_or(false)
+    }
     pub fn set_observing(&self, enabled: bool) {
         self.observing.store(enabled, Ordering::Release);
         if let Some(bridge) = self.bridge.lock().unwrap().as_ref() {

@@ -1,0 +1,7 @@
+.hand-dock .hand-auto-toggle { min-width: 42px; font-weight: 650; letter-spacing: .035em; transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
+:root .hand-dock .hand-auto-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+:root .hand-dock .hand-auto-toggle[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+@media (prefers-reduced-motion: reduce) { .hand-dock .hand-auto-toggle { transition: none; } }
+.create-hand-platform { display: flex; align-items: center; gap: 8px; margin: 2px 0 16px; color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); }
+.create-hand-platform svg { width: 20px; height: 20px; }
+.hand-dock-error { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
