@@ -25,6 +25,7 @@ use windows_future::{AsyncStatus, IAsyncOperation};
 
 /// Returned when a pause loop is interrupted by stop/disable instead of a player error.
 pub const CANCELLED_ERROR: &str = "错误：自动打出已取消";
+pub(super) const OBSERVATION_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Pause the currently selected Windows media session, independent of the next song's platform.
 pub fn pause_current(cancelled: &dyn Fn() -> bool) -> Result<bool, String> {
@@ -169,7 +170,7 @@ impl Watched {
     fn sample(&mut self, platform: &str) -> Option<Observation> {
         let dirty = self.dirty.swap(false, Ordering::AcqRel);
         if dirty
-            || self.last_read.elapsed() >= Duration::from_secs(1)
+            || self.last_read.elapsed() >= OBSERVATION_INTERVAL
         {
             self.last_read = Instant::now();
             if let Ok(properties) = self.session.TryGetMediaPropertiesAsync().and_then(wait) {

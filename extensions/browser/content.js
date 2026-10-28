@@ -1,6 +1,7 @@
 (() => {
   const extensionApi = globalThis.browser ?? globalThis.chrome;
   const AUTO_PLAY_AVAILABLE = true;
+  const OBSERVATION_INTERVAL_MS = 100;
   const mediaEvents = ["playing", "pause", "loadeddata", "error", "ended", "timeupdate"];
   let binding = null, observedVideo = null, tried = false, confirmed = false;
   let pageActive = true, pageEpoch = 0, pausedByDiscoAS = false;
@@ -31,7 +32,7 @@
     if (!pageActive || !value || value.requestId === binding?.requestId) return;
     binding = value; confirmed = !!value.confirmed; tried = false; pausedByDiscoAS = false;
     if (confirmed && (!AUTO_PLAY_AVAILABLE || binding?.observing !== true)) { stopWatching(); return; }
-    if (pollTimer === null) pollTimer = setInterval(tick, 250);
+    if (pollTimer === null) pollTimer = setInterval(tick, OBSERVATION_INTERVAL_MS);
     tick();
   }
   async function tick() {
@@ -91,7 +92,7 @@
     if (message.type === "discoas-observe" && binding) {
       binding = { ...binding, observing: message.enabled === true };
       if (confirmed && !binding.observing) stopWatching();
-      else { if (pollTimer === null) pollTimer = setInterval(tick, 250); tick(); }
+      else { if (pollTimer === null) pollTimer = setInterval(tick, OBSERVATION_INTERVAL_MS); tick(); }
     }
     if (message.type === "discoas-bind") accept(message.binding);
     if (message.type === "discoas-pause" && pageActive && (message.requestId === undefined || message.requestId === binding?.requestId)) {

@@ -397,7 +397,7 @@ impl AutoHandService {
                         }
                     } else { reader = None; paused = None; }
                     publish_busy(&app, &runtime, &mut previous);
-                    if active { let _ = receiver.recv_timeout(std::time::Duration::from_millis(250)); }
+                    if active { let _ = receiver.recv_timeout(native::OBSERVATION_INTERVAL); }
                     else if receiver.recv().is_err() { break; }
                     while receiver.try_recv().is_ok() {}
                 }
