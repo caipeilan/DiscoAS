@@ -2,7 +2,7 @@
 use super::auto_hand_native as native;
 use discoas_core::{
     auto_hand::{supports_platform, track_title, AutoHand, Event, Target},
-    hand::{AutoDetectionMode, AUTO_PLAY_AVAILABLE},
+    hand::AUTO_PLAY_AVAILABLE,
     model::{PlaySongArgs, SongCardDto},
     settings::music_setting::MusicSetting,
 };
@@ -83,7 +83,7 @@ struct Runtime {
 struct Observed {
     identity: String,
     artist: String,
-    artwork: String,
+    album: String,
     playing: bool,
 }
 struct Worker {
@@ -229,18 +229,18 @@ impl AutoHandService {
                             let changed = observations.get(&key).is_none_or(|old| {
                                 old.identity != value.identity
                                     || old.artist != value.artist
-                                    || old.artwork != value.artwork
+                                    || old.album != value.metadata.album
                                     || old.playing != value.playing
                             });
                             if changed {
                                 observations.insert(key, Observed {
                                     identity: value.identity.clone(),
                                     artist: value.artist.clone(),
-                                    artwork: value.artwork.clone(),
+                                    album: value.metadata.album.clone(),
                                     playing: value.playing,
                                 });
                                 let token = runtime.lock().unwrap().policy.generation();
-                                super::diagnostics::trace_auto_hand(token, "observation", &format!("source={} signal={:?} playing={} title={:x} artist={:x} artwork={} revision={}", value.source, value.signal, value.playing, md5::compute(&value.identity), md5::compute(&value.artist), value.artwork, value.revision));
+                                super::diagnostics::trace_auto_hand(token, "observation", &format!("source={} signal={:?} playing={} title={:x} artist={:x} album={:x} revision={}", value.source, value.signal, value.playing, md5::compute(&value.identity), md5::compute(&value.artist), md5::compute(&value.metadata.album), value.revision));
                             }
                             let paused_observation = !value.playing;
                             let event = runtime.lock().unwrap().policy.observe(value, native::now_ms());
@@ -305,10 +305,10 @@ impl AutoHandService {
                                                 if stopped.load(Ordering::Acquire) || !still {
                                                     continue;
                                                 }
-                                                paused = Some((token, session));
-                                                for value in reader.sample(Some(&platform), AutoDetectionMode::System, None) {
+                                                if let Some(value) = reader.paused_observation(&platform, &session) {
                                                     runtime.lock().unwrap().policy.paused(token, value);
                                                 }
+                                                paused = Some((token, session));
                                             }
                                             Err(error) if error == native::CANCELLED_ERROR => continue,
                                             Err(_) => continue,
@@ -653,6 +653,7 @@ fn publish_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use discoas_core::hand::AutoDetectionMode;
 
     #[test]
     fn temporary_active_state_preserves_the_existing_event_field() {

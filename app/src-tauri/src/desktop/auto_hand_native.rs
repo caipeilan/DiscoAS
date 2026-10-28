@@ -13,7 +13,6 @@ use std::{
 use windows::{
     core::RuntimeType,
     Foundation::TypedEventHandler,
-    Storage::Streams::DataReader,
     Media::Control::{
         GlobalSystemMediaTransportControlsSession as Session,
         GlobalSystemMediaTransportControlsSessionManager as Manager,
@@ -98,21 +97,6 @@ impl Drop for Apartment {
         }
     }
 }
-/// Bounded fallback cadence for the artwork fingerprint. With a cover the
-/// fallback keeps a one-second cadence; without one it backs off 1→2→4→5s.
-/// A media-property event forces a read and resets the wait.
-fn artwork_schedule(present: bool, wait: Duration, from_event: bool) -> (Duration, Duration) {
-    let wait = if from_event { Duration::from_secs(1) } else { wait };
-    if present {
-        (Duration::from_secs(1), Duration::from_secs(1))
-    } else {
-        (wait, (wait * 2).min(Duration::from_secs(5)))
-    }
-}
-fn artwork_due(dirty: bool, now: Instant, next: Instant) -> bool {
-    dirty || now >= next
-}
-
 struct Watched {
     instance: u64,
     session: Session,
@@ -122,9 +106,6 @@ struct Watched {
     title: String,
     artist: String,
     metadata: discoas_core::model::PlaybackMetadata,
-    artwork: String,
-    artwork_wait: Duration,
-    artwork_next: Instant,
     revision: Arc<AtomicU64>,
     read_revision: u64,
     last_read: Instant,
@@ -179,9 +160,6 @@ impl Watched {
             title: String::new(),
             artist: String::new(),
             metadata: Default::default(),
-            artwork: String::new(),
-            artwork_wait: Duration::from_secs(1),
-            artwork_next: Instant::now(),
             revision,
             read_revision: 0,
             last_read: Instant::now(),
@@ -197,41 +175,21 @@ impl Watched {
             if let Ok(properties) = self.session.TryGetMediaPropertiesAsync().and_then(wait) {
                 let title = track_title(&properties.Title().ok()?.to_string());
                 if title.is_empty() { return None; }
-                if !title.is_empty() {
-                    let artist = discoas_core::auto_hand::normalize(&properties.Artist().unwrap_or_default().to_string());
-                    let new_title = self.title != title || self.artist != artist;
-                    self.title = title;
-                    self.artist = artist;
-                    self.metadata.album = properties.AlbumTitle().unwrap_or_default().to_string();
-                    self.metadata.track_number = properties.TrackNumber().unwrap_or(0).max(0) as u32;
-                    if new_title {
-                        // Deliver a changed title immediately. Artwork may arrive later;
-                        // never attach the previous track's cover to the new title.
-                        self.artwork.clear();
-                        self.dirty.store(true, Ordering::Release);
-                    } else {
-                        // Schedule from the start of this properties read so the
-                        // one-second fallback is due exactly on the next tick.
-                        let read_at = self.last_read;
-                        if artwork_due(dirty, Instant::now(), self.artwork_next) {
-                            let fingerprint = artwork_fingerprint(&properties);
-                            let present = fingerprint.is_some();
-                            if let Some(hash) = fingerprint { self.artwork = hash; }
-                            // A cover is sampled every second; a missing one backs
-                            // off, but a media event always reads immediately and
-                            // resets the wait. Never skip the fallback entirely.
-                            let (delay, wait) = artwork_schedule(present, self.artwork_wait, dirty);
-                            self.artwork_wait = wait;
-                            self.artwork_next = read_at + delay;
-                        }
-                    }
-                    self.read_revision = self.revision.load(Ordering::Acquire);
-                }
+                self.title = title;
+                self.artist = discoas_core::auto_hand::normalize(&properties.Artist().unwrap_or_default().to_string());
+                self.metadata.album = properties.AlbumTitle().unwrap_or_default().to_string();
+                self.metadata.track_number = properties.TrackNumber().unwrap_or(0).max(0) as u32;
+                self.read_revision = self.revision.load(Ordering::Acquire);
             } else {
                 self.dirty.store(true, Ordering::Release);
                 return None;
             }
         }
+        self.snapshot(platform)
+    }
+    /// Read playback state using the text already obtained by the observer.
+    /// A confirmed pause must not wait for another media-properties request.
+    fn snapshot(&mut self, platform: &str) -> Option<Observation> {
         if self.title.is_empty() {
             return None;
         }
@@ -281,21 +239,10 @@ impl Watched {
                 duration_ms: progress.as_ref().map_or(0, |p| (p.duration * 1000.0) as u64),
                 ..self.metadata.clone()
             },
-            artwork: self.artwork.clone(),
             revision: self.read_revision,
             source: self.session.SourceAppUserModelId().ok()?.to_string(),
         })
     }
-}
-fn artwork_fingerprint(properties: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties) -> Option<String> {
-    let stream = properties.Thumbnail().ok()?.OpenReadAsync().ok().and_then(|op| wait(op).ok())?;
-    let size = stream.Size().ok()?;
-    if size == 0 || size > 1024 * 1024 { return None; }
-    let reader = DataReader::CreateDataReader(&stream).ok()?;
-    if reader.LoadAsync(size as u32).ok().and_then(|op| wait(op).ok())? != size as u32 { return None; }
-    let mut bytes = vec![0; size as usize];
-    reader.ReadBytes(&mut bytes).ok()?;
-    Some(format!("{:x}", md5::compute(bytes)))
 }
 pub struct Reader {
     wake: Option<mpsc::Sender<()>>,
@@ -497,6 +444,12 @@ impl Reader {
         }
         platform_for_app(&session.SourceAppUserModelId().ok()?.to_string()).map(str::to_string)
     }
+    pub fn paused_observation(&mut self, platform: &str, paused: &PausedSession) -> Option<Observation> {
+        let watched = self.watched.get_mut(&paused.source)?;
+        if watched.session != paused.session { return None; }
+        watched.snapshot(platform)
+    }
+    #[cfg(test)]
     pub fn sample(
         &mut self,
         active: Option<&str>,
@@ -620,7 +573,7 @@ impl Reader {
             return observations;
         }
         // A caption alone cannot distinguish identical titles and artists. Keep
-        // caption detection while borrowing available release/artwork evidence.
+        // caption detection while borrowing available recording metadata.
         let native_metadata: HashMap<_, _> = if mode.is_some() {
             observations.iter().map(|v| (v.platform.clone(), v.clone())).collect()
         } else { HashMap::new() };
@@ -650,7 +603,6 @@ impl Reader {
                     ended: false,
                     progress: None,
                     metadata: native.map(|v| v.metadata.clone()).unwrap_or_default(),
-                    artwork: native.map(|v| v.artwork.clone()).unwrap_or_default(),
                     revision: native.map_or(0, |v| v.revision),
                     source: title.source(),
                 });
@@ -692,7 +644,7 @@ mod tests {
         let mut value = Observation {
             platform: names::NETEASE.into(), identity: "current".into(), artist: String::new(),
             signal: Signal::Interface, playing: true, ended: false, progress: None,
-            metadata: Default::default(), artwork: String::new(), revision: 1, source: "cloudmusic.exe".into(),
+            metadata: Default::default(), revision: 1, source: "cloudmusic.exe".into(),
         };
         bindings.select(&value, 1);
         assert!(bindings.changed.is_empty());
@@ -720,36 +672,6 @@ mod tests {
         bindings.select(&value, 3);
         assert!(bindings.changed.remove(names::NETEASE), "same app ID with a new COM session is a new binding");
     }
-    #[test]
-    fn missing_artwork_backs_off_one_two_four_five_without_dropping_events() {
-        let mut wait = Duration::from_secs(1);
-        let mut due = 0u64;
-        let mut reads = Vec::new();
-        for now in 0..=20u64 {
-            if now >= due {
-                reads.push(now);
-                let (delay, retry) = artwork_schedule(false, wait, false);
-                wait = retry;
-                due = now + delay.as_secs();
-            }
-        }
-        assert_eq!(reads, vec![0, 1, 3, 7, 12, 17]);
-        // 6 fallback reads in 20s instead of 21; the read count is the
-        // observable frequency this test locks in.
-        println!("missing-artwork fallback reads in 20s: {} (every-second: 21)", reads.len());
-        assert!(reads.len() < 21);
-        // A media event reads immediately and resets the backoff.
-        let (delay, retry) = artwork_schedule(false, Duration::from_secs(4), true);
-        assert_eq!((delay.as_secs(), retry.as_secs()), (1, 2));
-        // A present cover keeps the original one-second fallback.
-        let (delay, retry) = artwork_schedule(true, Duration::from_secs(4), false);
-        assert_eq!((delay.as_secs(), retry.as_secs()), (1, 1));
-        let now = Instant::now();
-        assert!(artwork_due(true, now, now + Duration::from_secs(60)));
-        assert!(artwork_due(false, now, now));
-        assert!(!artwork_due(false, now, now + Duration::from_secs(1)));
-    }
-
     #[test]
     fn a_sent_pause_is_not_aborted_by_late_cancellation() {
         assert_eq!(pause_cancel_action(true, 0), PauseCancel::Abort);
@@ -798,6 +720,43 @@ mod tests {
             }
         }
         assert_eq!(commands, vec![(0, PauseCommand::Pause), (286, PauseCommand::Pause)]);
+    }
+    #[test]
+    #[ignore = "only reads installed media-session metadata to measure refresh latency"]
+    fn live_metadata_refresh_latency() {
+        let _apartment = Apartment::init().unwrap();
+        let platform = std::env::var("DISCOAS_QA_PLATFORM").unwrap_or_else(|_| names::NETEASE.into());
+        let mut reader = Reader::new();
+        assert!(!reader.sample(Some(&platform), AutoDetectionMode::System, None).is_empty(), "no media session for {platform}");
+        let mut elapsed = Vec::new();
+        for _ in 0..12 {
+            for watched in reader.watched.values() { watched.mark_dirty(); }
+            let started = Instant::now();
+            assert!(!reader.sample(Some(&platform), AutoDetectionMode::System, None).is_empty());
+            elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        elapsed.sort_by(f64::total_cmp);
+        println!("{platform} metadata refresh: samples={} p50_ms={:.3} p95_ms={:.3} max_ms={:.3}", elapsed.len(), elapsed[6], elapsed[11], elapsed[11]);
+        let (source, watched) = reader.watched.iter().find(|(_, watched)| !watched.title.is_empty()).unwrap();
+        let source = source.clone();
+        let paused = PausedSession { session: watched.session.clone(), source: source.clone(), token: 0 };
+        let revision = watched.read_revision;
+        let last_read = watched.last_read;
+        watched.mark_dirty();
+        let mut elapsed = Vec::new();
+        for _ in 0..12 {
+            let started = Instant::now();
+            let snapshot = reader.paused_observation(&platform, &paused).expect("cached observation for the same session");
+            assert_eq!(snapshot.revision, revision);
+            elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        // A pending media update remains for the normal observer to consume;
+        // the pre-dispatch snapshot must not refresh text or open artwork.
+        let watched = reader.watched.get(&source).unwrap();
+        assert!(watched.dirty.load(Ordering::Acquire));
+        assert_eq!(watched.last_read, last_read);
+        elapsed.sort_by(f64::total_cmp);
+        println!("{platform} cached state snapshot: samples={} p50_ms={:.3} p95_ms={:.3} max_ms={:.3}", elapsed.len(), elapsed[6], elapsed[11], elapsed[11]);
     }
     #[test]
     #[ignore = "reads installed media sessions on the interactive Windows desktop"]
@@ -893,9 +852,9 @@ mod tests {
         let mut paused = false;
         while started.elapsed() < Duration::from_secs(8) {
             if let Some(value) = reader.sample(Some(names::NETEASE), AutoDetectionMode::System, None).pop() {
-                let signature = format!("{}:{}:{}:{}", value.identity, value.artist, value.artwork, value.playing);
+                let signature = format!("{}:{}:{}:{}", value.identity, value.artist, value.metadata.album, value.playing);
                 if signature != last { println!("elapsed_ms={} value={value:?}", started.elapsed().as_millis()); last = signature; }
-                let changed = before.as_ref().is_some_and(|old| old.identity != value.identity || old.artist != value.artist || !old.artwork.is_empty() && !value.artwork.is_empty() && old.artwork != value.artwork);
+                let changed = before.as_ref().is_some_and(|old| old.identity != value.identity || old.artist != value.artist || !old.metadata.album.is_empty() && !value.metadata.album.is_empty() && old.metadata.album != value.metadata.album);
                 if changed && !paused && std::env::var_os("DISCOAS_QA_PAUSE").is_some() {
                     let mut on_sent = || {};
                     reader.pause_observation(&value.platform, (!value.source.is_empty()).then_some(value.source.as_str()), 100, &|| false, &mut on_sent).unwrap();
@@ -916,7 +875,7 @@ mod tests {
             playing: true,
             ended: false,
             progress: None,
-            metadata: Default::default(), artwork: String::new(), revision: 0, source: String::new(),
+            metadata: Default::default(), revision: 0, source: String::new(),
         };
         assert!(!matches_local_session(
             None,
@@ -966,7 +925,7 @@ mod tests {
             assert!(!values.is_empty(), "no observation in {mode:?}");
             if mode == AutoDetectionMode::Mixed {
                 if let (Some(native), Some(window)) = (values.iter().find(|v| v.signal == Signal::Interface), values.iter().find(|v| v.signal == Signal::Window)) {
-                    assert_eq!(native.artwork, window.artwork);
+                    assert_eq!(native.metadata, window.metadata);
                     assert_eq!(native.playing, window.playing);
                 }
             }

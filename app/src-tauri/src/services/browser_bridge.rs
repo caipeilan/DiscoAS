@@ -526,7 +526,7 @@ fn serve(
                                     ended: report.ended,
                                     progress,
                                     metadata: Default::default(),
-                                    artwork: String::new(), revision: 0, source: String::new(),
+                                    revision: 0, source: String::new(),
                                 },
                                 last_seen,
                             ));

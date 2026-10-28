@@ -42,8 +42,6 @@ pub struct Observation {
     pub ended: bool,
     pub progress: Option<Progress>,
     pub metadata: PlaybackMetadata,
-    /// Opaque native artwork fingerprint; distinguishes equal titles/artists on different releases.
-    pub artwork: String,
     /// Metadata notification sequence for this source, not a playback clock.
     pub revision: u64,
     pub source: String,
@@ -87,10 +85,6 @@ fn compatible_recording(expected: &PlaybackMetadata, actual: &PlaybackMetadata) 
     (expected.album.is_empty() || actual.album.is_empty() || normalize(&expected.album) == normalize(&actual.album))
         && (expected.track_number == 0 || actual.track_number == 0 || expected.track_number == actual.track_number)
         && (expected.duration_ms == 0 || actual.duration_ms == 0 || expected.duration_ms.abs_diff(actual.duration_ms) <= 1500)
-}
-fn recording_changed(old: &Observation, new: &Observation) -> bool {
-    !compatible_recording(&old.metadata, &new.metadata)
-        || !old.artwork.is_empty() && !new.artwork.is_empty() && old.artwork != new.artwork
 }
 fn track_fields_changed(old: &Observation, new: &Observation) -> bool {
     old.identity != new.identity
@@ -149,7 +143,6 @@ struct Pending {
     deadline: u64,
     before: HashMap<Signal, Observation>,
     departed: HashSet<Signal>,
-    stale_artwork: HashMap<Signal, HashSet<String>>,
 }
 struct OwnedChange {
     target: Target,
@@ -157,56 +150,7 @@ struct OwnedChange {
     deadline: u64,
     before: HashMap<Signal, Observation>,
     departed: HashSet<Signal>,
-    artwork: HashMap<Signal, OwnedArtwork>,
-    stale_artwork: HashMap<Signal, HashSet<String>>,
     pause_reported: bool,
-}
-/// SMTC can publish the new title with the previous track's thumbnail. Associate
-/// the replacement thumbnail with our dispatch before using artwork-only changes.
-struct OwnedArtwork {
-    previous: HashSet<String>,
-    candidate: String,
-    since: Option<u64>,
-    settled: bool,
-}
-impl OwnedArtwork {
-    fn new(before: Option<&Observation>, stale: Option<&HashSet<String>>) -> Self {
-        let mut previous = stale.cloned().unwrap_or_default();
-        if let Some(before) = before { previous.insert(before.artwork.clone()); }
-        Self {
-            previous,
-            candidate: String::new(),
-            since: None,
-            settled: false,
-        }
-    }
-    fn settling(&mut self, artwork: &str, now: u64) -> bool {
-        if self.settled {
-            return false;
-        }
-        if artwork.is_empty() || self.previous.contains(artwork) {
-            self.candidate.clear();
-            self.since = None;
-        } else if self.candidate != artwork {
-            self.candidate = artwork.into();
-            self.since = Some(now);
-        } else if self.since.is_some_and(|since| now.saturating_sub(since) >= 500) {
-            // Event bursts are not independent stability samples. Require elapsed
-            // time with the replacement cover; never settle a known stale cover.
-            self.settled = true;
-        }
-        true
-    }
-}
-impl OwnedChange {
-    fn accept(&mut self, value: &Observation, now: u64) {
-        self.seen.insert(value.signal);
-        if value.signal != Signal::Browser {
-            let mut artwork = OwnedArtwork::new(self.before.get(&value.signal), self.stale_artwork.get(&value.signal));
-            artwork.settling(&value.artwork, now);
-            self.artwork.insert(value.signal, artwork);
-        }
-    }
 }
 #[derive(Default)]
 pub struct AutoHand {
@@ -249,7 +193,6 @@ impl AutoHand {
         self.baseline.clear();
         if let Some(owned) = &mut self.owned {
             owned.seen.clear();
-            owned.artwork.clear();
         }
         self.consumed = false;
     }
@@ -299,7 +242,6 @@ impl AutoHand {
         self.pending = Some(Pending {
             token, automatic: false, target: None, started: now,
             deadline: now + CONFIRM_TIMEOUT_MS, before: self.baseline.clone(), departed: HashSet::new(),
-            stale_artwork: HashMap::new(),
         });
         Some(token)
     }
@@ -321,7 +263,6 @@ impl AutoHand {
             self.baseline.clear();
         }
         let before = self.baseline.clone();
-        let stale_artwork = self.pending.as_ref().map(|pending| pending.stale_artwork.clone()).unwrap_or_default();
         self.owned = None;
         self.active = Some(target.platform.clone());
         self.consumed = false;
@@ -334,7 +275,6 @@ impl AutoHand {
             deadline: now + CONFIRM_TIMEOUT_MS,
             before,
             departed: HashSet::new(),
-            stale_artwork,
         });
         Some(token)
     }
@@ -350,8 +290,8 @@ impl AutoHand {
     /// real external change can start a fresh round.
     pub fn user_pause(&mut self) -> bool {
         if let Some(owned) = self.owned.as_mut().filter(|owned| !owned.pause_reported) {
-            // End this round while retaining its cover provenance. A quick
-            // pause/resume must not turn a late thumbnail into an external skip.
+            // Retain target ownership across a quick pause/resume so only
+            // a real external track change starts another automatic operation.
             owned.pause_reported = true;
             self.consumed = true;
             true
@@ -364,10 +304,7 @@ impl AutoHand {
             self.owned = self.pending.take().and_then(|pending| pending.target.map(|target| {
                 let seen: HashSet<_> = self.baseline.iter().filter(|(_, value)| target.matches(value))
                     .map(|(signal, _)| *signal).collect();
-                let artwork = self.baseline.iter().filter(|(signal, _)| seen.contains(signal))
-                    .filter(|(signal, _)| **signal != Signal::Browser)
-                    .map(|(signal, _)| (*signal, OwnedArtwork::new(pending.before.get(signal), pending.stale_artwork.get(signal)))).collect();
-                OwnedChange { target, seen, deadline: 0, before: pending.before, departed: pending.departed, artwork, stale_artwork: pending.stale_artwork, pause_reported: false }
+                OwnedChange { target, seen, deadline: 0, before: pending.before, departed: pending.departed, pause_reported: false }
             }));
         }
     }
@@ -399,12 +336,6 @@ impl AutoHand {
         }
         if let Some(pending) = &mut self.pending {
             self.baseline.insert(value.signal, value.clone());
-            if pending.target.as_ref().is_none_or(|target| !target.matches(&value)) && !value.artwork.is_empty() {
-                // SMTC can deliver several queued-track covers during one URI
-                // handoff. Every cover actually seen on a non-target belongs to
-                // that prior track, even if it is repeated later with our title.
-                pending.stale_artwork.entry(value.signal).or_default().insert(value.artwork.clone());
-            }
             let Some(target) = &pending.target else {
                 return None;
             };
@@ -418,7 +349,7 @@ impl AutoHand {
             }
             let reset = value.signal == Signal::Browser
                 || pending.departed.contains(&value.signal)
-                || before.is_some_and(|old| recording_changed(old, &value)
+                || before.is_some_and(|old| !compatible_recording(&old.metadata, &value.metadata)
                     || !old.playing && value.playing
                     || value.revision > old.revision)
                 || value.progress.as_ref().is_some_and(|new| {
@@ -434,17 +365,14 @@ impl AutoHand {
             }
             let token = pending.token;
             let automatic = pending.automatic;
-            let mut owned = OwnedChange {
+            let owned = OwnedChange {
                 target: target.clone(),
-                seen: HashSet::new(),
+                seen: HashSet::from([value.signal]),
                 deadline: now + CONFIRM_TIMEOUT_MS,
                 before: pending.before.clone(),
                 departed: pending.departed.clone(),
-                artwork: HashMap::new(),
-                stale_artwork: pending.stale_artwork.clone(),
                 pause_reported: false,
             };
-            owned.accept(&value, now);
             self.owned = Some(owned);
             self.baseline.insert(value.signal, value);
             self.pending = None;
@@ -469,18 +397,12 @@ impl AutoHand {
                             || owned.departed.contains(&value.signal)
                             || now >= owned.deadline)
                     {
-                        owned.accept(&value, now);
+                        owned.seen.insert(value.signal);
                     }
                     self.baseline.insert(value.signal, value);
                     return None;
                 }
                 owned.seen.insert(value.signal);
-            }
-            if self.baseline.get(&value.signal).is_some_and(|old| !track_fields_changed(old, &value))
-                && owned.artwork.get_mut(&value.signal).is_some_and(|artwork| artwork.settling(&value.artwork, now))
-            {
-                self.baseline.insert(value.signal, value);
-                return None;
             }
         }
         let old = self
@@ -489,7 +411,7 @@ impl AutoHand {
             .or_else(|| self.baseline.values().next());
         let changed = old.is_some_and(|old| {
             if old.signal == value.signal {
-                track_fields_changed(old, &value) || recording_changed(old, &value)
+                track_fields_changed(old, &value)
             } else {
                 let same = if matches!(value.platform.as_str(), names::KUGOU | names::SPOTIFY) {
                     old.identity.ends_with(&value.identity)
@@ -522,7 +444,6 @@ impl AutoHand {
             deadline: now + CONFIRM_TIMEOUT_MS,
             before: self.baseline.clone(),
             departed: HashSet::new(),
-            stale_artwork: HashMap::new(),
         });
         Some(Event::Play { token })
     }
@@ -586,7 +507,7 @@ mod tests {
             playing: true,
             ended: false,
             progress: None,
-            metadata: Default::default(), artwork: String::new(), revision: 0, source: String::new(),
+            metadata: Default::default(), revision: 0, source: String::new(),
         }
     }
     fn engine() -> AutoHand {
@@ -606,37 +527,37 @@ mod tests {
     }
 
     #[test]
-    fn intermediate_queue_cover_cannot_confirm_itself_as_the_hand_cover_and_consume_another_card() {
+    fn intermediate_queue_updates_do_not_consume_another_card() {
         let mut a = engine();
-        let mut old = observation("old"); old.artwork = "old-cover".into();
-        assert_eq!(a.observe(old.clone(), 0), None);
-        let mut queued = observation("queue"); queued.artwork = old.artwork;
-        let Some(Event::Play { token }) = a.observe(queued.clone(), 10) else { panic!("external change"); };
+        assert_eq!(a.observe(observation("old"), 0), None);
+        let Some(Event::Play { token }) = a.observe(observation("queue"), 10) else { panic!("external change"); };
         a.begin(target("hand"), Some(token), 20).unwrap();
-        queued.artwork = "queue-cover".into();
-        assert_eq!(a.observe(queued, 30), None);
+        assert_eq!(a.observe(observation("queue"), 30), None);
         let mut hand = observation("hand");
         assert_eq!(a.observe(hand.clone(), 40), Some(Event::Confirmed { token, automatic: true }));
-        hand.artwork = "queue-cover".into();
-        for now in [300, 550, 810] { assert_eq!(a.observe(hand.clone(), now), None); }
-        hand.artwork = "hand-cover".into();
-        for now in [1060, 1320, 1580] { assert_eq!(a.observe(hand.clone(), now), None); }
+        for (revision, now) in [300, 550, 810, 1060, 1320, 1580].into_iter().enumerate() {
+            hand.revision = revision as u64 + 1;
+            assert_eq!(a.observe(hand.clone(), now), None);
+        }
         assert!(!a.busy());
-        assert!(matches!(a.observe(observation("user-next"), 1600), Some(Event::Play { .. })), "a real fast external skip still plays one card");
+        assert!(matches!(a.observe(observation("user-next"), 1600), Some(Event::Play { .. })), "a real external skip still plays one card");
     }
-
     #[test]
-    fn pausing_then_resuming_keeps_the_own_cover_handoff() {
+    fn pausing_then_resuming_retains_target_ownership() {
         let mut a = engine();
         a.observe(observation("old"), 0);
         let token = a.begin(target("hand"), None, 1).unwrap();
         assert!(matches!(a.observe(observation("hand"), 2), Some(Event::Confirmed { .. })));
-        let mut hand = observation("hand"); hand.playing = false;
+        let mut hand = observation("hand");
+        hand.playing = false;
         assert_eq!(a.observe(hand.clone(), 3), None);
         assert!(a.user_pause());
         assert!(!a.user_pause(), "only report a user pause once per round");
-        hand.playing = true; hand.artwork = "late-cover".into();
-        for now in [4, 300, 600] { assert_eq!(a.observe(hand.clone(), now), None); }
+        hand.playing = true;
+        for (revision, now) in [4, 300, 600].into_iter().enumerate() {
+            hand.revision = revision as u64 + 1;
+            assert_eq!(a.observe(hand.clone(), now), None);
+        }
         assert!(a.latest(token));
         assert!(matches!(a.observe(observation("external-next"), 601), Some(Event::Play { .. })));
     }
@@ -1307,79 +1228,95 @@ mod tests {
     fn same_title_and_author_on_a_different_release_is_a_new_track() {
         for signal in [Signal::Interface, Signal::Window] {
             let mut a = engine();
-            let first = Observation { signal, artist: normalize("ピノキオピー"), artwork: "single-cover".into(), ..observation("愛属性") };
+            let first = Observation { signal, artist: normalize("same artist"),
+                metadata: PlaybackMetadata { album: "single".into(), ..Default::default() },
+                ..observation("same title") };
             a.observe(first.clone(), 0);
-            assert!(matches!(a.observe(Observation { artwork: "album-cover".into(), ..first }, 1), Some(Event::Play { .. })));
+            assert!(matches!(a.observe(Observation { metadata: PlaybackMetadata { album: "album".into(), ..Default::default() }, ..first }, 1), Some(Event::Play { .. })));
         }
         let expected = Target { metadata: PlaybackMetadata { album: "UNDERWORLD".into(), ..Default::default() }, ..target("愛属性") };
         assert!(!expected.matches(&Observation { metadata: PlaybackMetadata { album: "愛属性".into(), ..Default::default() }, ..observation("愛属性") }));
     }
 
     #[test]
-    fn owned_artwork_hydration_cannot_consume_the_next_card() {
+    fn metadata_notifications_after_dispatch_do_not_consume_cards() {
         for signal in [Signal::Interface, Signal::Window] {
             for automatic in [false, true] {
-                for confirmation_art in ["", "previous-cover"] {
-                    let mut a = engine();
-                    let sample = |title: &str, artwork: &str, revision| Observation {
-                        signal, artwork: artwork.into(), revision, ..observation(title)
-                    };
-                    a.observe(sample("previous", "previous-cover", 1), 0);
-                    let automatic_token = automatic.then(|| {
-                        let Some(Event::Play { token }) = a.observe(sample("external", "previous-cover", 2), 1) else { panic!() };
-                        token
-                    });
-                    let token = a.begin(target("hand"), automatic_token, 2).unwrap();
-                    assert_eq!(a.observe(sample("hand", confirmation_art, 3), 3), Some(Event::Confirmed { token, automatic }));
-                    assert!(!a.busy());
-                    // Frequent notifications and a slow previous thumbnail must never settle it.
-                    for now in 4..100 {
-                        assert_eq!(a.observe(sample("hand", "previous-cover", 3), now), None);
-                    }
-                    assert_eq!(a.observe(sample("hand", "previous-cover", 3), 5_000), None);
-                    assert_eq!(a.observe(sample("hand", "hand-cover", 4), 5_001), None);
-                    assert_eq!(a.observe(sample("hand", "hand-cover", 4), 5_501), None);
-                    assert!(matches!(a.observe(sample("hand", "another-release", 5), 5_502), Some(Event::Play { .. })));
+                let mut a = engine();
+                let sample = |title: &str, revision| Observation {
+                    signal, revision,
+                    metadata: PlaybackMetadata { album: "release one".into(), ..Default::default() },
+                    ..observation(title)
+                };
+                a.observe(sample("previous", 1), 0);
+                let automatic_token = automatic.then(|| {
+                    let Some(Event::Play { token }) = a.observe(sample("external", 2), 1) else { panic!() };
+                    token
+                });
+                let token = a.begin(target("hand"), automatic_token, 2).unwrap();
+                assert_eq!(a.observe(sample("hand", 3), 3), Some(Event::Confirmed { token, automatic }));
+                assert!(!a.busy());
+                // Cover notifications still increment the media revision even
+                // though observations now carry only text and playback data.
+                for now in 4..100 {
+                    assert_eq!(a.observe(sample("hand", now), now), None);
                 }
+                for now in [5_000, 5_001, 5_501, 20_001] {
+                    assert_eq!(a.observe(sample("hand", now), now), None);
+                }
+                let mut next = sample("hand", 20_002);
+                next.metadata.album = "release two".into();
+                assert!(matches!(a.observe(next, 20_002), Some(Event::Play { .. })));
             }
         }
     }
-
     #[test]
-    fn owned_artwork_settles_by_elapsed_time_not_duplicate_sample_count() {
+    fn filling_missing_artist_and_album_is_not_an_external_change() {
         let mut a = engine();
-        let sample = |art: &str| Observation { artwork: art.into(), ..observation("hand") };
-        a.observe(Observation { artwork: "before".into(), ..observation("before") }, 0);
+        a.observe(observation("before"), 0);
         let token = a.begin(target("hand"), None, 1).unwrap();
-        assert!(matches!(a.observe(sample(""), 2), Some(Event::Confirmed { token: t, .. }) if t == token));
-        for now in 3..100 {
-            assert_eq!(a.observe(sample("intermediate"), now), None);
-        }
-        assert_eq!(a.observe(sample("final-cover"), 100), None);
-        assert_eq!(a.observe(sample("final-cover"), 600), None);
-        assert!(matches!(a.observe(sample("other-release"), 601), Some(Event::Play { .. })));
+        assert_eq!(a.observe(observation("hand"), 2), Some(Event::Confirmed { token, automatic: false }));
+        let mut hand = observation("hand");
+        hand.artist = normalize("artist");
+        hand.metadata.album = "release one".into();
+        hand.revision = 1;
+        assert_eq!(a.observe(hand.clone(), 3), None);
+        hand.revision += 1;
+        assert_eq!(a.observe(hand.clone(), 4), None);
+        hand.metadata.album = "release two".into();
+        assert!(matches!(a.observe(hand, 5), Some(Event::Play { .. })));
     }
-
     #[test]
-    fn lagging_native_observer_also_owns_its_delayed_artwork() {
+    fn paused_snapshot_confirms_replayed_target_without_metadata_notification() {
         let mut a = engine();
-        let sample = |title: &str, artwork: &str, signal| Observation {
-            signal, artwork: artwork.into(), ..observation(title)
-        };
-        a.observe(sample("before", "previous", Signal::Interface), 0);
-        a.observe(sample("before", "previous", Signal::Window), 1);
-        a.begin(target("hand"), None, 2);
-        assert!(matches!(a.observe(sample("hand", "", Signal::Window), 3), Some(Event::Confirmed { .. })));
-        assert_eq!(a.observe(sample("before", "previous", Signal::Interface), 4), None);
-        assert_eq!(a.observe(sample("hand", "", Signal::Interface), 5), None);
-        assert_eq!(a.observe(sample("hand", "previous", Signal::Interface), 6), None);
-        assert_eq!(a.observe(sample("hand", "replacement", Signal::Interface), 7), None);
-        assert_eq!(a.observe(sample("hand", "replacement", Signal::Interface), 507), None);
-        assert!(matches!(a.observe(sample("hand", "next-release", Signal::Interface), 508), Some(Event::Play { .. })));
+        let playing = observation("same song");
+        a.observe(playing.clone(), 0);
+        let token = a.reserve_manual(1).unwrap();
+        let mut paused = playing.clone();
+        paused.playing = false;
+        a.paused(token, paused);
+        a.begin(target("same song"), Some(token), 2).unwrap();
+        assert_eq!(a.observe(playing, 3), Some(Event::Confirmed { token, automatic: false }));
+        assert!(!a.busy());
     }
-
     #[test]
-    fn real_track_fields_bypass_unresolved_owned_artwork() {
+    fn lagging_observer_catches_up_without_consuming_another_card() {
+        let mut a = engine();
+        let sample = |title: &str, signal, revision| Observation {
+            signal, revision, ..observation(title)
+        };
+        a.observe(sample("before", Signal::Interface, 1), 0);
+        a.observe(sample("before", Signal::Window, 1), 1);
+        a.begin(target("hand"), None, 2);
+        assert!(matches!(a.observe(sample("hand", Signal::Window, 2), 3), Some(Event::Confirmed { .. })));
+        assert_eq!(a.observe(sample("before", Signal::Interface, 1), 4), None);
+        for (now, revision) in [(5, 2), (6, 3), (7, 4), (507, 5), (508, 6)] {
+            assert_eq!(a.observe(sample("hand", Signal::Interface, revision), now), None);
+        }
+        assert!(matches!(a.observe(sample("next song", Signal::Interface, 7), 509), Some(Event::Play { .. })));
+    }
+    #[test]
+    fn real_track_fields_trigger_after_target_confirmation() {
         for field in ["title", "artist", "album", "track", "duration"] {
             let mut a = engine();
             a.observe(observation("before"), 0);
