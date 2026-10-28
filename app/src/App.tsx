@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { About } from "./About";
 import { Sidebar } from "./components/Sidebar";
 import type { Page } from "./components/Sidebar";
@@ -23,7 +23,10 @@ import { Onboarding } from "./features/onboarding/Onboarding";
 import { useOnboarding } from "./features/onboarding/useOnboarding";
 import type { SettingsCategory } from "./features/settings/settingsNavigation";
 import { isSettingsCategory } from "./features/settings/settingsNavigation";
+import { useConsole } from "./features/console/useConsole";
 import "./App.css";
+
+const ConsoleView = lazy(() => import("./features/console/ConsoleView"));
 
 /** Composes feature controllers and page views; desktop/feature logic lives in their modules. */
 export default function App() {
@@ -31,6 +34,9 @@ export default function App() {
   const app = useAppState(false, notice);
   const { state, guiDraft, busy } = app;
   const [page, setPage] = useState<Page>("library");
+  const consoleController = useConsole(page === "console");
+  const previousPage = useRef<Page>("library");
+  useEffect(() => { if (page !== "console") previousPage.current = page; }, [page]);
   const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>(() => {
     const remembered = localStorage.getItem("discoas-settings-category");
     return isSettingsCategory(remembered) ? remembered : "general";
@@ -109,6 +115,55 @@ export default function App() {
       await guide.advance(9, 10).catch(reportGuideError);
     }
   };
+  const consoleAction = useRef<(action: string, params: Record<string, unknown>) => Promise<unknown>>(async () => null);
+  consoleAction.current = async (action, params) => {
+    const requireIdle = () => { if (busy) throw new Error(t("请等待当前操作完成。")); };
+    switch (action) {
+      case "clear": consoleController.clear(); return { cleared: true };
+      case "console.close": setPage(previousPage.current); return { closed: true };
+      case "console.output": consoleController.setFormat(params.format as "text" | "json"); return { format: params.format };
+      case "window.navigate": {
+        if (typeof params.category === "string" && isSettingsCategory(params.category)) setSettingsCategory(params.category);
+        await navigate(params.page as Page); return { page: params.page, category: params.category };
+      }
+      case "source.import-dialog": requireIdle(); library.openImport(); return { opened: true };
+      case "settings.draft.get": return { music: app.draft, gui: guiDraft, desktop: app.desktopDraft };
+      case "settings.draft.apply": {
+        requireIdle();
+        if (!await settings.saveSettings(app.draft, guiDraft, app.desktopDraft)) throw new Error(t("设置未保存，请查看设置页的错误提示。"));
+        return { saved: true };
+      }
+      case "settings.draft.discard": requireIdle(); settings.discardSettings(); return { discarded: true };
+      case "onboarding.exit":
+        if (params.expectedStep !== undefined && params.expectedStep !== guideStep) throw new Error(t("引导步骤已改变，请重新读取状态。"));
+        await guide.advance(guideStep, 0); return { step: 0 };
+      case "onboarding.back":
+      case "onboarding.next": {
+        requireIdle();
+        if (params.expectedStep !== undefined && params.expectedStep !== guideStep) throw new Error(t("引导步骤已改变，请重新读取状态。"));
+        if (action === "onboarding.back") { if (guideStep <= 1) throw new Error(t("当前没有上一步。")); await backGuide(); return { changed: true }; }
+        let next: number;
+        if (guideStep === 1 || guideStep === 3 || guideStep === 4) next = guideStep + 1;
+        else if (guideStep === 10) next = 0;
+        else if (guideStep === 8 && state.sources.some(source => source.enabled && source.platform === guide.state.targetPlatform && source.sourceId === guide.state.targetId && source.sourceKind === guide.state.targetKind)) next = 9;
+        else throw new Error(t("这一步需要完成对应操作：发现、选歌或取消、导入、启用歌单、打开设置。"));
+        await guide.advance(guideStep, next); return { step: next };
+      }
+      default: throw new Error(`未知界面操作：${action}`);
+    }
+  };
+  useEffect(() => {
+    let alive = true, stop: (() => void) | undefined;
+    void onDesktopEvent("console-ui-request", async ({ id, action, params }) => {
+      try {
+        const data = await consoleAction.current(action, params);
+        await call("console_ui_reply", { id, data });
+      } catch (error) {
+        await call("console_ui_reply", { id, error: { code: "UI_OPERATION_FAILED", message: errorText(error) } });
+      }
+    }).then(cleanup => { if (alive) stop = cleanup; else cleanup(); });
+    return () => { alive = false; stop?.(); };
+  }, []);
   const openDiscover = () => {
     call("show_discover").catch((e) => notice(errorText(e), true, { label: t("查看发现设置"), run: () => { setSettingsCategory("discovery"); setPage("settings"); } }));
   };
@@ -155,6 +210,7 @@ export default function App() {
             openDataFolder={settings.openDataFolder} openLogFolder={settings.openLogFolder} restartOnboarding={() => { void restartOnboarding(); }} />
         )}
         {page === "history" && <HistoryView />}
+        {page === "console" && <Suspense fallback={<p>{t("正在打开控制台…")}</p>}><ConsoleView controller={consoleController} /></Suspense>}
         {page === "about" && <About version={state.version} />}
         </div>
       </main>

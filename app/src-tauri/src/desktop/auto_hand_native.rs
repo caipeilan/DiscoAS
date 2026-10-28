@@ -456,10 +456,13 @@ impl Reader {
         mode: AutoDetectionMode,
         title: Option<&str>,
     ) -> Vec<Observation> {
-        self.sample_with_mode(active, Some(mode), title)
+        self.sample_with_mode(active, Some(mode), title, true)
     }
     pub fn sample_automatic(&mut self, active: Option<&str>, title: Option<&str>) -> Vec<Observation> {
-        self.sample_with_mode(active, None, title)
+        self.sample_with_mode(active, None, title, true)
+    }
+    pub fn sample_read_only(&mut self) -> Vec<Observation> {
+        self.sample_with_mode(None, None, None, false)
     }
     pub fn take_rebound(&mut self) -> HashSet<String> {
         std::mem::take(&mut self.bindings.changed)
@@ -469,14 +472,15 @@ impl Reader {
         active: Option<&str>,
         mode: Option<AutoDetectionMode>,
         title: Option<&str>,
+        consume_hints: bool,
     ) -> Vec<Observation> {
         // Wake the observer from the verified main-HWND NAMECHANGE, but never
         // turn the title itself into an Observation. A title-only event cannot
         // consume a card; the SMTC/browser observation still confirms.
-        if let (Some(active), Some(wake)) = (active, self.wake.clone()) {
+        if let (Some(active), Some(wake)) = (active.filter(|_|consume_hints), self.wake.clone()) {
             client_window::start_title_hint(active, wake);
         }
-        for platform in client_window::take_title_hint_dirty() {
+        for platform in if consume_hints {client_window::take_title_hint_dirty()} else {Default::default()} {
             for (id, watched) in &self.watched {
                 if platform_for_app(id) == Some(platform.as_str()) {
                     watched.mark_dirty();

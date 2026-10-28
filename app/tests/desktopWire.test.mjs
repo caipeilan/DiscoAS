@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
 
-const source = ts.transpileModule(fs.readFileSync(new URL("../src/services/desktopWire.ts", import.meta.url), "utf8"), {
+const source = ts.transpileModule(fs.readFileSync(new URL("../src/services/desktopWire.ts", import.meta.url), "utf8").replace('import desktopFields from "./desktopFields.json";', `const desktopFields = ${fs.readFileSync(new URL("../src/services/desktopFields.json", import.meta.url), "utf8")};`), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { decodeDesktopValue, encodeDesktopArgs } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);

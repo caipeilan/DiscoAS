@@ -1,0 +1,668 @@
+[
+  {
+    "path": "music.normalSongCount",
+    "description": "普通发现歌曲数",
+    "range": "整数 1–15",
+    "readOnly": false
+  },
+  {
+    "path": "music.mysterySongsEnabled",
+    "description": "包含神秘歌曲",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.mysterySongCount",
+    "description": "神秘歌曲数；界面开启时通常从 1 起；与普通歌曲合计最多 15",
+    "range": "整数 0–14",
+    "readOnly": false
+  },
+  {
+    "path": "music.mysteryCover",
+    "description": "神秘歌曲封面",
+    "range": "URL 或路径字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.preloadBatchCount",
+    "description": "预加载批数",
+    "range": "整数 0–5",
+    "readOnly": false
+  },
+  {
+    "path": "music.deduplicatePreloadedBatches",
+    "description": "预加载批次间去重",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.replacementLimit",
+    "description": "每次发现替换数",
+    "range": "整数 0–100",
+    "readOnly": false
+  },
+  {
+    "path": "music.refreshOnCancel",
+    "description": "取消后换一批",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.recentExclusionMode",
+    "description": "近期排除模式",
+    "range": "off / selected / discovered",
+    "readOnly": false
+  },
+  {
+    "path": "music.recentExclusionLimit",
+    "description": "近期排除数量；历史存储固定最多 10000 个歌曲身份",
+    "range": "整数 0–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.weightingMode",
+    "description": "加权模式",
+    "range": "none / traditional / ranked / rotation",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryShortcut",
+    "description": "唤出发现",
+    "range": "快捷键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryKeybindings.up",
+    "description": "发现内移动、选择与替换，检查互相冲突及全局快捷键冲突",
+    "range": "6 个按键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryKeybindings.left",
+    "description": "发现内移动、选择与替换，检查互相冲突及全局快捷键冲突",
+    "range": "6 个按键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryKeybindings.down",
+    "description": "发现内移动、选择与替换，检查互相冲突及全局快捷键冲突",
+    "range": "6 个按键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryKeybindings.right",
+    "description": "发现内移动、选择与替换，检查互相冲突及全局快捷键冲突",
+    "range": "6 个按键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryKeybindings.select",
+    "description": "发现内移动、选择与替换，检查互相冲突及全局快捷键冲突",
+    "range": "6 个按键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryKeybindings.replace",
+    "description": "发现内移动、选择与替换，检查互相冲突及全局快捷键冲突",
+    "range": "6 个按键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.sources",
+    "description": "通过 source 命令增删、更新和启用",
+    "range": "只读列表",
+    "readOnly": true
+  },
+  {
+    "path": "music.discoveryWeighting.enabled",
+    "description": "由当前加权模式决定",
+    "range": "兼容只读 bool",
+    "readOnly": true
+  },
+  {
+    "path": "music.discoveryWeighting.baseWeight",
+    "description": "基础权重",
+    "range": "1–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryWeighting.discoveredPenalty",
+    "description": "入选减权",
+    "range": "0–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryWeighting.selectedPenalty",
+    "description": "选择减权",
+    "range": "0–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryWeighting.recoveryBatches",
+    "description": "恢复发现次数",
+    "range": "整数 1–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryWeighting.boostAfterBatches",
+    "description": "开始增权等待次数",
+    "range": "recoveryBatches–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryWeighting.boostPerBatch",
+    "description": "每轮增权",
+    "range": "0–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.discoveryWeighting.maxWeight",
+    "description": "最大权重",
+    "range": "baseWeight–100000",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.softBand",
+    "description": "软衰减宽度",
+    "range": "整数 0–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.timeCooling",
+    "description": "时间冷却",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.timeCoolingStrength",
+    "description": "冷却强度",
+    "range": "0–0.95",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.timeCoolingBatches",
+    "description": "冷却轮次",
+    "range": "整数 1–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.revival",
+    "description": "久未出现增权",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.revivalGain",
+    "description": "增权幅度",
+    "range": "0–2",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.revivalWait",
+    "description": "增权等待",
+    "range": "整数 0–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.rankedWeighting.revivalSpan",
+    "description": "增权跨度",
+    "range": "整数 1–10000",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.enabled",
+    "description": "手牌模式",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.revealMystery",
+    "description": "收牌后揭示神秘歌曲",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.resident",
+    "description": "手牌常驻",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.keepDiscoveryOpen",
+    "description": "收牌后保留发现界面",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.autoPlayEnabled",
+    "description": "保存的自动打出设置",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.createCards",
+    "description": "创建手牌入口",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.autoPlayPosition",
+    "description": "下一张使用首张或末张",
+    "range": "first / last",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.autoPlayDetection",
+    "description": "程序自动选择检测方式",
+    "range": "兼容只读 system / window / mixed",
+    "readOnly": true
+  },
+  {
+    "path": "music.hand.shortcut",
+    "description": "唤出手牌",
+    "range": "快捷键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.playShortcuts",
+    "description": "前九张快捷打出",
+    "range": "9 个快捷键字符串",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.side",
+    "description": "手牌显示边缘",
+    "range": "left / right / bottom",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.capacity",
+    "description": "手牌上限",
+    "range": "整数 1–100",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.scale",
+    "description": "手牌大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.edgeOffsetPx",
+    "description": "边缘距离，像素",
+    "range": "-500–500",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.positionPercent",
+    "description": "沿屏幕边缘的位置",
+    "range": "0–100",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.overlapPercent",
+    "description": "重叠比例",
+    "range": "0–90",
+    "readOnly": false
+  },
+  {
+    "path": "music.hand.tiltDegrees",
+    "description": "卡片倾角",
+    "range": "0–45",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.enabled",
+    "description": "迷你发现",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.merged",
+    "description": "合并到普通手牌",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.liquidMode",
+    "description": "背景模式",
+    "range": "static / blur",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.liquidStrength",
+    "description": "背景强度",
+    "range": "0–100",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.textOutlineWidth",
+    "description": "文字描边宽度",
+    "range": "0.05–5",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.side",
+    "description": "迷你发现边缘",
+    "range": "left / right / bottom",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.scale",
+    "description": "迷你发现大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.edgeOffsetPx",
+    "description": "边缘距离",
+    "range": "-500–500",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.positionPercent",
+    "description": "沿边缘位置",
+    "range": "0–100",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.overlapPercent",
+    "description": "重叠比例",
+    "range": "0–90",
+    "readOnly": false
+  },
+  {
+    "path": "music.handDiscovery.tiltDegrees",
+    "description": "卡片倾角",
+    "range": "0–45",
+    "readOnly": false
+  },
+  {
+    "path": "gui.language",
+    "description": "界面语言",
+    "range": "zh_CN / zh_TW / en_US",
+    "readOnly": false
+  },
+  {
+    "path": "gui.fontFamily",
+    "description": "字体，空字符串使用系统字体",
+    "range": "最多 128 字符，无控制字符",
+    "readOnly": false
+  },
+  {
+    "path": "gui.fontSize",
+    "description": "字号，像素",
+    "range": "10–24",
+    "readOnly": false
+  },
+  {
+    "path": "gui.followSystemTheme",
+    "description": "跟随系统主题",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "gui.nightMode",
+    "description": "手动深浅模式",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "gui.mainWindowScale",
+    "description": "主界面大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "gui.discoveryCardScale",
+    "description": "发现卡片大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "gui.cancelButtonScale",
+    "description": "发现退出按钮大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "gui.replacementButtonScale",
+    "description": "单卡替换按钮大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "gui.discoveryBarScale",
+    "description": "发现信息条大小",
+    "range": "0.5–3",
+    "readOnly": false
+  },
+  {
+    "path": "gui.userConfigured",
+    "description": "外观是否由用户主动保存",
+    "range": "管理字段，只读",
+    "readOnly": true
+  },
+  {
+    "path": "gui.card.background",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.card.backgroundHover",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.card.border",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.card.fontColor",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButton.background",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButton.backgroundHover",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButton.border",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButton.fontColor",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.setting.background",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.setting.backgroundHover",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.setting.border",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.setting.fontColor",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cardNightMode.background",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cardNightMode.backgroundHover",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cardNightMode.border",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cardNightMode.fontColor",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButtonNightMode.background",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButtonNightMode.backgroundHover",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButtonNightMode.border",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.cancelButtonNightMode.fontColor",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.settingNightMode.background",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.settingNightMode.backgroundHover",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.settingNightMode.border",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "gui.settingNightMode.fontColor",
+    "description": "各含 background、backgroundHover、border、fontColor；现有界面没有任意配色编辑器",
+    "range": "兼容读取",
+    "readOnly": true
+  },
+  {
+    "path": "desktop.launchAtLogin",
+    "description": "开机自启动",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.startHidden",
+    "description": "仅托盘启动",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.updateOnStartup",
+    "description": "启动更新已启用歌单",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.pauseBeforePlayback",
+    "description": "切歌时暂停当前播放",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.overlayMonitor",
+    "description": "发现界面显示器",
+    "range": "current / primary / 返回的显示器 ID",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.clientWindowMode",
+    "description": "隐藏客户端方式",
+    "range": "off / temporary / persistent",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.clientSeparateDesktop",
+    "description": "创建独立虚拟桌面",
+    "range": "bool",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.temporaryHideSeconds",
+    "description": "临时隐藏延时，秒",
+    "range": "0–30",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.spotifyPlaybackMode",
+    "description": "Spotify 播放连接",
+    "range": "scheme / pause_then_scheme / extension",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.browserPlaybackMode",
+    "description": "浏览器播放连接",
+    "range": "extension / direct",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.renderingMode",
+    "description": "渲染方式，重启生效",
+    "range": "auto / integrated / discrete / cpu",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.spotifyDefaultsVersion",
+    "description": "默认设置迁移版本",
+    "range": "管理字段，只读",
+    "readOnly": true
+  },
+  {
+    "path": "desktop.minimizeAfterPlayback",
+    "description": "旧设置，新界面由 clientWindowMode 管理",
+    "range": "兼容读取 bool",
+    "readOnly": true
+  }
+]

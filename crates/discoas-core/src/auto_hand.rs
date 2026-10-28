@@ -46,6 +46,14 @@ pub struct Observation {
     pub revision: u64,
     pub source: String,
 }
+impl Observation {
+    pub fn diagnostics(&self) -> serde_json::Value {
+        serde_json::json!({"platform":self.platform,"identity":self.identity,"artist":self.artist,
+            "signal":format!("{:?}",self.signal).to_lowercase(),"playing":self.playing,"ended":self.ended,
+            "metadata":self.metadata,"revision":self.revision,"source":self.source,
+            "progress":self.progress.as_ref().map(|p|serde_json::json!({"position":p.position,"duration":p.duration,"updatedAt":p.updated_at}))})
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Target {
     pub platform: String,
@@ -163,6 +171,13 @@ pub struct AutoHand {
     consumed: bool,
 }
 impl AutoHand {
+    pub fn diagnostics(&self) -> serde_json::Value {
+        let target=|value:&Target|serde_json::json!({"platform":value.platform,"songId":value.song_id,"title":value.title,"artists":value.artists,"metadata":value.metadata});
+        serde_json::json!({"enabled":self.enabled,"generation":self.generation,"active":self.active,"consumed":self.consumed,
+            "baseline":self.baseline.values().map(Observation::diagnostics).collect::<Vec<_>>(),
+            "pending":self.pending.as_ref().map(|p|serde_json::json!({"token":p.token,"automatic":p.automatic,"target":p.target.as_ref().map(target),"startedAt":p.started,"deadline":p.deadline})),
+            "owned":self.owned.as_ref().map(|p|serde_json::json!({"target":target(&p.target),"deadline":p.deadline,"pauseReported":p.pause_reported}))})
+    }
     /// A dock toggle affects future triggers while the current handoff completes.
     pub fn configure_temporary(&mut self, enabled: bool) {
         if self.pending.is_some() { self.enabled = enabled; }

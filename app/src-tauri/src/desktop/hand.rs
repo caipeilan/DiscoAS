@@ -564,6 +564,13 @@ pub fn toggle(app: &tauri::AppHandle) {
         }
     });
 }
+pub(super) async fn console_show(app: &tauri::AppHandle) -> Result<(), String> {
+    open(app, true, None, None, true).await
+}
+pub(super) async fn console_expand(app: &tauri::AppHandle, expanded: bool) -> Result<(), String> {
+    if expanded && !visible(app) { console_show(app).await }
+    else { set_expanded(app, expanded, false).await }
+}
 pub fn shortcut(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {

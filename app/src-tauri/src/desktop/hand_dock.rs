@@ -199,6 +199,17 @@ pub fn hand_dock_ready(app: tauri::AppHandle) -> Option<Snapshot> {
         .flatten();
     snapshot
 }
+pub(super) fn console_snapshot(app: &tauri::AppHandle) -> serde_json::Value {
+    let state=app.state::<DockState>();
+    let snapshot=state.snapshot.lock().unwrap().clone();
+    serde_json::json!({"visible":state.visible.load(Ordering::Acquire),"snapshot":snapshot})
+}
+pub(super) async fn console_position(app: &tauri::AppHandle, point: Point) -> Result<(), String> {
+    if !point.x.is_finite() || !point.y.is_finite() { return Err("浮窗坐标应为有限数值。".into()); }
+    let generation=app.state::<DockState>().generation.load(Ordering::Acquire);
+    position_hand_dock(app.clone(),generation,point,None).await?;
+    save_hand_dock(app.clone(),generation,point).await
+}
 #[tauri::command]
 pub async fn position_hand_dock(
     app: tauri::AppHandle,

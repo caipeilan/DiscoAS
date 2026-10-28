@@ -1,5 +1,6 @@
 //! Application services accept paths and data; desktop integrations stay in `desktop`.
 pub mod bootstrap;
+pub mod console;
 pub mod browser_bridge;
 pub mod covers;
 pub mod desktop_preferences;

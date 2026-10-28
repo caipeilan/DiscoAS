@@ -115,6 +115,20 @@ export function useAppState(floating: boolean, notice: Notice) {
         else fn();
       });
     attach("startup-refresh-failed", () => reload().catch((e) => notice(errorText(e), true)));
+    // Console/API mutations return to a different caller; reconcile their state
+    // here while merging repeated notifications into one queued follow-up read.
+    let consoleReading = false, consoleDirty = false;
+    attach("console-state-invalidated", () => {
+      consoleDirty = true;
+      if (consoleReading) return;
+      consoleReading = true;
+      void (async () => {
+        try {
+          while (active && consoleDirty) { consoleDirty = false; await reload(); }
+        } catch (error) { if (active) notice(errorText(error), true); }
+        finally { consoleReading = false; }
+      })();
+    });
     attach("preferences-changed", applyPatch);
     for (const event of ["gui-changed", "desktop-changed"] as const)
       attach(event, (patch) => patch ? applyPatch(patch) : void reload().catch((e) => notice(errorText(e), true)));

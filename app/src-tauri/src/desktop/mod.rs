@@ -1,6 +1,7 @@
 //! Desktop boundary: native integrations, commands and event orchestration.
 pub mod autostart;
 pub mod auto_hand;
+pub mod console;
 mod auto_hand_native;
 pub mod diagnostics;
 pub mod client_isolation;

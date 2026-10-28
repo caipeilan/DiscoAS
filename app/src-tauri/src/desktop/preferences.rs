@@ -43,6 +43,13 @@ pub async fn save_preferences(
     cache: tauri::State<'_, Arc<Cache>>,
     settings: MusicSetting,
 ) -> Result<PreferencePatch, String> {
+    update_preferences(app,cache,move |_|Ok(settings)).await
+}
+pub(super) async fn update_preferences(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    update: impl FnOnce(&MusicSetting) -> Result<MusicSetting,String> + Send,
+) -> Result<PreferencePatch,String> {
     if app
         .state::<shortcuts::ShortcutRecording>()
         .active
@@ -53,6 +60,7 @@ pub async fn save_preferences(
     let _guard = cache.operation.lock().await;
     let repository = repository(&app)?;
     let old = repository.load_settings()?;
+    let settings = update(&old)?;
     let settings = preferences::prepare_music_preferences(&old, settings)?;
     shortcuts::save_preferences(&app, &repository, &old, &settings)?;
     app.state::<super::auto_hand::AutoHandService>()
@@ -94,13 +102,26 @@ pub async fn save_gui_preferences(
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<PreferencePatch, String> {
     let _guard = cache.operation.lock().await;
-    preferences::save_gui_preferences(&repository(&app)?.gui_path(), settings.clone())?;
+    persist_gui_preferences(&app,settings).await
+}
+pub(super) async fn update_gui_preferences(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    update: impl FnOnce(&GuiSetting) -> Result<GuiSetting,String> + Send,
+) -> Result<PreferencePatch,String> {
+    let _guard = cache.operation.lock().await;
+    let current=repository(&app)?.load_gui()?;
+    let settings=update(&current)?;
+    persist_gui_preferences(&app,settings).await
+}
+async fn persist_gui_preferences(app:&tauri::AppHandle,settings:GuiSetting)->Result<PreferencePatch,String> {
+    preferences::save_gui_preferences(&repository(app)?.gui_path(), settings.clone())?;
     let patch = PreferencePatch {
         gui_settings: Some(settings),
         ..Default::default()
     };
     let _ = app.emit("gui-changed", &patch);
-    super::hand::refresh(&app).await?;
+    super::hand::refresh(app).await?;
     Ok(patch)
 }
 
@@ -109,11 +130,19 @@ pub async fn save_desktop_preferences(
     cache: tauri::State<'_, Arc<Cache>>,
     settings: DesktopPreferences,
 ) -> Result<PreferencePatch, String> {
+    update_desktop_preferences(app,cache,move |_|Ok(settings)).await
+}
+pub(super) async fn update_desktop_preferences(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    update: impl FnOnce(&DesktopPreferences) -> Result<DesktopPreferences,String> + Send,
+) -> Result<PreferencePatch,String> {
     let _guard = cache.operation.lock().await;
     let path = repository(&app)?
         .root()
         .join("settings/desktop_setting.json");
     let old = DesktopPreferences::load_from_path(&path)?;
+    let settings = update(&old)?;
     settings.validate()?;
     if settings.browser_playback_mode == "extension" {
         app.state::<crate::browser_playback::BrowserPlaybackService>()

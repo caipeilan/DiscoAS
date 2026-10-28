@@ -1,4 +1,6 @@
 const paths: Record<string, string> = {
+  console: "M3 5h18v14H3Zm4 4 3 3-3 3m6 0h4",
+  copy: "M8 8h12v13H8ZM16 8V3H3v13h5",
   hand: "M8 3h9a2 2 0 0 1 2 2v13M6 6h9a2 2 0 0 1 2 2v12H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z",
   library: "M4 5h16M4 10h16M4 15h10M4 20h10m5-6v6m-3-3h6",
   discover: "m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3Z",

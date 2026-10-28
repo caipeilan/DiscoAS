@@ -15,6 +15,7 @@ import type { AutoHandState } from "../features/hand/autoHandState";
 import type { OnboardingState } from "../features/onboarding/onboardingState";
 
 export type DesktopCommand =
+  | "console_execute" | "console_catalog" | "console_ui_reply"
   | "get_onboarding_state" | "advance_onboarding" | "start_onboarding"
   | "get_auto_hand_state"
   | "set_auto_hand_enabled" | "open_create_hand" | "create_hand_card"
@@ -121,6 +122,10 @@ export interface DisplayMonitor {
 export const getDisplayMonitors = () => call<DisplayMonitor[]>("get_display_monitors");
 
 export interface DesktopEvents {
+  "console-state-invalidated": void;
+  "console-ui-request": { id: string; action: string; params: Record<string, unknown> };
+  "console-api-changed": import("../features/console/consoleModel").ConsoleApi;
+  "console-task-changed": import("../features/console/consoleModel").ConsoleTask;
   "onboarding-changed": OnboardingState;
   "open-create-hand": void;
   "auto-hand-state-changed": AutoHandState;
@@ -238,7 +243,7 @@ export async function openPlaybackSettings() {
 
 export function call<T>(name: DesktopCommand, args?: Record<string, unknown>): Promise<T> {
   return desktop
-    ? invoke<unknown>(name, encodeDesktopArgs(name, args)).then(decodeDesktopValue<T>).catch((error) => {
+    ? invoke<unknown>(name, name.startsWith("console_") ? args : encodeDesktopArgs(name, args)).then(value => name.startsWith("console_") ? value as T : decodeDesktopValue<T>(value)).catch((error) => {
       if (name !== "log_frontend_error")
         invoke("log_frontend_error", { context: name }).catch(() => { });
       throw error;
@@ -251,7 +256,7 @@ export function onDesktopEvent<E extends keyof DesktopEvents>(
   handler: (payload: DesktopEvents[E]) => void | Promise<void>,
 ): Promise<() => void> {
   if (!desktop) return Promise.resolve(() => {});
-  return listen<unknown>(event, ({ payload }) => handler(decodeDesktopValue<DesktopEvents[E]>(payload)));
+  return listen<unknown>(event, ({ payload }) => handler(event.startsWith("console-") ? payload as DesktopEvents[E] : decodeDesktopValue<DesktopEvents[E]>(payload)));
 }
 
 export async function hideCurrentWindow() {

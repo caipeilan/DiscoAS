@@ -432,6 +432,12 @@ impl AutoHandService {
     /// keeps observing while the auto switch is off, so this reservation can
     /// still confirm or time out without an automatic trigger.
     pub fn reserve_manual(&self, args: &PlaySongArgs) -> Result<u64, String> {
+        self.reserve(Some(args))
+    }
+    pub(super) fn reserve_control(&self) -> Result<u64, String> {
+        self.reserve(None)
+    }
+    fn reserve(&self, args: Option<&PlaySongArgs>) -> Result<u64, String> {
         let mut runtime = self.runtime.lock().unwrap();
         if runtime.policy.busy() || runtime.pausing.is_some() || runtime.dispatching {
             return Err(BUSY_ERROR.into());
@@ -440,10 +446,17 @@ impl AutoHandService {
             .policy
             .reserve_manual(native::now_ms())
             .ok_or_else(|| BUSY_ERROR.to_string())?;
-        runtime.request = Some((token, args.clone()));
+        runtime.request = args.map(|args|(token, args.clone()));
         drop(runtime);
         self.wake();
         Ok(token)
+    }
+    pub(super) fn diagnostics(&self) -> serde_json::Value {
+        let runtime=self.runtime.lock().unwrap();
+        serde_json::json!({"state":state(&runtime),"configured":runtime.configured,"savedEnabled":runtime.saved_enabled,
+            "temporarilyPaused":runtime.temporarily_paused,"source":runtime.source,"pausing":runtime.pausing,
+            "dispatching":runtime.dispatching,"request":runtime.request.as_ref().map(|(token,args)|serde_json::json!({"token":token,"args":args})),
+            "policy":runtime.policy.diagnostics()})
     }
     pub fn set_has_cards(&self, value: bool) {
         self.has_cards.store(value, Ordering::Release);

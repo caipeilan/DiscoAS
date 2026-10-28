@@ -1,0 +1,2970 @@
+[
+  {
+    "name": "help",
+    "method": "help",
+    "description": "列出命令、参数、示例及对应方法名",
+    "usage": "help [command]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "command"
+    ],
+    "async": false,
+    "options": [
+      "command"
+    ],
+    "parameters": [
+      {
+        "name": "command",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "commands: CommandSpec[]"
+  },
+  {
+    "name": "schema",
+    "method": "schema",
+    "description": "输出参数、结果与错误的结构",
+    "usage": "schema [command]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "command"
+    ],
+    "async": false,
+    "options": [
+      "command"
+    ],
+    "parameters": [
+      {
+        "name": "command",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "commands、request、reply、errors 的结构"
+  },
+  {
+    "name": "capabilities",
+    "method": "capabilities",
+    "description": "列出当前平台、播放连接和接口版本支持的能力",
+    "usage": "capabilities [platform]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "platform"
+    ],
+    "async": false,
+    "options": [
+      "platform"
+    ],
+    "parameters": [
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "platform list",
+    "method": "platform.list",
+    "description": "列出稳定平台标识、来源类型与当前可用能力",
+    "usage": "platform list",
+    "group": "控制台基础能力",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "clear",
+    "method": "clear",
+    "description": "清空控制台显示",
+    "usage": "clear",
+    "group": "控制台基础能力",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "console history",
+    "method": "console.history",
+    "description": "查看命令输入历史",
+    "usage": "console history [limit]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "limit"
+    ],
+    "async": false,
+    "options": [
+      "limit"
+    ],
+    "parameters": [
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "console output",
+    "method": "console.output",
+    "description": "切换人工可读或机器可读结果",
+    "usage": "console output <format>",
+    "group": "控制台基础能力",
+    "positionals": [
+      "format"
+    ],
+    "async": false,
+    "options": [
+      "format"
+    ],
+    "parameters": [
+      {
+        "name": "format",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "{format: text|json}"
+  },
+  {
+    "name": "console close",
+    "method": "console.close",
+    "description": "关闭控制台面板",
+    "usage": "console close",
+    "group": "控制台基础能力",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "task list",
+    "method": "task.list",
+    "description": "列出当前会话内任务",
+    "usage": "task list [status]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "status"
+    ],
+    "async": false,
+    "options": [
+      "status"
+    ],
+    "parameters": [
+      {
+        "name": "status",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "TaskRecord[]"
+  },
+  {
+    "name": "task get",
+    "method": "task.get",
+    "description": "查看进度、结果或错误",
+    "usage": "task get <operationId>",
+    "group": "控制台基础能力",
+    "positionals": [
+      "operationId"
+    ],
+    "async": false,
+    "options": [
+      "operationId"
+    ],
+    "parameters": [
+      {
+        "name": "operationId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "TaskRecord"
+  },
+  {
+    "name": "task wait",
+    "method": "task.wait",
+    "description": "等待任务完成，用于连续测试与第三方调用",
+    "usage": "task wait <operationId> [--timeout timeout]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "operationId"
+    ],
+    "async": false,
+    "options": [
+      "operationId",
+      "timeout"
+    ],
+    "parameters": [
+      {
+        "name": "operationId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "timeout",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "TaskRecord；超时返回仍在运行的记录"
+  },
+  {
+    "name": "task cancel",
+    "method": "task.cancel",
+    "description": "取消任务，并返回是否已接受取消请求",
+    "usage": "task cancel <operationId>",
+    "group": "控制台基础能力",
+    "positionals": [
+      "operationId"
+    ],
+    "async": false,
+    "options": [
+      "operationId"
+    ],
+    "parameters": [
+      {
+        "name": "operationId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "event watch",
+    "method": "event.watch",
+    "description": "订阅状态、进度、手牌和播放事件",
+    "usage": "event watch [event] [--filter filter]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "event"
+    ],
+    "async": false,
+    "options": [
+      "event",
+      "filter"
+    ],
+    "parameters": [
+      {
+        "name": "event",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "filter",
+        "type": "object",
+        "required": false
+      }
+    ],
+    "result": "{subscriptionId, events, after}"
+  },
+  {
+    "name": "event unwatch",
+    "method": "event.unwatch",
+    "description": "停止订阅",
+    "usage": "event unwatch <subscriptionId>",
+    "group": "控制台基础能力",
+    "positionals": [
+      "subscriptionId"
+    ],
+    "async": false,
+    "options": [
+      "subscriptionId"
+    ],
+    "parameters": [
+      {
+        "name": "subscriptionId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source list",
+    "method": "source.list",
+    "description": "列出来源、启用状态、曲数、缺失数、缓存错误；排序支持导入顺序、名称、更新时间",
+    "usage": "source list [--search search] [--platform platform] [--sort sort]",
+    "group": "歌单与来源",
+    "positionals": [],
+    "async": false,
+    "options": [
+      "search",
+      "platform",
+      "sort"
+    ],
+    "parameters": [
+      {
+        "name": "search",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sort",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "SourceSummary[]（默认省略封面 data URI）"
+  },
+  {
+    "name": "source get",
+    "method": "source.get",
+    "description": "查看来源详情与本地缓存摘要",
+    "usage": "source get <source> [--include-covers includeCovers]",
+    "group": "歌单与来源",
+    "positionals": [
+      "source"
+    ],
+    "async": false,
+    "options": [
+      "source",
+      "includeCovers"
+    ],
+    "parameters": [
+      {
+        "name": "source",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "includeCovers",
+        "type": "boolean",
+        "required": false
+      }
+    ],
+    "result": "SourceSummary"
+  },
+  {
+    "name": "source identify",
+    "method": "source.identify",
+    "description": "识别链接或分享文本中的平台与来源类型",
+    "usage": "source identify <input>",
+    "group": "歌单与来源",
+    "positionals": [
+      "input"
+    ],
+    "async": false,
+    "options": [
+      "input"
+    ],
+    "parameters": [
+      {
+        "name": "input",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "{platform, sourceKind}"
+  },
+  {
+    "name": "source kinds",
+    "method": "source.kinds",
+    "description": "列出该平台支持的来源类型",
+    "usage": "source kinds <platform>",
+    "group": "歌单与来源",
+    "positionals": [
+      "platform"
+    ],
+    "async": false,
+    "options": [
+      "platform"
+    ],
+    "parameters": [
+      {
+        "name": "platform",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source import",
+    "method": "source.import",
+    "description": "导入或更新来源",
+    "usage": "source import <input> [--platform platform] [--source-kind sourceKind] [--remark remark] [--request-id requestId]",
+    "group": "歌单与来源",
+    "positionals": [
+      "input"
+    ],
+    "async": true,
+    "options": [
+      "input",
+      "platform",
+      "sourceKind",
+      "remark",
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "input",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "remark",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source import-default",
+    "method": "source.import-default",
+    "description": "导入/刷新资源文件中的作者默认歌单",
+    "usage": "source import-default [--request-id requestId]",
+    "group": "歌单与来源",
+    "positionals": [],
+    "async": true,
+    "options": [
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source import-local",
+    "method": "source.import-local",
+    "description": "从本地音频文件、目录或 M3U 导入来源",
+    "usage": "source import-local <paths> [--remark remark] [--request-id requestId]",
+    "group": "歌单与来源",
+    "positionals": [
+      "paths"
+    ],
+    "async": true,
+    "options": [
+      "paths",
+      "remark",
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "paths",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "remark",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source choose-local",
+    "method": "source.choose-local",
+    "description": "选择本地音频文件或目录",
+    "usage": "source choose-local <kind>",
+    "group": "歌单与来源",
+    "positionals": [
+      "kind"
+    ],
+    "async": true,
+    "options": [
+      "kind"
+    ],
+    "parameters": [
+      {
+        "name": "kind",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source refresh",
+    "method": "source.refresh",
+    "description": "按完整身份更新一个来源，保留备注和启用状态",
+    "usage": "source refresh <source> [--request-id requestId]",
+    "group": "歌单与来源",
+    "positionals": [
+      "source"
+    ],
+    "async": true,
+    "options": [
+      "source",
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "source",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source refresh-many",
+    "method": "source.refresh-many",
+    "description": "依次更新多个来源，保留每项结果",
+    "usage": "source refresh-many <sources> [--request-id requestId]",
+    "group": "歌单与来源",
+    "positionals": [
+      "sources"
+    ],
+    "async": true,
+    "options": [
+      "sources",
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "sources",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source retry-failed",
+    "method": "source.retry-failed",
+    "description": "重试批量更新中失败的来源",
+    "usage": "source retry-failed <operationId> [--request-id requestId]",
+    "group": "歌单与来源",
+    "positionals": [
+      "operationId"
+    ],
+    "async": true,
+    "options": [
+      "operationId",
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "operationId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source enable",
+    "method": "source.enable",
+    "description": "启用一个来源，同时取消其他来源的启用",
+    "usage": "source enable <source>",
+    "group": "歌单与来源",
+    "positionals": [
+      "source"
+    ],
+    "async": false,
+    "options": [
+      "source"
+    ],
+    "parameters": [
+      {
+        "name": "source",
+        "type": "identity",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source remark",
+    "method": "source.remark",
+    "description": "编辑备注，不使无关发现批次失效",
+    "usage": "source remark <source> <remark>",
+    "group": "歌单与来源",
+    "positionals": [
+      "source",
+      "remark"
+    ],
+    "async": false,
+    "options": [
+      "source",
+      "remark"
+    ],
+    "parameters": [
+      {
+        "name": "source",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "remark",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source remove",
+    "method": "source.remove",
+    "description": "移除配置项，保留原有缓存和记录",
+    "usage": "source remove <source>",
+    "group": "歌单与来源",
+    "positionals": [
+      "source"
+    ],
+    "async": false,
+    "options": [
+      "source"
+    ],
+    "parameters": [
+      {
+        "name": "source",
+        "type": "identity",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source remove-many",
+    "method": "source.remove-many",
+    "description": "批量移除，同时取消对应在途更新",
+    "usage": "source remove-many <sources>",
+    "group": "歌单与来源",
+    "positionals": [
+      "sources"
+    ],
+    "async": false,
+    "options": [
+      "sources"
+    ],
+    "parameters": [
+      {
+        "name": "sources",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source cancel",
+    "method": "source.cancel",
+    "description": "调用 `cancel_library_operation`",
+    "usage": "source cancel <requestId>",
+    "group": "歌单与来源",
+    "positionals": [
+      "requestId"
+    ],
+    "async": false,
+    "options": [
+      "requestId"
+    ],
+    "parameters": [
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "source import-dialog",
+    "method": "source.import-dialog",
+    "description": "打开“添加歌单”界面",
+    "usage": "source import-dialog",
+    "group": "歌单与来源",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery state",
+    "method": "discovery.state",
+    "description": "读取当前批次、epoch、替换预算与状态",
+    "usage": "discovery state",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "DiscoveryState"
+  },
+  {
+    "name": "discovery preferences",
+    "method": "discovery.preferences",
+    "description": "读取发现界面所需设置",
+    "usage": "discovery preferences",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery prepare",
+    "method": "discovery.prepare",
+    "description": "准备发现批次，可强制重新抽取",
+    "usage": "discovery prepare [--force force]",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": true,
+    "options": [
+      "force"
+    ],
+    "parameters": [
+      {
+        "name": "force",
+        "type": "boolean",
+        "required": false
+      }
+    ],
+    "result": "DiscoveryState"
+  },
+  {
+    "name": "discovery refresh",
+    "method": "discovery.refresh",
+    "description": "请求新批次，沿用原有排除、预加载与批次隔离",
+    "usage": "discovery refresh [--force force]",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": true,
+    "options": [
+      "force"
+    ],
+    "parameters": [
+      {
+        "name": "force",
+        "type": "boolean",
+        "required": false
+      }
+    ],
+    "result": "DiscoveryState"
+  },
+  {
+    "name": "discovery show",
+    "method": "discovery.show",
+    "description": "打开实际发现窗口",
+    "usage": "discovery show",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery cancel",
+    "method": "discovery.cancel",
+    "description": "退出发现并按“取消后换一批”设置处理",
+    "usage": "discovery cancel",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery replace",
+    "method": "discovery.replace",
+    "description": "替换指定歌曲并消耗本批替换次数",
+    "usage": "discovery replace <song> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "song"
+    ],
+    "async": false,
+    "options": [
+      "song",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind"
+    ],
+    "parameters": [
+      {
+        "name": "song",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery choose",
+    "method": "discovery.choose",
+    "description": "按当前模式收牌或播放，并记录选择",
+    "usage": "discovery choose <song> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "song"
+    ],
+    "async": false,
+    "options": [
+      "song",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind"
+    ],
+    "parameters": [
+      {
+        "name": "song",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery play",
+    "method": "discovery.play",
+    "description": "手牌模式关闭时，校验批次与来源后播放指定发现歌曲",
+    "usage": "discovery play <song> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "song"
+    ],
+    "async": false,
+    "options": [
+      "song",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind"
+    ],
+    "parameters": [
+      {
+        "name": "song",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery collect",
+    "method": "discovery.collect",
+    "description": "将发现卡加入手牌，遵守容量与锁",
+    "usage": "discovery collect <song> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "song"
+    ],
+    "async": false,
+    "options": [
+      "song",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind"
+    ],
+    "parameters": [
+      {
+        "name": "song",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery displayed",
+    "method": "discovery.displayed",
+    "description": "确认批次已实际展示，写入入选记录与加权轮次",
+    "usage": "discovery displayed <batchEpoch> [--identities identities]",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "batchEpoch"
+    ],
+    "async": false,
+    "options": [
+      "batchEpoch",
+      "identities"
+    ],
+    "parameters": [
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "identities",
+        "type": "array",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "discovery preload",
+    "method": "discovery.preload",
+    "description": "开始准备后续发现批次",
+    "usage": "discovery preload",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "cover get",
+    "method": "cover.get",
+    "description": "读取或准备指定封面",
+    "usage": "cover get <url>",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "url"
+    ],
+    "async": false,
+    "options": [
+      "url"
+    ],
+    "parameters": [
+      {
+        "name": "url",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "playback state",
+    "method": "playback.state",
+    "description": "读取媒体会话、派发结果、确认状态和播放连接",
+    "usage": "playback state",
+    "group": "发现与单曲播放",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{native, lastResult, auto, browser, browserObservation}（只读）"
+  },
+  {
+    "name": "playback pause",
+    "method": "playback.pause",
+    "description": "暂停当前媒体会话或指定平台的可控播放连接",
+    "usage": "playback pause [platform]",
+    "group": "发现与单曲播放",
+    "positionals": [
+      "platform"
+    ],
+    "async": false,
+    "options": [
+      "platform"
+    ],
+    "parameters": [
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "{paused: true}；暂停失败返回错误"
+  },
+  {
+    "name": "hand list",
+    "method": "hand.list",
+    "description": "列出卡片 ID、顺序、元数据与当前锁状态",
+    "usage": "hand list",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{hand, auto}"
+  },
+  {
+    "name": "hand show",
+    "method": "hand.show",
+    "description": "显示当前配置的手牌窗口",
+    "usage": "hand show",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand hide",
+    "method": "hand.hide",
+    "description": "隐藏手牌窗口",
+    "usage": "hand hide",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand toggle",
+    "method": "hand.toggle",
+    "description": "切换手牌显示",
+    "usage": "hand toggle",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand expand",
+    "method": "hand.expand",
+    "description": "展开手牌",
+    "usage": "hand expand",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand collapse",
+    "method": "hand.collapse",
+    "description": "收纳手牌",
+    "usage": "hand collapse",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand play",
+    "method": "hand.play",
+    "description": "打出一张牌；保留原有失败丢牌及准备失败保牌规则",
+    "usage": "hand play <cardId>",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "cardId"
+    ],
+    "async": false,
+    "options": [
+      "cardId"
+    ],
+    "parameters": [
+      {
+        "name": "cardId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand play-position",
+    "method": "hand.play-position",
+    "description": "按当前顺序打出第 1–9 张；优先普通手牌，其次迷你发现",
+    "usage": "hand play-position <position>",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "position"
+    ],
+    "async": false,
+    "options": [
+      "position"
+    ],
+    "parameters": [
+      {
+        "name": "position",
+        "type": "integer",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand discard",
+    "method": "hand.discard",
+    "description": "丢弃一张牌",
+    "usage": "hand discard <cardId>",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "cardId"
+    ],
+    "async": false,
+    "options": [
+      "cardId"
+    ],
+    "parameters": [
+      {
+        "name": "cardId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand clear",
+    "method": "hand.clear",
+    "description": "清空手牌，遵守当前操作锁",
+    "usage": "hand clear",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand reorder",
+    "method": "hand.reorder",
+    "description": "调整普通手牌顺序",
+    "usage": "hand reorder <cardIds>",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "cardIds"
+    ],
+    "async": false,
+    "options": [
+      "cardIds"
+    ],
+    "parameters": [
+      {
+        "name": "cardIds",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand create",
+    "method": "hand.create",
+    "description": "开启创建手牌选项后，创建对应单曲；继续限制为启用来源所属平台",
+    "usage": "hand create <input>",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "input"
+    ],
+    "async": true,
+    "options": [
+      "input"
+    ],
+    "parameters": [
+      {
+        "name": "input",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand create-dialog",
+    "method": "hand.create-dialog",
+    "description": "打开创建手牌界面",
+    "usage": "hand create-dialog",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "hand show-collected",
+    "method": "hand.show-collected",
+    "description": "显示已入手的卡片，可指定起点矩形和神秘封面",
+    "usage": "hand show-collected <cardId> [--origin origin] [--mystery-cover mysteryCover]",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "cardId"
+    ],
+    "async": false,
+    "options": [
+      "cardId",
+      "origin",
+      "mysteryCover"
+    ],
+    "parameters": [
+      {
+        "name": "cardId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "origin",
+        "type": "object",
+        "required": false
+      },
+      {
+        "name": "mysteryCover",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "mini state",
+    "method": "mini.state",
+    "description": "读取迷你发现批次与卡片",
+    "usage": "mini state",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{discovery, cards}（省略封面 data URI）"
+  },
+  {
+    "name": "mini refresh",
+    "method": "mini.refresh",
+    "description": "刷新迷你发现",
+    "usage": "mini refresh",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "mini replace",
+    "method": "mini.replace",
+    "description": "单卡替换，沿用本批替换预算",
+    "usage": "mini replace <card> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "card"
+    ],
+    "async": false,
+    "options": [
+      "card",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind"
+    ],
+    "parameters": [
+      {
+        "name": "card",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "mini collect",
+    "method": "mini.collect",
+    "description": "从迷你发现收入普通手牌",
+    "usage": "mini collect <card> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind] [--insert insert]",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "card"
+    ],
+    "async": false,
+    "options": [
+      "card",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind",
+      "insert"
+    ],
+    "parameters": [
+      {
+        "name": "card",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "insert",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "mini play",
+    "method": "mini.play",
+    "description": "播放选中曲目并准备下一批迷你发现",
+    "usage": "mini play <card> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "card"
+    ],
+    "async": false,
+    "options": [
+      "card",
+      "batchEpoch",
+      "platform",
+      "sourceId",
+      "sourceKind"
+    ],
+    "parameters": [
+      {
+        "name": "card",
+        "type": "identity",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceId",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "sourceKind",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "mini reorder",
+    "method": "mini.reorder",
+    "description": "调整迷你发现顺序",
+    "usage": "mini reorder <cardIds> --batch-epoch <batchEpoch>",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "cardIds"
+    ],
+    "async": false,
+    "options": [
+      "cardIds",
+      "batchEpoch"
+    ],
+    "parameters": [
+      {
+        "name": "cardIds",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "mini displayed",
+    "method": "mini.displayed",
+    "description": "确认当前迷你发现批次已展示，并写入展示记录",
+    "usage": "mini displayed <batchEpoch> [--identities identities]",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [
+      "batchEpoch"
+    ],
+    "async": false,
+    "options": [
+      "batchEpoch",
+      "identities"
+    ],
+    "parameters": [
+      {
+        "name": "batchEpoch",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "identities",
+        "type": "array",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "auto state",
+    "method": "auto.state",
+    "description": "返回 configured、active、busy、revision、token",
+    "usage": "auto state",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "AutoHandState"
+  },
+  {
+    "name": "auto on",
+    "method": "auto.on",
+    "description": "临时开启 AUTO，要求保存设置允许自动打出；回复包含控制修订号",
+    "usage": "auto on",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "auto off",
+    "method": "auto.off",
+    "description": "临时关闭 AUTO，在途播放继续确认与解锁；回复包含控制修订号",
+    "usage": "auto off",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "auto toggle",
+    "method": "auto.toggle",
+    "description": "基于当前服务状态切换，沿用修订号过滤迟到回复",
+    "usage": "auto toggle",
+    "group": "手牌、迷你发现与 AUTO",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history list",
+    "method": "history.list",
+    "description": "查询入选或选择记录，支持筛选与分页（默认每页 25 项）",
+    "usage": "history list [--search search] [--platform platform] [--status status] [--page page] [--page-size pageSize]",
+    "group": "发现记录",
+    "positionals": [],
+    "async": false,
+    "options": [
+      "search",
+      "platform",
+      "status",
+      "page",
+      "pageSize"
+    ],
+    "parameters": [
+      {
+        "name": "search",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "platform",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "page",
+        "type": "integer",
+        "required": false
+      },
+      {
+        "name": "pageSize",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history get",
+    "method": "history.get",
+    "description": "查看一个歌曲身份的记录",
+    "usage": "history get <platform> <songId>",
+    "group": "发现记录",
+    "positionals": [
+      "platform",
+      "songId"
+    ],
+    "async": false,
+    "options": [
+      "platform",
+      "songId"
+    ],
+    "parameters": [
+      {
+        "name": "platform",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "songId",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history covers",
+    "method": "history.covers",
+    "description": "读取历史封面",
+    "usage": "history covers <identities>",
+    "group": "发现记录",
+    "positionals": [
+      "identities"
+    ],
+    "async": false,
+    "options": [
+      "identities"
+    ],
+    "parameters": [
+      {
+        "name": "identities",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history repair",
+    "method": "history.repair",
+    "description": "补齐旧记录元数据，沿用并发与超时限制",
+    "usage": "history repair",
+    "group": "发现记录",
+    "positionals": [],
+    "async": true,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history mark",
+    "method": "history.mark",
+    "description": "批量修改一种状态，同时更新权重记录",
+    "usage": "history mark <identities> <action> <value>",
+    "group": "发现记录",
+    "positionals": [
+      "identities",
+      "action",
+      "value"
+    ],
+    "async": false,
+    "options": [
+      "identities",
+      "action",
+      "value"
+    ],
+    "parameters": [
+      {
+        "name": "identities",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "action",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "value",
+        "type": "boolean",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history remove",
+    "method": "history.remove",
+    "description": "删除指定记录，同时更新权重记录",
+    "usage": "history remove <identities>",
+    "group": "发现记录",
+    "positionals": [
+      "identities"
+    ],
+    "async": false,
+    "options": [
+      "identities"
+    ],
+    "parameters": [
+      {
+        "name": "identities",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "history clear",
+    "method": "history.clear",
+    "description": "清空记录与对应权重记录",
+    "usage": "history clear",
+    "group": "发现记录",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "settings list",
+    "method": "settings.list",
+    "description": "列出设置及当前值",
+    "usage": "settings list [group]",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "group"
+    ],
+    "async": false,
+    "options": [
+      "group"
+    ],
+    "parameters": [
+      {
+        "name": "group",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "SettingSpec[] + value/default"
+  },
+  {
+    "name": "settings get",
+    "method": "settings.get",
+    "description": "读取单项或设置组",
+    "usage": "settings get <path>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "path"
+    ],
+    "async": false,
+    "options": [
+      "path"
+    ],
+    "parameters": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "指定设置的 JSON 值"
+  },
+  {
+    "name": "settings schema",
+    "method": "settings.schema",
+    "description": "列出类型、范围、枚举、只读状态与生效时机",
+    "usage": "settings schema [path]",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "path"
+    ],
+    "async": false,
+    "options": [
+      "path"
+    ],
+    "parameters": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "SettingSpec[] + value/default"
+  },
+  {
+    "name": "settings defaults",
+    "method": "settings.defaults",
+    "description": "查看默认值",
+    "usage": "settings defaults [group]",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "group"
+    ],
+    "async": false,
+    "options": [
+      "group"
+    ],
+    "parameters": [
+      {
+        "name": "group",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "指定组或全部默认设置"
+  },
+  {
+    "name": "settings set",
+    "method": "settings.set",
+    "description": "校验并保存一个设置项",
+    "usage": "settings set <path> <value>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "path",
+      "value"
+    ],
+    "async": false,
+    "options": [
+      "path",
+      "value"
+    ],
+    "parameters": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "value",
+        "type": "any",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "settings patch",
+    "method": "settings.patch",
+    "description": "校验整组再保存，保留来源互斥与跨字段约束",
+    "usage": "settings patch <group> <patch>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "group",
+      "patch"
+    ],
+    "async": false,
+    "options": [
+      "group",
+      "patch"
+    ],
+    "parameters": [
+      {
+        "name": "group",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "patch",
+        "type": "object",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "settings validate",
+    "method": "settings.validate",
+    "description": "校验一组设置修改",
+    "usage": "settings validate <group> <patch>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "group",
+      "patch"
+    ],
+    "async": false,
+    "options": [
+      "group",
+      "patch"
+    ],
+    "parameters": [
+      {
+        "name": "group",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "patch",
+        "type": "object",
+        "required": true
+      }
+    ],
+    "result": "{valid, group, settings}"
+  },
+  {
+    "name": "settings reset",
+    "method": "settings.reset",
+    "description": "对选中项应用当前默认值",
+    "usage": "settings reset <paths>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "paths"
+    ],
+    "async": false,
+    "options": [
+      "paths"
+    ],
+    "parameters": [
+      {
+        "name": "paths",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "settings draft get",
+    "method": "settings.draft.get",
+    "description": "查看主界面当前草稿，用于 UI 测试",
+    "usage": "settings draft get",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "settings draft apply",
+    "method": "settings.draft.apply",
+    "description": "保存主界面草稿",
+    "usage": "settings draft apply",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "settings draft discard",
+    "method": "settings.draft.discard",
+    "description": "放弃未保存草稿",
+    "usage": "settings draft discard",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "font list",
+    "method": "font.list",
+    "description": "枚举系统字体及别名",
+    "usage": "font list [search]",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "search"
+    ],
+    "async": false,
+    "options": [
+      "search"
+    ],
+    "parameters": [
+      {
+        "name": "search",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "monitor list",
+    "method": "monitor.list",
+    "description": "枚举显示器与稳定 ID",
+    "usage": "monitor list",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "cover choose-mystery",
+    "method": "cover.choose-mystery",
+    "description": "选择本地神秘封面",
+    "usage": "cover choose-mystery",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "weighting traditional-calculate",
+    "method": "weighting.traditional-calculate",
+    "description": "计算传统加权参数",
+    "usage": "weighting traditional-calculate <n> <k>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "n",
+      "k"
+    ],
+    "async": false,
+    "options": [
+      "n",
+      "k"
+    ],
+    "parameters": [
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "k",
+        "type": "integer",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "weighting ranked-recommend",
+    "method": "weighting.ranked-recommend",
+    "description": "计算排序相对加权的软衰减带宽建议",
+    "usage": "weighting ranked-recommend [songCount]",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "songCount"
+    ],
+    "async": false,
+    "options": [
+      "songCount"
+    ],
+    "parameters": [
+      {
+        "name": "songCount",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "weighting inspect",
+    "method": "weighting.inspect",
+    "description": "读取当前来源的权重、轮次和排除状态",
+    "usage": "weighting inspect [identities] [--limit limit]",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "identities"
+    ],
+    "async": false,
+    "options": [
+      "identities",
+      "limit"
+    ],
+    "parameters": [
+      {
+        "name": "identities",
+        "type": "array",
+        "required": false
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "{source, mode, remainingSongs, total, songs: [{songId, weight, excluded}]}"
+  },
+  {
+    "name": "shortcut state",
+    "method": "shortcut.state",
+    "description": "查看全局快捷键注册状态、冲突与暂停状态",
+    "usage": "shortcut state",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "shortcut pause",
+    "method": "shortcut.pause",
+    "description": "暂停全局快捷键，沿用托盘行为",
+    "usage": "shortcut pause",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "shortcut resume",
+    "method": "shortcut.resume",
+    "description": "恢复全局快捷键",
+    "usage": "shortcut resume",
+    "group": "设置、计算器与快捷键",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "shortcut recording",
+    "method": "shortcut.recording",
+    "description": "沿用 `set_shortcut_recording`",
+    "usage": "shortcut recording <enabled>",
+    "group": "设置、计算器与快捷键",
+    "positionals": [
+      "enabled"
+    ],
+    "async": false,
+    "options": [
+      "enabled"
+    ],
+    "parameters": [
+      {
+        "name": "enabled",
+        "type": "boolean",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window main show",
+    "method": "window.main.show",
+    "description": "显示主窗口",
+    "usage": "window main show",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window main hide",
+    "method": "window.main.hide",
+    "description": "隐藏主窗口",
+    "usage": "window main hide",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window main minimize",
+    "method": "window.main.minimize",
+    "description": "最小化主窗口",
+    "usage": "window main minimize",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window main maximize",
+    "method": "window.main.maximize",
+    "description": "最大化主窗口",
+    "usage": "window main maximize",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window main restore",
+    "method": "window.main.restore",
+    "description": "恢复主窗口",
+    "usage": "window main restore",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window state",
+    "method": "window.state",
+    "description": "读取窗口显示、大小、位置与最大化状态",
+    "usage": "window state [window]",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [
+      "window"
+    ],
+    "async": false,
+    "options": [
+      "window"
+    ],
+    "parameters": [
+      {
+        "name": "window",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window navigate",
+    "method": "window.navigate",
+    "description": "切换主界面页面与设置分类",
+    "usage": "window navigate <page> [category]",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [
+      "page",
+      "category"
+    ],
+    "async": false,
+    "options": [
+      "page",
+      "category"
+    ],
+    "parameters": [
+      {
+        "name": "page",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window dock get",
+    "method": "window.dock.get",
+    "description": "查看当前 Logo 浮窗位置与坐标信息",
+    "usage": "window dock get",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "window dock set",
+    "method": "window.dock.set",
+    "description": "调整并保存浮窗位置，坐标使用当前画布范围",
+    "usage": "window dock set <point>",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [
+      "point"
+    ],
+    "async": false,
+    "options": [
+      "point"
+    ],
+    "parameters": [
+      {
+        "name": "point",
+        "type": "object",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "tray show",
+    "method": "tray.show",
+    "description": "显示应用托盘菜单",
+    "usage": "tray show",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "tray hide",
+    "method": "tray.hide",
+    "description": "关闭托盘菜单",
+    "usage": "tray hide",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "tray action",
+    "method": "tray.action",
+    "description": "执行发现、手牌、主窗口、快捷键暂停、重启或退出动作",
+    "usage": "tray action <action>",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [
+      "action"
+    ],
+    "async": false,
+    "options": [
+      "action"
+    ],
+    "parameters": [
+      {
+        "name": "action",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "client show",
+    "method": "client.show",
+    "description": "显示本地客户端，返回找到与显示的窗口数",
+    "usage": "client show",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "client hide-state",
+    "method": "client.hide-state",
+    "description": "查询客户端隐藏是否启用",
+    "usage": "client hide-state",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "client desktop status",
+    "method": "client.desktop.status",
+    "description": "查看支持、移动能力、已配置桌面 ID 和名称",
+    "usage": "client desktop status",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "client desktop recheck",
+    "method": "client.desktop.recheck",
+    "description": "重新检测独立桌面",
+    "usage": "client desktop recheck",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "client desktop create",
+    "method": "client.desktop.create",
+    "description": "手动创建独立桌面",
+    "usage": "client desktop create",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "spotify status",
+    "method": "spotify.status",
+    "description": "查询 Spotify 扩展连接",
+    "usage": "spotify status",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "spotify setup-status",
+    "method": "spotify.setup-status",
+    "description": "查询安装与配置状态",
+    "usage": "spotify setup-status",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "spotify configure",
+    "method": "spotify.configure",
+    "description": "安装或配置 Spotify 播放扩展",
+    "usage": "spotify configure",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": true,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "spotify export",
+    "method": "spotify.export",
+    "description": "导出 Spotify 扩展",
+    "usage": "spotify export",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "spotify open-folder",
+    "method": "spotify.open-folder",
+    "description": "打开扩展目录",
+    "usage": "spotify open-folder",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "browser status",
+    "method": "browser.status",
+    "description": "查询受控浏览器连接",
+    "usage": "browser status",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "browser export",
+    "method": "browser.export",
+    "description": "导出对应扩展；类型是操作参数",
+    "usage": "browser export [browser]",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [
+      "browser"
+    ],
+    "async": false,
+    "options": [
+      "browser"
+    ],
+    "parameters": [
+      {
+        "name": "browser",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "browser open-folder",
+    "method": "browser.open-folder",
+    "description": "打开对应扩展目录",
+    "usage": "browser open-folder [browser]",
+    "group": "窗口、客户端与播放连接",
+    "positionals": [
+      "browser"
+    ],
+    "async": false,
+    "options": [
+      "browser"
+    ],
+    "parameters": [
+      {
+        "name": "browser",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "onboarding state",
+    "method": "onboarding.state",
+    "description": "查看步骤、revision、完成状态与目标来源",
+    "usage": "onboarding state",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "onboarding start",
+    "method": "onboarding.start",
+    "description": "回顾引导，先刷新并启用作者默认歌单",
+    "usage": "onboarding start",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": true,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "onboarding next",
+    "method": "onboarding.next",
+    "description": "推进当前可继续的引导步骤；操作步骤由对应命令推进",
+    "usage": "onboarding next [expectedStep]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "expectedStep"
+    ],
+    "async": false,
+    "options": [
+      "expectedStep"
+    ],
+    "parameters": [
+      {
+        "name": "expectedStep",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "onboarding back",
+    "method": "onboarding.back",
+    "description": "返回允许回退的步骤",
+    "usage": "onboarding back [expectedStep]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "expectedStep"
+    ],
+    "async": false,
+    "options": [
+      "expectedStep"
+    ],
+    "parameters": [
+      {
+        "name": "expectedStep",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "onboarding exit",
+    "method": "onboarding.exit",
+    "description": "退出引导并保存状态",
+    "usage": "onboarding exit [expectedStep]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "expectedStep"
+    ],
+    "async": false,
+    "options": [
+      "expectedStep"
+    ],
+    "parameters": [
+      {
+        "name": "expectedStep",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "data path",
+    "method": "data.path",
+    "description": "返回当前数据目录",
+    "usage": "data path",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "data open",
+    "method": "data.open",
+    "description": "打开数据目录",
+    "usage": "data open",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "data legacy-status",
+    "method": "data.legacy-status",
+    "description": "查看旧版数据候选路径与导入条件",
+    "usage": "data legacy-status",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "data import-legacy",
+    "method": "data.import-legacy",
+    "description": "使用当前迁移预检与合并规则",
+    "usage": "data import-legacy [path]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "path"
+    ],
+    "async": true,
+    "options": [
+      "path"
+    ],
+    "parameters": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "log open",
+    "method": "log.open",
+    "description": "打开日志目录",
+    "usage": "log open",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "log tail",
+    "method": "log.tail",
+    "description": "读取最近日志",
+    "usage": "log tail [lines] [category]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "lines",
+      "category"
+    ],
+    "async": false,
+    "options": [
+      "lines",
+      "category"
+    ],
+    "parameters": [
+      {
+        "name": "lines",
+        "type": "integer",
+        "required": false
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "result": "[{file, line}]"
+  },
+  {
+    "name": "log follow",
+    "method": "log.follow",
+    "description": "订阅后续日志",
+    "usage": "log follow [category] [--lines lines]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "category"
+    ],
+    "async": false,
+    "options": [
+      "category",
+      "lines"
+    ],
+    "parameters": [
+      {
+        "name": "category",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "lines",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "{subscriptionId, events: [log], after}"
+  },
+  {
+    "name": "diagnostic snapshot",
+    "method": "diagnostic.snapshot",
+    "description": "读取观察源、目标身份、操作锁和播放确认状态",
+    "usage": "diagnostic snapshot <target>",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "target"
+    ],
+    "async": false,
+    "options": [
+      "target"
+    ],
+    "parameters": [
+      {
+        "name": "target",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "app state",
+    "method": "app.state",
+    "description": "读取完整应用快照",
+    "usage": "app state [--include-covers includeCovers]",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [
+      "includeCovers"
+    ],
+    "parameters": [
+      {
+        "name": "includeCovers",
+        "type": "boolean",
+        "required": false
+      }
+    ],
+    "result": "AppState（默认省略封面 data URI）"
+  },
+  {
+    "name": "app version",
+    "method": "app.version",
+    "description": "读取程序版本",
+    "usage": "app version",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{version, apiVersion}"
+  },
+  {
+    "name": "app update-check",
+    "method": "app.update-check",
+    "description": "检查更新，返回版本、说明、在线包与完整包下载链接",
+    "usage": "app update-check",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "app open-link",
+    "method": "app.open-link",
+    "description": "打开项目、作者、许可、更新或 Spotify 帮助链接",
+    "usage": "app open-link <name>",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [
+      "name"
+    ],
+    "async": false,
+    "options": [
+      "name"
+    ],
+    "parameters": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "app restart",
+    "method": "app.restart",
+    "description": "重启 DiscoAS",
+    "usage": "app restart",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "app quit",
+    "method": "app.quit",
+    "description": "退出 DiscoAS",
+    "usage": "app quit",
+    "group": "使用引导、数据、日志与应用",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "操作结果对象；失败返回 error"
+  },
+  {
+    "name": "event poll",
+    "method": "event.poll",
+    "description": "读取订阅中尚未取走的事件，支持 after 和 timeout",
+    "usage": "event poll <subscriptionId> [--after after] [--timeout timeout]",
+    "group": "控制台基础能力",
+    "positionals": [
+      "subscriptionId"
+    ],
+    "async": false,
+    "options": [
+      "subscriptionId",
+      "after",
+      "timeout"
+    ],
+    "parameters": [
+      {
+        "name": "subscriptionId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "after",
+        "type": "integer",
+        "required": false
+      },
+      {
+        "name": "timeout",
+        "type": "integer",
+        "required": false
+      }
+    ],
+    "result": "{subscriptionId, events, after, droppedBefore, closed}"
+  },
+  {
+    "name": "api info",
+    "method": "api.info",
+    "description": "查看本机接口地址、状态和连接配置路径",
+    "usage": "api info",
+    "group": "本机第三方接口",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{enabled, address, configPath, apiVersion, authentication, error}"
+  },
+  {
+    "name": "api start",
+    "method": "api.start",
+    "description": "开启本机 HTTP/JSON 接口并保存连接配置",
+    "usage": "api start",
+    "group": "本机第三方接口",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{enabled, address, configPath, apiVersion, authentication, error}"
+  },
+  {
+    "name": "api stop",
+    "method": "api.stop",
+    "description": "关闭本机接口并取消自动开启",
+    "usage": "api stop",
+    "group": "本机第三方接口",
+    "positionals": [],
+    "async": false,
+    "options": [],
+    "parameters": [],
+    "result": "{enabled, address, configPath, apiVersion, authentication, error}"
+  }
+]

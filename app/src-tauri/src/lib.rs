@@ -192,6 +192,7 @@ pub fn run() {
         .manage(library::ShortcutRecording::default())
         .manage(desktop::hand::HandState::default())
         .manage(desktop::auto_hand::AutoHandService::default())
+        .manage(desktop::console::ConsoleService::default())
         .manage(desktop::hand_discovery::HandDiscoveryState::default())
         .manage(desktop::hand_dock::DockState::default())
         .manage(desktop::hand_drag::DragState::default())
@@ -258,6 +259,7 @@ pub fn run() {
                     .unwrap() = Some(error);
             }
             desktop::tray_menu::create(app.handle())?;
+            desktop::console::ConsoleService::start(app.handle());
             let hand_app = app.handle().clone();
             app.state::<desktop::auto_hand::AutoHandService>().start(app.handle(), &setting)?;
             tauri::async_runtime::spawn(async move {
@@ -350,6 +352,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            desktop::console::console_execute,
+            desktop::console::console_catalog,
+            desktop::console::console_ui_reply,
             finish_startup,
             startup_ready,
             desktop::tray_menu::tray_menu_ready,
@@ -450,6 +455,7 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app.state::<desktop::auto_hand::AutoHandService>().stop();
+                app.state::<desktop::console::ConsoleService>().stop(app);
             }
         });
 }

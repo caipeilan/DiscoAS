@@ -22,6 +22,15 @@ pub async fn play_song(
     args: PlaySongArgs,
     cache: tauri::State<'_, Arc<Cache>>,
 ) -> Result<(), String> {
+    play_song_in_batch(app, args, cache, None).await
+}
+
+pub(crate) async fn play_song_in_batch(
+    app: tauri::AppHandle,
+    args: PlaySongArgs,
+    cache: tauri::State<'_, Arc<Cache>>,
+    expected_epoch: Option<u64>,
+) -> Result<(), String> {
     app.state::<crate::desktop::auto_hand::AutoHandService>().ensure_manual()?;
     if crate::desktop::discovery_preview::isolated(&app) {
         return Err("错误：预览中不能播放歌曲".into());
@@ -40,6 +49,7 @@ pub async fn play_song(
     let prepared_kuwo = if args.platform == crate::platforms::names::KUWO {
         let batch_epoch = {
             let _guard = cache.operation.lock().await;
+            require_batch(&cache, expected_epoch)?;
             service.playback_target(&args).await?;
             cache.current_batch_epoch()
         };
@@ -52,6 +62,7 @@ pub async fn play_song(
     };
     // Keep the source check and client invocation in the same operation.
     let _guard = cache.operation.lock().await;
+    require_batch(&cache, expected_epoch)?;
     if MusicSetting::load(&app)
         .map_err(|e| e.to_string())?
         .hand
@@ -311,7 +322,17 @@ pub async fn record_discovery_displayed(
     cache: tauri::State<'_, Arc<Cache>>,
     args: Vec<PlaySongArgs>,
 ) -> Result<bool, String> {
+    record_discovery_displayed_in_batch(app, cache, args, None).await
+}
+
+pub(crate) async fn record_discovery_displayed_in_batch(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    args: Vec<PlaySongArgs>,
+    expected_epoch: Option<u64>,
+) -> Result<bool, String> {
     let _guard = cache.operation.lock().await;
+    require_batch(&cache, expected_epoch)?;
     if crate::desktop::discovery_preview::isolated(&app) {
         return Ok(false);
     }
@@ -324,6 +345,12 @@ pub async fn record_discovery_displayed(
         spawn_preload(app, cache.inner().clone());
     }
     Ok(recorded)
+}
+
+fn require_batch(cache: &Cache, expected: Option<u64>) -> Result<(), String> {
+    if expected.is_some_and(|epoch| epoch != cache.current_batch_epoch()) {
+        Err("发现批次已改变，请重新读取当前批次。".into())
+    } else { Ok(()) }
 }
 
 #[tauri::command]

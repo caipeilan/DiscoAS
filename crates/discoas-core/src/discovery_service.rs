@@ -297,6 +297,16 @@ impl DiscoveryService {
         })
     }
 
+    /// Read the current sampling weights using the same inputs as discovery.
+    pub fn inspect_weighting(&self, ids: Option<&[String]>) -> Result<serde_json::Value, String> {
+        let setting=MusicSetting::load_from_path(&self.store.root().join("settings/music_setting.json")).map_err(|e|e.to_string())?;
+        let inputs=self.sampling_inputs(&setting)?;
+        let round=self.history.load().map_err(|e|e.to_string())?.weighting.round(&inputs.source.platform);
+        let rows=inputs.snapshot.playlist.song_ids.iter().filter(|id|ids.is_none_or(|wanted|wanted.contains(id)))
+            .map(|id|serde_json::json!({"songId":id,"weight":inputs.weights.get(id).copied().unwrap_or(1.0),"excluded":inputs.excluded.contains(id)})).collect::<Vec<_>>();
+        Ok(serde_json::json!({"source":inputs.source,"mode":setting.weighting_mode(),"round":round,"remainingSongs":inputs.remaining(),"songs":rows}))
+    }
+
     async fn prepare_inputs(
         &self,
         setting: &MusicSetting,

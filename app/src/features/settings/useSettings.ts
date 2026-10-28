@@ -36,7 +36,7 @@ export function useSettings(app: AppStateController, notice: Notice, reportSaveE
     gui: GuiSettings,
     preferences: DesktopPreferences,
   ) => {
-    if (busy) return;
+    if (busy) return false;
     reportSaveError?.("");
     setBusy("settings");
     try {
@@ -63,9 +63,11 @@ export function useSettings(app: AppStateController, notice: Notice, reportSaveE
         setDesktopDraft(next.desktopSettings!);
       }
       notice(t("设置已保存。"));
+      return true;
     } catch (e) {
       if (reportSaveError) reportSaveError(errorText(e));
       else notice(errorText(e), true);
+      return false;
     } finally {
       setBusy("");
     }

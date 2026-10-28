@@ -60,6 +60,7 @@ MD FOR AGENT/
 *.txt
 !/README.md
 !/docs/ARCHITECTURE.md
+!/docs/CONSOLE_COMMANDS.md
 !/crates/discoas-core/README.md
 !LICENSE*.txt
 !COPYING*.txt

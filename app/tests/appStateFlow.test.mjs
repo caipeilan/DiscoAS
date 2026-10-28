@@ -20,7 +20,7 @@ const snapshot = (name) => ({ ...types.emptyState,
 });
 
 async function controller() {
-  const slots = [], reads = [], initial = deferred();
+  const slots = [], reads = [], initial = deferred(), events = new Map();
   reads.push(initial);
   let cursor = 0, effects = [];
   const React = {
@@ -37,7 +37,7 @@ async function controller() {
   };
   const environment = { React, types, preferences, library, bridge: { desktop: true,
     call: async (name) => name === "get_app_state" ? reads.shift().promise : undefined,
-    onDesktopEvent: async () => () => {}, isCurrentWindowVisible: async () => false,
+    onDesktopEvent: async (name, handler) => { events.set(name, handler); return () => events.delete(name); }, isCurrentWindowVisible: async () => false,
   }, i18n: { t: (text) => text, errorText: String } };
   const imports = { react: "React", "../types": "types", "../services/desktop": "bridge",
     "../features/settings/preferences": "preferences", "../features/library/libraryModel": "library", "../i18n": "i18n" };
@@ -50,10 +50,24 @@ async function controller() {
   const notice = () => {};
   const render = () => { cursor = 0; effects = []; const result = useAppState(false, notice); effects.forEach((effect) => effect()); return result; };
   render(); initial.resolve(snapshot("initial")); await settle();
-  return { render, nextRead: () => { const task = deferred(); reads.push(task); return task; },
+  return { render, emit: name => events.get(name)?.(), nextRead: () => { const task = deferred(); reads.push(task); return task; },
     unmount: () => slots.forEach((slot) => slot?.cleanup?.()) };
 }
 test.after(() => { delete globalThis.__appStateTest; });
+
+test("console mutations refresh the library, coalesce bursts and retain unsaved drafts", async () => {
+  const h = await controller();
+  h.render().setDraft(draft => ({ ...draft, normalSongCount: 9 }));
+  const first = h.nextRead(); h.emit("console-state-invalidated");
+  const latest = h.nextRead(); h.emit("console-state-invalidated"); h.emit("console-state-invalidated");
+  first.resolve(snapshot("intermediate")); await settle();
+  latest.resolve({ ...snapshot("final"), sources: [] }); await settle();
+  const app = h.render();
+  assert.equal(app.state.sources.length, 0);
+  assert.equal(app.draft.discoveryShortcut, "initial");
+  assert.equal(app.draft.normalSongCount, 9);
+  h.unmount();
+});
 
 test("out-of-order app refreshes cannot restore older source or appearance preferences", async () => {
   const harness = await controller();

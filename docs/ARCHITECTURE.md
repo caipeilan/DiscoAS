@@ -18,6 +18,7 @@
 
 | 工作内容 | 入口 |
 | --- | --- |
+| 控制台与本机 HTTP/JSON 接口 | `app/src-tauri/src/services/console/` 解析与公开字段；`desktop/console/` 接入现有业务；前端 `app/src/features/console/`；完整命令见 `docs/CONSOLE_COMMANDS.md` |
 | 添加平台、解析分享链接、歌曲详情或播放 URI | `crates/discoas-core/src/platforms/` |
 | 本地音频、目录与 M3U 扫描、标签和内嵌封面 | `crates/discoas-core/src/platforms/local.rs`；桌面导入复用 `desktop/library.rs` 的取消和提交流程，`desktop/dialogs.rs` 选择路径，`desktop/playback.rs` 打开默认播放器 |
 | 酷我 / 汽水公开音乐快照与客户端播放链接 | `crates/discoas-core/src/platforms/kuwo/`、同级 `qishui/` 与 `public_music.rs`；桌面二次校验在 `app/src-tauri/src/commands.rs` |

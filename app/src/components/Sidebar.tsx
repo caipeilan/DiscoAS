@@ -4,7 +4,7 @@ import { t } from "../i18n";
 import { Reveal } from "./Motion";
 import { settingsCategories, type SettingsCategory } from "../features/settings/settingsNavigation";
 
-export type Page = "library" | "history" | "settings" | "about";
+export type Page = "library" | "history" | "settings" | "console" | "about";
 
 export function Sidebar({ page, playlistCount, navigate, version, settingsCategory, selectSettingsCategory }: {
   page: Page;
@@ -29,6 +29,7 @@ export function Sidebar({ page, playlistCount, navigate, version, settingsCatego
             ["library", t("歌单")],
             ["history", t("发现记录")],
             ["settings", t("设置")],
+            ["console", t("控制台")],
             ["about", t("关于")],
           ] as const
         ).map(([id, label]) => (

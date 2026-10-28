@@ -572,6 +572,14 @@ pub async fn import_legacy(
     let Some(selected) = super::dialogs::pick_legacy_folder(&app).await? else {
         return Ok(None);
     };
+    console_import_legacy(app,cache,selected).await.map(Some)
+}
+
+pub(super) async fn console_import_legacy(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    selected: std::path::PathBuf,
+) -> Result<Snapshot, String> {
     let repository = repository(&app)?;
     let root = migration::resolve_legacy_root(&selected, repository.root())?;
     let _guard = cache.operation.lock().await;
@@ -582,5 +590,5 @@ pub async fn import_legacy(
         let _ = app.emit("gui-changed", ());
     }
     changed(&app, cache.inner()).await;
-    get_app_state(app).map(Some)
+    get_app_state(app)
 }
