@@ -13,7 +13,7 @@ use reqwest::{Client, Response, Url};
 use serde_json::{json, Value};
 
 use crate::{
-    core::playlist::TypeName,
+    core::playlist::SourceKind,
     error::{AppError, AppResult},
 };
 
@@ -44,16 +44,16 @@ struct BundleHashes {
     fetched: Instant,
 }
 impl BundleHashes {
-    fn for_kind(&self, kind: TypeName) -> Result<(String, String), AppError> {
+    fn for_kind(&self, kind: SourceKind) -> Result<(String, String), AppError> {
         match kind {
-            TypeName::Album => self.album.clone(),
+            SourceKind::Album => self.album.clone(),
             _ => self.playlist.clone(),
         }
         .ok_or_else(|| platform_error("未找到当前查询，公开接口可能已变化"))
     }
 }
 static BUNDLE_HASHES: Lazy<Mutex<Option<BundleHashes>>> = Lazy::new(|| Mutex::new(None));
-fn cached_hashes(kind: TypeName) -> Option<(String, String)> {
+fn cached_hashes(kind: SourceKind) -> Option<(String, String)> {
     let mut cache = BUNDLE_HASHES.lock().unwrap();
     let hashes = cache.as_ref()?;
     if hashes.fetched.elapsed() > BUNDLE_TTL {
@@ -309,10 +309,10 @@ fn total_count(content: &Value) -> AppResult<usize> {
     Ok(count)
 }
 
-fn content_for(response: &Value, kind: TypeName) -> AppResult<&Value> {
+fn content_for(response: &Value, kind: SourceKind) -> AppResult<&Value> {
     let path = match kind {
-        TypeName::Playlist => "/data/playlistV2/content",
-        TypeName::Album => "/data/albumUnion/tracksV2",
+        SourceKind::Playlist => "/data/playlistV2/content",
+        SourceKind::Album => "/data/albumUnion/tracksV2",
         _ => return Err(platform_error("只支持歌单或专辑")),
     };
     response
@@ -321,10 +321,10 @@ fn content_for(response: &Value, kind: TypeName) -> AppResult<&Value> {
         .ok_or_else(|| platform_error("接口未返回歌曲列表，内容可能未公开或无法访问"))
 }
 
-fn normalize_track(row: &Value, kind: TypeName, album_cover: &str) -> AppResult<Value> {
+fn normalize_track(row: &Value, kind: SourceKind, album_cover: &str) -> AppResult<Value> {
     let track = match kind {
-        TypeName::Playlist => row.pointer("/itemV2/data"),
-        TypeName::Album => row.get("track"),
+        SourceKind::Playlist => row.pointer("/itemV2/data"),
+        SourceKind::Album => row.get("track"),
         _ => return Err(platform_error("只支持歌单或专辑")),
     }
     .ok_or_else(|| platform_error("列表含有无法读取的歌曲条目，已停止导入"))?;
@@ -370,7 +370,7 @@ fn normalize_track(row: &Value, kind: TypeName, album_cover: &str) -> AppResult<
 
 struct PageCollector {
     expected: usize,
-    kind: TypeName,
+    kind: SourceKind,
     album_cover: String,
     uids: HashSet<String>,
     tracks: Vec<Value>,
@@ -379,7 +379,7 @@ struct PageCollector {
 }
 
 impl PageCollector {
-    fn new(expected: usize, kind: TypeName, album_cover: String) -> Self {
+    fn new(expected: usize, kind: SourceKind, album_cover: String) -> Self {
         Self {
             expected,
             kind,
@@ -436,13 +436,13 @@ fn valid_spotify_id(id: &str) -> bool {
     id.len() == 22 && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
-pub async fn fetch_playlist(id: &str, kind: TypeName) -> AppResult<Value> {
+pub async fn fetch_playlist(id: &str, kind: SourceKind) -> AppResult<Value> {
     fetch_playlist_inner(id, kind, None).await
 }
 
 pub async fn fetch_playlist_with_progress(
     id: &str,
-    kind: TypeName,
+    kind: SourceKind,
     progress: crate::platforms::FetchProgressCallback,
 ) -> AppResult<Value> {
     progress(crate::platforms::FetchProgress {
@@ -455,7 +455,7 @@ pub async fn fetch_playlist_with_progress(
 
 async fn fetch_playlist_inner(
     id: &str,
-    kind: TypeName,
+    kind: SourceKind,
     progress: Option<crate::platforms::FetchProgressCallback>,
 ) -> AppResult<Value> {
     crate::platforms::validate_kind(crate::platforms::names::SPOTIFY, kind)?;
@@ -469,8 +469,8 @@ async fn fetch_playlist_inner(
     let embed = read_response(client.get(embed_url).send().await.map_err(http_error)?).await?;
     let session = AnonymousSession::from_embed(parse_next_data(&embed)?)?;
     let (metadata_operation, contents_operation) = match kind {
-        TypeName::Playlist => ("fetchPlaylistMetadata", "fetchPlaylistContents"),
-        TypeName::Album => ("getAlbum", "queryAlbumTracks"),
+        SourceKind::Playlist => ("fetchPlaylistMetadata", "fetchPlaylistContents"),
+        SourceKind::Album => ("getAlbum", "queryAlbumTracks"),
         _ => return Err(platform_error("只支持歌单或专辑")),
     };
     let cached = cached_hashes(kind);
@@ -516,8 +516,8 @@ async fn fetch_playlist_inner(
         }
     };
     let entity_path = match kind {
-        TypeName::Playlist => "/data/playlistV2",
-        TypeName::Album => "/data/albumUnion",
+        SourceKind::Playlist => "/data/playlistV2",
+        SourceKind::Album => "/data/albumUnion",
         _ => return Err(platform_error("只支持歌单或专辑")),
     };
     let entity = metadata
@@ -531,7 +531,7 @@ async fn fetch_playlist_inner(
         .unwrap_or_default();
     let expected = total_count(content_for(&metadata, kind)?)?;
     // For playlists, the playlist cover must not replace a missing album cover.
-    let track_fallback_cover = if kind == TypeName::Album {
+    let track_fallback_cover = if kind == SourceKind::Album {
         cover.clone()
     } else {
         String::new()
@@ -577,19 +577,19 @@ mod tests {
     fn parses_observed_public_playlist_and_album_fixtures() {
         let playlist: Value =
             serde_json::from_str(include_str!("fixtures/playlist_page.json")).unwrap();
-        let content = content_for(&playlist, TypeName::Playlist).unwrap();
+        let content = content_for(&playlist, SourceKind::Playlist).unwrap();
         assert_eq!(total_count(content).unwrap(), 180);
-        let song = normalize_track(&content["items"][0], TypeName::Playlist, "").unwrap();
+        let song = normalize_track(&content["items"][0], SourceKind::Playlist, "").unwrap();
         assert_eq!(song["name"], "Eyeless");
         assert_eq!(song["artists"], json!(["Slipknot"]));
         assert_eq!(song["duration_ms"], 236360);
         assert!(song["coverUrl"].as_str().unwrap().contains("0000b273"));
         let album: Value = serde_json::from_str(include_str!("fixtures/album_page.json")).unwrap();
-        let content = content_for(&album, TypeName::Album).unwrap();
+        let content = content_for(&album, SourceKind::Album).unwrap();
         assert_eq!(total_count(content).unwrap(), 15);
         let song = normalize_track(
             &content["items"][0],
-            TypeName::Album,
+            SourceKind::Album,
             "https://i.scdn.co/album-cover",
         )
         .unwrap();
@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn parses_current_playlist_track_and_preserves_all_artists() {
-        let parsed = normalize_track(&row("one", false), TypeName::Playlist, "").unwrap();
+        let parsed = normalize_track(&row("one", false), SourceKind::Playlist, "").unwrap();
         assert_eq!(parsed["id"], "7MEHTWzEi3z7P2jEWAcdHZ");
         assert_eq!(parsed["artists"], json!(["Slipknot", "Guest"]));
         assert_eq!(parsed["coverUrl"], "https://i.scdn.co/large");
@@ -628,13 +628,13 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("albumOfTrack");
-        let parsed = normalize_track(&item, TypeName::Album, "https://i.scdn.co/album").unwrap();
+        let parsed = normalize_track(&item, SourceKind::Album, "https://i.scdn.co/album").unwrap();
         assert_eq!(parsed["coverUrl"], "https://i.scdn.co/album");
     }
 
     #[test]
     fn pagination_keeps_repeated_songs_but_requires_distinct_entry_uids() {
-        let mut collector = PageCollector::new(180, TypeName::Playlist, String::new());
+        let mut collector = PageCollector::new(180, SourceKind::Playlist, String::new());
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = events.clone();
         collector.progress = Some(std::sync::Arc::new(move |progress| {
@@ -668,20 +668,20 @@ mod tests {
 
     #[test]
     fn truncated_changed_or_duplicate_pages_fail_without_partial_success() {
-        let mut collector = PageCollector::new(2, TypeName::Playlist, String::new());
+        let mut collector = PageCollector::new(2, SourceKind::Playlist, String::new());
         collector
             .append(&json!({"totalCount":2,"items":[row("one",false)]}))
             .unwrap();
         assert!(collector
             .append(&json!({"totalCount":2,"items":[row("one",false)]}))
             .is_err());
-        assert!(PageCollector::new(2, TypeName::Playlist, String::new())
+        assert!(PageCollector::new(2, SourceKind::Playlist, String::new())
             .finish()
             .is_err());
-        assert!(PageCollector::new(2, TypeName::Playlist, String::new())
+        assert!(PageCollector::new(2, SourceKind::Playlist, String::new())
             .append(&json!({"totalCount":3,"items":[row("one",false)]}))
             .is_err());
-        assert!(PageCollector::new(2, TypeName::Playlist, String::new())
+        assert!(PageCollector::new(2, SourceKind::Playlist, String::new())
             .append(&json!({"totalCount":2,"items":[]}))
             .is_err());
     }
@@ -690,10 +690,10 @@ mod tests {
     fn rejects_unreadable_or_non_song_entries() {
         let mut episode = row("one", false);
         episode["itemV2"]["data"]["uri"] = json!("spotify:episode:7MEHTWzEi3z7P2jEWAcdHZ");
-        assert!(normalize_track(&episode, TypeName::Playlist, "").is_err());
+        assert!(normalize_track(&episode, SourceKind::Playlist, "").is_err());
         assert!(normalize_track(
             &json!({"uid":"one","itemV2":{"data":null}}),
-            TypeName::Playlist,
+            SourceKind::Playlist,
             ""
         )
         .is_err());
@@ -748,10 +748,10 @@ mod tests {
     #[ignore = "read-only public network probe; no account cookies or audio"]
     async fn live_public_playlist_and_album_are_complete() {
         for (id, kind) in [
-            ("5qsaQsbyxZZXI2QHUNILRO", TypeName::Playlist),
-            ("2vCR0MBUZ8XLDtcLO1mlTx", TypeName::Playlist),
-            ("37i9dQZF1DX5Ejj0EkURtP", TypeName::Playlist),
-            ("1fOxg0lovMu0CPUT2G1WCL", TypeName::Album),
+            ("5qsaQsbyxZZXI2QHUNILRO", SourceKind::Playlist),
+            ("2vCR0MBUZ8XLDtcLO1mlTx", SourceKind::Playlist),
+            ("37i9dQZF1DX5Ejj0EkURtP", SourceKind::Playlist),
+            ("1fOxg0lovMu0CPUT2G1WCL", SourceKind::Album),
         ] {
             let data = fetch_playlist(id, kind).await.unwrap();
             let count = data["expected_total"].as_u64().unwrap() as usize;
@@ -761,7 +761,7 @@ mod tests {
                 "Spotify public {} {id}: expected={count}, received={count}",
                 kind.as_str()
             );
-            if kind == TypeName::Playlist {
+            if kind == SourceKind::Playlist {
                 assert!(count > 100);
             }
             let saved = data.to_string();

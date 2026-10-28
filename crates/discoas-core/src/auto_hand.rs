@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn settings_are_backward_compatible_and_pick_ordinary_order() {
         let old: HandSettings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
-        assert!(!old.auto_play);
+        assert!(!old.auto_play_enabled);
         assert_eq!(old.auto_play_position, AutoPlayPosition::First);
         assert_eq!(
             old.auto_play_detection,
@@ -731,7 +731,7 @@ mod tests {
     fn detection_choices_are_normalized_for_the_enabled_source() {
         use crate::{
             hand::AutoDetectionMode as Mode,
-            settings::music_setting::{MusicSetting, PlaylistAlbum},
+            settings::music_setting::{MusicSetting, SourceConfig},
         };
         for platform in [
             names::NETEASE,
@@ -747,14 +747,14 @@ mod tests {
             for mode in [Mode::System, Mode::Window, Mode::Mixed] {
                 let mut settings = MusicSetting::default();
                 settings.hand.auto_play_detection = mode;
-                settings.playlist_albums.push(PlaylistAlbum {
-                    name: platform.into(),
+                settings.sources.push(SourceConfig {
+                    platform: platform.into(),
                     enabled: true,
-                    playlist_album_id: "test".into(),
-                    typename: "playlist".into(),
-                    playlist_album_name: String::new(),
-                    playlist_album_remark: String::new(),
-                    update_time: String::new(),
+                    source_id: "test".into(),
+                    source_kind: "playlist".into(),
+                    title: String::new(),
+                    remark: String::new(),
+                    updated_at: String::new(),
                 });
                 settings.normalize_preferences();
                 let expected = match platform {

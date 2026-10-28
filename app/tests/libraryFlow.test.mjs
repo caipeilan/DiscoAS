@@ -43,21 +43,21 @@ async function controller(entries) {
     },
   };
   const app = {
-    state: { playlists: entries }, busy: "", setBusy(value) { app.busy = value; },
-    applyLibraryPatch(patch) { app.state = { ...app.state, settings: patch.settings, playlists: model.mergeLibraryEntries(app.state.playlists, patch) }; },
+    state: { sources: entries }, busy: "", setBusy(value) { app.busy = value; },
+    applyLibraryPatch(patch) { app.state = { ...app.state, settings: patch.settings, sources: model.mergeLibraryEntries(app.state.sources, patch) }; },
     async action(key, command, args) {
       requests.push({ key, command, args });
       if (!succeeds) return false;
       const removed = new Set(args.sources.map(model.sourceKey));
-      app.state = { playlists: app.state.playlists.filter((entry) => !removed.has(model.sourceKey(entry))) };
+      app.state = { sources: app.state.sources.filter((entry) => !removed.has(model.sourceKey(entry))) };
       return true;
     },
   };
   const environment = {
     react,
     bridge: { desktop: false,
-      call: async (command, args) => { requests.push({ command, args }); return { settings: { playlist_albums: app.state.playlists.map(entry => ({ name: entry.platform, typename: entry.kind,
-        playlist_album_id: entry.id, playlist_album_name: entry.title, playlist_album_remark: entry.remark, update_time: entry.updatedAt, enabled: entry.enabled })) }, updatedPlaylists: [], startupRefreshError: null }; },
+      call: async (command, args) => { requests.push({ command, args }); return { settings: { sources: app.state.sources.map(entry => ({ platform: entry.platform, sourceKind: entry.sourceKind,
+        sourceId: entry.sourceId, title: entry.title, remark: entry.remark, updatedAt: entry.updatedAt, enabled: entry.enabled })) }, updatedSources: [], startupRefreshError: null }; },
       listenFileDrop: async (handler) => { drop = handler; return () => { drop = undefined; }; },
       onDesktopEvent: async () => () => {} },
     ...model, t: (value) => value, currentLocale: () => "en-US", errorText: String, isCancelledError: () => false,
@@ -105,11 +105,11 @@ test("dropping audio opens a reviewable local import and busy operations retain 
 });
 
 test("local refresh uses the saved source identity and shares the cancellable update flow", async () => {
-  const entry = { platform: "LocalMusic", kind: "playlist", id: "local-example", title: "Folder", remark: "kept" };
+  const entry = { platform: "LocalMusic", sourceKind: "playlist", sourceId: "local-example", title: "Folder", remark: "kept" };
   const harness = await controller([entry]);
   await harness.render().updatePlaylist(entry);
   assert.equal(harness.requests[0].command, "import_playlist");
-  assert.equal(harness.requests[0].args.source, entry.id);
+  assert.equal(harness.requests[0].args.sourceInput, entry.sourceId);
   assert.equal(harness.requests[0].args.platform, "LocalMusic");
   assert.equal(harness.requests[0].args.remark, "kept");
   assert.equal(harness.app.busy, "");
@@ -117,9 +117,9 @@ test("local refresh uses the saved source identity and shares the cancellable up
 
 test("batch deletion submits complete identities once, retains a failed confirmation, and clears only removed selections on retry", async () => {
   const entries = [
-    { platform: "Spotify", kind: "playlist", id: "same", title: "Playlist", remark: "" },
-    { platform: "Spotify", kind: "album", id: "same", title: "Album", remark: "" },
-    { platform: "QQMusic", kind: "playlist", id: "same", title: "Other platform", remark: "" },
+    { platform: "Spotify", sourceKind: "playlist", sourceId: "same", title: "Playlist", remark: "" },
+    { platform: "Spotify", sourceKind: "album", sourceId: "same", title: "Album", remark: "" },
+    { platform: "QQMusic", sourceKind: "playlist", sourceId: "same", title: "Other platform", remark: "" },
   ];
   const harness = await controller(entries);
   harness.render().toggleSelected(entries[0]);
@@ -130,23 +130,23 @@ test("batch deletion submits complete identities once, retains a failed confirma
   assert.equal(harness.requests.length, 1);
   assert.equal(harness.requests[0].command, "remove_playlists");
   assert.deepEqual(harness.requests[0].args.sources, [
-    { platform: "Spotify", kind: "playlist", id: "same" },
-    { platform: "QQMusic", kind: "playlist", id: "same" },
+    { platform: "Spotify", sourceKind: "playlist", sourceId: "same" },
+    { platform: "QQMusic", sourceKind: "playlist", sourceId: "same" },
   ]);
   assert.deepEqual(harness.render().remove, [entries[0], entries[2]]);
   assert.equal(harness.render().selected.size, 2);
-  assert.equal(harness.app.state.playlists.length, 3);
+  assert.equal(harness.app.state.sources.length, 3);
   harness.render().toggleSelected(entries[1]);
   harness.succeed();
   await harness.render().removePlaylist();
   assert.equal(harness.requests.length, 2);
   assert.equal(harness.render().remove, null);
   assert.deepEqual([...harness.render().selected], [model.sourceKey(entries[1])]);
-  assert.deepEqual(harness.app.state.playlists, [entries[1]]);
+  assert.deepEqual(harness.app.state.sources, [entries[1]]);
 });
 
 test("single-row deletion shares the batch confirmation and empty selection opens no dialog", async () => {
-  const entry = { platform: "Spotify", kind: "playlist", id: "source", title: "Playlist", remark: "" };
+  const entry = { platform: "Spotify", sourceKind: "playlist", sourceId: "source", title: "Playlist", remark: "" };
   const harness = await controller([entry]);
   harness.render().removeSelected();
   assert.equal(harness.render().remove, null);
@@ -155,19 +155,19 @@ test("single-row deletion shares the batch confirmation and empty selection open
   harness.succeed();
   await harness.render().removePlaylist();
   assert.equal(harness.requests.length, 1);
-  assert.equal(harness.app.state.playlists.length, 0);
+  assert.equal(harness.app.state.sources.length, 0);
   assert.equal(harness.render().remove, null);
 });
 
 test("unrelated renders and selection changes reuse the filtered library", async () => {
-  const entry = { platform: "Spotify", kind: "playlist", id: "source", title: "Playlist", remark: "" };
+  const entry = { platform: "Spotify", sourceKind: "playlist", sourceId: "source", title: "Playlist", remark: "" };
   const harness = await controller([entry]);
   const first = harness.render().filtered;
   harness.render().toggleSelected(entry);
   assert.equal(harness.render().filtered, first);
   harness.app.busy = "update";
   assert.equal(harness.render().filtered, first);
-  harness.app.state = { playlists: [{ ...entry, title: "Updated" }] };
+  harness.app.state = { sources: [{ ...entry, title: "Updated" }] };
   assert.notEqual(harness.render().filtered, first);
   assert.equal(harness.render().filtered[0].title, "Updated");
 });

@@ -19,7 +19,7 @@ import type { ArrivalReady } from "./handSurface";
 
 const fallback: HandSnapshot = {
   generation: 0, cards: [], settings: defaultHandSettings, gui: defaultGuiSettings,
-  keys: emptyState.settings.discovery_keybindings, workArea: { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
+  keys: emptyState.settings.discoveryKeybindings, workArea: { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
   preview: false, focus: false, expanded: false, arrival: null,
 };
 
@@ -72,8 +72,8 @@ export function useHandController() {
     for (const card of snapshot.cards) (card.discovery ? discovery : ordinary).push(card);
     return { discovery, ordinary };
   }, [snapshot.cards]);
-  const autoNextId = useMemo(() => autoState.enabled === false ? null : autoHandNextId(snapshot.cards, snapshot.settings, snapshot.preview),
-    [snapshot.cards, snapshot.settings.enabled, snapshot.settings.auto_play, snapshot.settings.auto_play_position, snapshot.preview, autoState.enabled]);
+  const autoNextId = useMemo(() => autoState.active === false ? null : autoHandNextId(snapshot.cards, snapshot.settings, snapshot.preview),
+    [snapshot.cards, snapshot.settings.enabled, snapshot.settings.autoPlayEnabled, snapshot.settings.autoPlayPosition, snapshot.preview, autoState.active]);
   const displayed = useMemo(() => refill && snapshot.discoverySettings?.enabled && groups.discovery.length < refillCount
     ? groups.discovery.concat(refill, groups.ordinary) : snapshot.cards,
   [snapshot.cards, groups, snapshot.discoverySettings?.enabled, refill, refillCount]);
@@ -81,16 +81,16 @@ export function useHandController() {
   const cardIndices = useMemo(() => new Map(cards.map((card, index) => [card.id, index])), [cards]);
   const activeIndex = active ? cardIndices.get(active) ?? -1 : -1;
   const layoutDiscoveryCount = useMemo(() => cards.reduce((total, card) => total + Number(!!card.discovery), 0), [cards]);
-  const cardSize = handCardSize(snapshot.gui.font_size);
-  const restPoses = useMemo(() => groupedHandLayout(cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, -1, snapshot.gui.font_size), [cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, snapshot.gui.font_size]);
+  const cardSize = handCardSize(snapshot.gui.fontSize);
+  const restPoses = useMemo(() => groupedHandLayout(cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, -1, snapshot.gui.fontSize), [cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, snapshot.gui.fontSize]);
   const restPosesRef = useRef(restPoses); restPosesRef.current = restPoses;
-  const diameter = 44 * snapshot.gui.font_size / 14;
+  const diameter = 44 * snapshot.gui.fontSize / 14;
   const dockAreas = useMemo(() => snapshot.workAreas?.length ? snapshot.workAreas : [snapshot.workArea], [snapshot.workAreas, snapshot.workArea]);
   const dockSide = snapshot.settings.enabled ? snapshot.settings.side : snapshot.discoverySettings?.side ?? snapshot.settings.side;
   const dockPosition = dockPoint ?? defaultDockPoint(restPoses, dockSide, snapshot.workArea, diameter);
   if (desktop && !snapshot.preview) toolbarBounds.current = null;
-  const poses = useMemo(() => groupedHandLayout(cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, activeIndex, snapshot.gui.font_size),
-    [cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, activeIndex, snapshot.gui.font_size]);
+  const poses = useMemo(() => groupedHandLayout(cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, activeIndex, snapshot.gui.fontSize),
+    [cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, activeIndex, snapshot.gui.fontSize]);
   const posesRef = useRef(poses); posesRef.current = poses;
   const layoutDrawingBounds = useMemo(() => {
     const all = [...restPoses];
@@ -111,7 +111,7 @@ export function useHandController() {
         y: pose.y + (side === "bottom" ? pose.height : 0) };
     });
     return combineHandBounds([...all, ...folded].map((pose) => handPoseBounds(pose)));
-  }, [restPoses, cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, snapshot.gui.font_size]);
+  }, [restPoses, cards, snapshot.settings, snapshot.discoverySettings, snapshot.workArea, snapshot.gui.fontSize]);
   const drawingBounds = useRef<HandRect | null>(null);
   drawingBounds.current = combineHandBounds([
     cardsMounted ? layoutDrawingBounds : null,
@@ -176,7 +176,7 @@ export function useHandController() {
         const element = stage.current?.querySelector<HTMLElement>(`[data-hand-id="${card.id}"]`);
         if (element) oldPoses.set(card.id, readPose(element));
       }
-      const targets = groupedHandLayout(next.cards, next.settings, next.discoverySettings, next.workArea, -1, next.gui.font_size);
+      const targets = groupedHandLayout(next.cards, next.settings, next.discoverySettings, next.workArea, -1, next.gui.fontSize);
       const changed = next.cards.length !== oldPoses.size || next.cards.some((card, index) => {
         const old = oldPoses.get(card.id), target = targets[index];
         return !old || ["x", "y", "width", "height", "angle", "scale"].some(key => Math.abs(old[key as keyof CardPose] - target[key as keyof CardPose]) > .01);
@@ -210,8 +210,8 @@ export function useHandController() {
     current.current = next;
     setSnapshot(next); setHidden(false); setClearConfirm(false);
     if (!desktop || next.preview) setDockPoint((previous) => next.dockPoint ?? previous ?? defaultDockPoint(
-      handLayout(next.cards.length, next.settings, next.workArea, -1, next.gui.font_size),
-      next.settings.side, next.workArea, 44 * next.gui.font_size / 14));
+      handLayout(next.cards.length, next.settings, next.workArea, -1, next.gui.fontSize),
+      next.settings.side, next.workArea, 44 * next.gui.fontSize / 14));
     if (!next.expanded) {
       cancelDrag(); setPhase("closed"); unfolding.current = true;
       hoverRef.current = null; selectedRef.current = null; pointer.current = null;
@@ -250,7 +250,7 @@ export function useHandController() {
     if (name === "play_hand_card") setManualPlaying(true);
     if (card.discovery) {
       const state = current.current, batchEpoch = state.discovery?.batchEpoch;
-      const args = { platform: card.song.platform, songId: card.song.songId, playlistId: card.song.playlistId, typename: card.song.typename, filename: card.song.filename };
+      const args = { platform: card.song.platform, songId: card.song.songId, sourceId: card.song.sourceId, sourceKind: card.song.sourceKind, filename: card.song.filename };
       const index = state.cards.filter(c => c.discovery).findIndex(c => c.id === card.id);
       try {
         if (name === "discard_hand_card") {
@@ -371,7 +371,7 @@ export function useHandController() {
     void decoded().then(() => {
       if (cancelled || !mounted.current) return;
       return call("hand_discovery_displayed", { batchEpoch: snapshot.discovery!.batchEpoch,
-        identities: snapshot.cards.filter(c => c.discovery).map(c => ({ platform: c.song.platform, songId: c.song.songId, playlistId: c.song.playlistId, typename: c.song.typename, filename: c.song.filename })) });
+        identities: snapshot.cards.filter(c => c.discovery).map(c => ({ platform: c.song.platform, songId: c.song.songId, sourceId: c.song.sourceId, sourceKind: c.song.sourceKind, filename: c.song.filename })) });
     }).catch(e => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; };
   }, [snapshot.discovery?.batchEpoch, snapshot.expanded, snapshot.preview, discoveryPhase, replacing]);

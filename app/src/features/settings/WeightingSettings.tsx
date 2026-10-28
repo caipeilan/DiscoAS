@@ -9,9 +9,9 @@ import { calculateDiscoveryWeighting, parseSongBasis, recommendedSoftBand } from
 import "./weighting.css";
 
 export type WeightingPatch = {
-  weighting_mode?: DiscoveryWeightingMode;
-  discovery_weighting?: DiscoveryWeighting;
-  ranked_weighting?: RankedWeighting;
+  weightingMode?: DiscoveryWeightingMode;
+  discoveryWeighting?: DiscoveryWeighting;
+  rankedWeighting?: RankedWeighting;
 };
 
 export function WeightingSettings({ mode, traditional, ranked, onChange, songCount, sourceIdentity, drawCount }: {
@@ -32,23 +32,23 @@ export function WeightingSettings({ mode, traditional, ranked, onChange, songCou
   latest.current = { mode, ranked, onChange, recommended };
   const changeMode = (next: DiscoveryWeightingMode) => {
     if (next === "traditional") {
-      onChange({ weighting_mode: "traditional", discovery_weighting: { ...traditional, enabled: true } });
+      onChange({ weightingMode: "traditional", discoveryWeighting: { ...traditional, enabled: true } });
       return;
     }
     if (next === "ranked") {
-      let band = ranked.soft_band;
+      let band = ranked.softBand;
       if (band === lastAutoBand.current) {
         band = recommended;
         lastAutoBand.current = recommended;
       }
       onChange({
-        weighting_mode: "ranked",
-        discovery_weighting: { ...traditional, enabled: false },
-        ranked_weighting: { ...ranked, soft_band: band },
+        weightingMode: "ranked",
+        discoveryWeighting: { ...traditional, enabled: false },
+        rankedWeighting: { ...ranked, softBand: band },
       });
       return;
     }
-    onChange({ weighting_mode: next, discovery_weighting: { ...traditional, enabled: false } });
+    onChange({ weightingMode: next, discoveryWeighting: { ...traditional, enabled: false } });
   };
   useEffect(() => {
     const previous = previousSource.current;
@@ -57,11 +57,11 @@ export function WeightingSettings({ mode, traditional, ranked, onChange, songCou
     const current = latest.current;
     if (
       current.mode === "ranked" &&
-      current.ranked.soft_band === lastAutoBand.current &&
-      current.ranked.soft_band !== current.recommended
+      current.ranked.softBand === lastAutoBand.current &&
+      current.ranked.softBand !== current.recommended
     ) {
       lastAutoBand.current = current.recommended;
-      current.onChange({ ranked_weighting: { ...current.ranked, soft_band: current.recommended } });
+      current.onChange({ rankedWeighting: { ...current.ranked, softBand: current.recommended } });
     }
   }, [songCount, sourceIdentity]);
   return <section className="settings-section weighting-settings">
@@ -76,9 +76,9 @@ export function WeightingSettings({ mode, traditional, ranked, onChange, songCou
         ]} />
     </SettingRow>
     {mode === "rotation" && <p className="setting-explanation">{t("最近出现的曲目暂时降低权重，随后逐渐恢复；刚选中的曲目恢复得更慢。恢复速度随歌单曲数和每批发现数量自动调整。")}</p>}
-    {mode === "traditional" && <TraditionalWeightingSettings value={traditional} onChange={(value) => onChange({ discovery_weighting: value })}
+    {mode === "traditional" && <TraditionalWeightingSettings value={traditional} onChange={(value) => onChange({ discoveryWeighting: value })}
       songCount={songCount} sourceIdentity={sourceIdentity} drawCount={drawCount} />}
-    {mode === "ranked" && <RankedWeightingSettings value={ranked} onChange={(value) => onChange({ ranked_weighting: value })}
+    {mode === "ranked" && <RankedWeightingSettings value={ranked} onChange={(value) => onChange({ rankedWeighting: value })}
       recommendedBand={recommended} />}
   </section>;
 }
@@ -112,20 +112,20 @@ function TraditionalWeightingSettings({ value, onChange, songCount, sourceIdenti
       </div>
     </SettingRow>
     <AnimatedDetails className="weighting-parameters" summary={t("手动调整")}>
-      <SettingRow title={t("原始权重")}><NumberField decimal label={t("原始权重")} value={value.base_weight} min={1} max={10000} suffix=""
-        onChange={(base_weight) => set({ ...value, base_weight, max_weight: Math.max(base_weight, value.max_weight) })} /></SettingRow>
-      <SettingRow title={t("入选后减权")}><NumberField decimal label={t("入选后减权")} value={value.discovered_penalty} min={0} max={10000} suffix=""
-        onChange={(discovered_penalty) => set({ ...value, discovered_penalty })} /></SettingRow>
-      <SettingRow title={t("选择后减权")}><NumberField decimal label={t("选择后减权")} value={value.selected_penalty} min={0} max={10000} suffix=""
-        onChange={(selected_penalty) => set({ ...value, selected_penalty })} /></SettingRow>
-      <SettingRow title={t("恢复原权重所需发现次数")}><NumberField label={t("恢复原权重所需发现次数")} value={value.recovery_batches} min={1} max={10000} suffix={t("次")}
-        onChange={(recovery_batches) => set({ ...value, recovery_batches, boost_after_batches: Math.max(recovery_batches, value.boost_after_batches) })} /></SettingRow>
-      <SettingRow title={t("开始加权所需发现次数")}><NumberField label={t("开始加权所需发现次数")} value={value.boost_after_batches} min={value.recovery_batches} max={10000} suffix={t("次")}
-        onChange={(boost_after_batches) => set({ ...value, boost_after_batches })} /></SettingRow>
-      <SettingRow title={t("每次发现加权")}><NumberField decimal label={t("每次发现加权")} value={value.boost_per_batch} min={0} max={10000} suffix=""
-        onChange={(boost_per_batch) => set({ ...value, boost_per_batch })} /></SettingRow>
-      <SettingRow title={t("最高权重")}><NumberField decimal label={t("最高权重")} value={value.max_weight} min={value.base_weight} max={100000} suffix=""
-        onChange={(max_weight) => set({ ...value, max_weight })} /></SettingRow>
+      <SettingRow title={t("原始权重")}><NumberField decimal label={t("原始权重")} value={value.baseWeight} min={1} max={10000} suffix=""
+        onChange={(baseWeight) => set({ ...value, baseWeight, maxWeight: Math.max(baseWeight, value.maxWeight) })} /></SettingRow>
+      <SettingRow title={t("入选后减权")}><NumberField decimal label={t("入选后减权")} value={value.discoveredPenalty} min={0} max={10000} suffix=""
+        onChange={(discoveredPenalty) => set({ ...value, discoveredPenalty })} /></SettingRow>
+      <SettingRow title={t("选择后减权")}><NumberField decimal label={t("选择后减权")} value={value.selectedPenalty} min={0} max={10000} suffix=""
+        onChange={(selectedPenalty) => set({ ...value, selectedPenalty })} /></SettingRow>
+      <SettingRow title={t("恢复原权重所需发现次数")}><NumberField label={t("恢复原权重所需发现次数")} value={value.recoveryBatches} min={1} max={10000} suffix={t("次")}
+        onChange={(recoveryBatches) => set({ ...value, recoveryBatches, boostAfterBatches: Math.max(recoveryBatches, value.boostAfterBatches) })} /></SettingRow>
+      <SettingRow title={t("开始加权所需发现次数")}><NumberField label={t("开始加权所需发现次数")} value={value.boostAfterBatches} min={value.recoveryBatches} max={10000} suffix={t("次")}
+        onChange={(boostAfterBatches) => set({ ...value, boostAfterBatches })} /></SettingRow>
+      <SettingRow title={t("每次发现加权")}><NumberField decimal label={t("每次发现加权")} value={value.boostPerBatch} min={0} max={10000} suffix=""
+        onChange={(boostPerBatch) => set({ ...value, boostPerBatch })} /></SettingRow>
+      <SettingRow title={t("最高权重")}><NumberField decimal label={t("最高权重")} value={value.maxWeight} min={value.baseWeight} max={100000} suffix=""
+        onChange={(maxWeight) => set({ ...value, maxWeight })} /></SettingRow>
     </AnimatedDetails>
   </>;
 }
@@ -139,20 +139,20 @@ function RankedWeightingSettings({ value, onChange, recommendedBand }: {
   return <>
     <SettingRow title={t("过渡窗口")} description={t("排除窗口之外的歌曲按此数量从低权重平滑恢复到正常概率；0 表示硬边界。排除模式为「不排除」时从最新展示开始软起排。默认是启用歌单曲数的 10%，没有歌单时为 20。")}
       hint={t("当前歌单推荐过渡窗口：{p0} 首", { p0: recommendedBand })}>
-      <NumberField label={t("过渡窗口")} value={value.soft_band} min={0} max={10000} onChange={(soft_band) => set({ soft_band })} />
+      <NumberField label={t("过渡窗口")} value={value.softBand} min={0} max={10000} onChange={(softBand) => set({ softBand })} />
     </SettingRow>
     <SettingRow title={t("时间冷却")} description={t("在排序过渡之外，再按发现轮次压低最近展示的歌曲；不作用于从未出现的歌曲。")}>
-      <Toggle label={t("时间冷却")} value={value.time_cooling} onChange={(time_cooling) => set({ time_cooling })} />
+      <Toggle label={t("时间冷却")} value={value.timeCooling} onChange={(timeCooling) => set({ timeCooling })} />
     </SettingRow>
-    <Reveal open={value.time_cooling}>
+    <Reveal open={value.timeCooling}>
       <div className="settings-subrows">
         <SettingRow title={t("冷却强度")} description={t("0 到 0.95，越接近 0.95 冷却越强。")}>
-          <NumberField decimal label={t("冷却强度")} value={value.time_cooling_strength} min={0} max={0.95} suffix=""
-            onChange={(time_cooling_strength) => set({ time_cooling_strength })} />
+          <NumberField decimal label={t("冷却强度")} value={value.timeCoolingStrength} min={0} max={0.95} suffix=""
+            onChange={(timeCoolingStrength) => set({ timeCoolingStrength })} />
         </SettingRow>
         <SettingRow title={t("冷却刷新次数")} description={t("发现轮次尺度，越大冷却恢复越慢。")}>
-          <NumberField label={t("冷却刷新次数")} value={value.time_cooling_batches} min={1} max={10000} suffix={t("次")}
-            onChange={(time_cooling_batches) => set({ time_cooling_batches })} />
+          <NumberField label={t("冷却刷新次数")} value={value.timeCoolingBatches} min={1} max={10000} suffix={t("次")}
+            onChange={(timeCoolingBatches) => set({ timeCoolingBatches })} />
         </SettingRow>
       </div>
     </Reveal>
@@ -162,16 +162,16 @@ function RankedWeightingSettings({ value, onChange, recommendedBand }: {
     <Reveal open={value.revival}>
       <div className="settings-subrows">
         <SettingRow title={t("复现增益")} description={t("0 到 2；0.5 表示最高约 1.5 倍权重。")}>
-          <NumberField decimal label={t("复现增益")} value={value.revival_gain} min={0} max={2} suffix=""
-            onChange={(revival_gain) => set({ revival_gain })} />
+          <NumberField decimal label={t("复现增益")} value={value.revivalGain} min={0} max={2} suffix=""
+            onChange={(revivalGain) => set({ revivalGain })} />
         </SettingRow>
         <SettingRow title={t("等待次数")} description={t("距离上次展示达到该轮次后才开始复现。")}>
-          <NumberField label={t("等待次数")} value={value.revival_wait} min={0} max={10000} suffix={t("次")}
-            onChange={(revival_wait) => set({ revival_wait })} />
+          <NumberField label={t("等待次数")} value={value.revivalWait} min={0} max={10000} suffix={t("次")}
+            onChange={(revivalWait) => set({ revivalWait })} />
         </SettingRow>
         <SettingRow title={t("爬升次数")} description={t("复现权重从基线爬到满增益所需的轮次。")}>
-          <NumberField label={t("爬升次数")} value={value.revival_span} min={1} max={10000} suffix={t("次")}
-            onChange={(revival_span) => set({ revival_span })} />
+          <NumberField label={t("爬升次数")} value={value.revivalSpan} min={1} max={10000} suffix={t("次")}
+            onChange={(revivalSpan) => set({ revivalSpan })} />
         </SettingRow>
       </div>
     </Reveal>

@@ -20,7 +20,7 @@ use crate::error::{AppError, AppResult};
 /// 歌单类型。对照旧版 typename 字符串 "playlist" | "album"。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TypeName {
+pub enum SourceKind {
     Playlist,
     Album,
     Video,
@@ -29,7 +29,7 @@ pub enum TypeName {
     Series,
 }
 
-impl TypeName {
+impl SourceKind {
     /// 从字符串解析。对照旧版各平台对 typename 的校验。
     pub fn parse(s: &str) -> AppResult<Self> {
         match s {
@@ -63,35 +63,35 @@ impl TypeName {
 /// 持有歌单元数据（平台/类型/ID）和解析出的歌曲 ID 列表。
 pub struct Playlist {
     pub platform: String,
-    pub playlist_type: TypeName,
-    pub playlist_id: String,
+    pub source_kind: SourceKind,
+    pub source_id: String,
     pub song_ids: Vec<String>,
-    pub playlist_album_name: String,
+    pub title: String,
 }
 
 impl Playlist {
     /// Construct the sampling view from an already loaded source snapshot.
     pub fn from_json(
         platform: &str,
-        kind: TypeName,
+        kind: SourceKind,
         id: &str,
         source: &serde_json::Value,
     ) -> AppResult<Self> {
         let data: PlaylistJson = PlaylistJson::deserialize(source)?;
         Ok(Self {
             platform: platform.to_string(),
-            playlist_type: kind,
-            playlist_id: id.to_string(),
+            source_kind: kind,
+            source_id: id.to_string(),
             song_ids: data.song_ids,
-            playlist_album_name: data.playlist_album_name,
+            title: data.title,
         })
     }
 
     /// 纯函数版加载（测试用）。
     pub fn load_from_path(
         platform: &str,
-        playlist_type: TypeName,
-        playlist_id: &str,
+        source_kind: SourceKind,
+        source_id: &str,
         path: &std::path::Path,
     ) -> AppResult<Self> {
         if !path.exists() {
@@ -104,10 +104,10 @@ impl Playlist {
         let data: PlaylistJson = serde_json::from_reader(std::io::BufReader::new(file))?;
         Ok(Self {
             platform: platform.to_string(),
-            playlist_type,
-            playlist_id: playlist_id.to_string(),
+            source_kind,
+            source_id: source_id.to_string(),
             song_ids: data.song_ids,
-            playlist_album_name: data.playlist_album_name,
+            title: data.title,
         })
     }
 
@@ -138,9 +138,12 @@ impl Playlist {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(from = "PlaylistJsonFields")]
 pub struct PlaylistJson {
-    pub playlist_album_id: String,
-    pub playlist_album_name: String,
-    pub playlist_album_type: String,
+    #[serde(rename = "playlist_album_id")]
+    pub source_id: String,
+    #[serde(rename = "playlist_album_name")]
+    pub title: String,
+    #[serde(rename = "playlist_album_type")]
+    pub source_kind: String,
     pub song_ids: Vec<String>,
     pub cover_url: String,
     pub saved_at: i64,
@@ -150,12 +153,12 @@ pub struct PlaylistJson {
 // 两个字段分别读取，避免 serde alias 把有效缓存误判为重复字段。
 #[derive(Deserialize)]
 struct PlaylistJsonFields {
-    #[serde(default)]
-    playlist_album_id: String,
-    #[serde(default)]
-    playlist_album_name: String,
-    #[serde(default)]
-    playlist_album_type: String,
+    #[serde(default, rename = "playlist_album_id")]
+    source_id: String,
+    #[serde(default, rename = "playlist_album_name")]
+    title: String,
+    #[serde(default, rename = "playlist_album_type")]
+    source_kind: String,
     #[serde(default, deserialize_with = "deserialize_song_ids")]
     song_ids: Vec<String>,
     #[serde(default)]
@@ -169,9 +172,9 @@ struct PlaylistJsonFields {
 impl From<PlaylistJsonFields> for PlaylistJson {
     fn from(fields: PlaylistJsonFields) -> Self {
         Self {
-            playlist_album_id: fields.playlist_album_id,
-            playlist_album_name: fields.playlist_album_name,
-            playlist_album_type: fields.playlist_album_type,
+            source_id: fields.source_id,
+            title: fields.title,
+            source_kind: fields.source_kind,
             song_ids: fields.song_ids,
             // 优先原版字段；空值回退新版字段。
             cover_url: if fields.legacy_cover_url.is_empty() {
@@ -208,11 +211,11 @@ mod tests {
 
     #[test]
     fn type_name_parse_roundtrip() {
-        assert_eq!(TypeName::parse("playlist").unwrap(), TypeName::Playlist);
-        assert_eq!(TypeName::parse("album").unwrap(), TypeName::Album);
-        assert!(TypeName::parse("foo").is_err());
-        assert_eq!(TypeName::Playlist.as_str(), "playlist");
-        assert_eq!(TypeName::Album.as_str(), "album");
+        assert_eq!(SourceKind::parse("playlist").unwrap(), SourceKind::Playlist);
+        assert_eq!(SourceKind::parse("album").unwrap(), SourceKind::Album);
+        assert!(SourceKind::parse("foo").is_err());
+        assert_eq!(SourceKind::Playlist.as_str(), "playlist");
+        assert_eq!(SourceKind::Album.as_str(), "album");
     }
 
     #[test]
@@ -232,7 +235,7 @@ mod tests {
         let path = folder.join("8285082830.json");
         std::fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
         let result =
-            Playlist::load_from_path("NeteaseCloudMusic", TypeName::Playlist, "8285082830", &path);
+            Playlist::load_from_path("NeteaseCloudMusic", SourceKind::Playlist, "8285082830", &path);
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir(&folder).unwrap();
         let playlist = result.unwrap();
@@ -255,9 +258,9 @@ mod tests {
             );
             let data: PlaylistJson = serde_json::from_str(&json).unwrap();
             assert_eq!(data.cover_url, expected_cover);
-            assert_eq!(data.playlist_album_id, "123");
-            assert_eq!(data.playlist_album_name, "test");
-            assert_eq!(data.playlist_album_type, "album");
+            assert_eq!(data.source_id, "123");
+            assert_eq!(data.title, "test");
+            assert_eq!(data.source_kind, "album");
             assert_eq!(data.song_ids, ["1", "2"]);
             assert_eq!(data.saved_at, 42);
             let roundtrip: PlaylistJson =
@@ -275,10 +278,10 @@ mod tests {
     fn random_song_zero_returns_empty() {
         let pl = Playlist {
             platform: "test".into(),
-            playlist_type: TypeName::Playlist,
-            playlist_id: "1".into(),
+            source_kind: SourceKind::Playlist,
+            source_id: "1".into(),
             song_ids: vec!["a".into(), "b".into()],
-            playlist_album_name: String::new(),
+            title: String::new(),
         };
         assert!(pl.get_random_song(0).is_empty());
     }
@@ -287,7 +290,7 @@ mod tests {
     #[test]
     fn missing_file_returns_not_found() {
         let path = std::path::Path::new("nonexistent_playlist_test.json");
-        let result = Playlist::load_from_path("test", TypeName::Playlist, "1", path);
+        let result = Playlist::load_from_path("test", SourceKind::Playlist, "1", path);
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 }

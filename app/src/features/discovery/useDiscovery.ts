@@ -18,8 +18,8 @@ const emptyDiscovery: DiscoveryState = {
   exclusionEnabled: false, replacementEnabled: false, preview: false,
 };
 const songArgs = (song: Song) => ({
-  platform: song.platform, songId: song.songId, playlistId: song.playlistId,
-  typename: song.typename, filename: song.filename,
+  platform: song.platform, songId: song.songId, sourceId: song.sourceId,
+  sourceKind: song.sourceKind, filename: song.filename,
 });
 
 /** Owns discovery requests, cover readiness, playback, cancellation and overlay lifecycle. */
@@ -115,7 +115,7 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
   const lastRecordedDisplay = useRef("");
   useEffect(() => {
     if (!songs.length || status.preview || (floating ? !motion.current!.visible : page.current !== "discover")) return;
-    const signature = `${discoveryRequest.current}:${JSON.stringify(songs.map((song) => [song.platform, song.songId, song.playlistId, song.typename]))}`;
+    const signature = `${discoveryRequest.current}:${JSON.stringify(songs.map((song) => [song.platform, song.songId, song.sourceId, song.sourceKind]))}`;
     if (lastRecordedDisplay.current === signature) return;
     lastRecordedDisplay.current = signature;
     // Runs after React commits the cover-ready cards; preloaded and cancelled batches stay out of history.
@@ -344,7 +344,7 @@ export function useDiscovery({ floating, page, reload, notice, hand }: {
         const next = await call<CollectedHandCard>("collect_hand_card", { args: songArgs(song), batchEpoch: statusRef.current.batchEpoch });
         if (request !== discoveryRequest.current) return;
         collected = next.discovery;
-        const keepOpen = hand.keep_discovery_open && next.discovery.songs.length > 0;
+        const keepOpen = hand.keepDiscoveryOpen && next.discovery.songs.length > 0;
         const receive = () => call("show_collected_hand_card", { id: next.id,
           mysteryCover: song.mysteryMode ? song.coverDataUri : null,
           origin: rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null });

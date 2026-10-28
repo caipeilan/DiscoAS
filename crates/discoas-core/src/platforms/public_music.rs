@@ -1,5 +1,5 @@
 //! Shared snapshot helpers for public music metadata; no playback streams.
-use super::{build_window_name, SongDetail, SongDetailLoader, TypeName};
+use super::{build_window_name, SongDetail, SongDetailLoader, SourceKind};
 use crate::error::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::{
@@ -46,7 +46,7 @@ pub(super) fn artwork(raw: &str) -> String {
 }
 pub(super) fn snapshot(
     id: &str,
-    kind: TypeName,
+    kind: SourceKind,
     name: &str,
     cover: &str,
     tracks: Vec<Value>,

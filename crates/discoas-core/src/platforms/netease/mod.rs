@@ -3,7 +3,7 @@ pub mod card;
 pub mod get_json;
 pub use get_json::fetch_playlist;
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 use crate::platforms::{build_window_name, SongDetail, SongDetailLoader};
 use async_trait::async_trait;
@@ -13,8 +13,8 @@ pub struct NeteaseFetcher;
 
 #[async_trait]
 impl crate::platforms::PlaylistFetcher for NeteaseFetcher {
-    async fn fetch(&self, id: &str, typename: TypeName) -> AppResult<Value> {
-        get_json::fetch_playlist(id, typename).await
+    async fn fetch(&self, id: &str, source_kind: SourceKind) -> AppResult<Value> {
+        get_json::fetch_playlist(id, source_kind).await
     }
 }
 

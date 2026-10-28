@@ -1,7 +1,7 @@
 //! Anonymous official sharing-page snapshots. No login/session, stream, or SDK extraction.
 //! The structured sharing-page reader is also used by music-lib / libresoda.
 use super::{
-    public_music as music, video, FetchProgress, FetchProgressCallback, PlaylistFetcher, TypeName,
+    public_music as music, video, FetchProgress, FetchProgressCallback, PlaylistFetcher, SourceKind,
 };
 use crate::error::AppResult;
 use serde_json::{json, Value};
@@ -9,8 +9,8 @@ use std::{collections::HashSet, sync::Arc};
 pub struct QishuiFetcher;
 pub use super::public_music::PublicMusicDetailLoader as QishuiDetailLoader;
 
-pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
-    if !matches!(kind, TypeName::Playlist | TypeName::Album) {
+pub fn normalize(kind: SourceKind, input: &str) -> AppResult<String> {
+    if !matches!(kind, SourceKind::Playlist | SourceKind::Album) {
         return Err(music::error("汽水音乐只支持歌单与专辑"));
     }
     if !input.starts_with("http") {
@@ -123,10 +123,10 @@ fn track_from_share_page(html: &str, id: &str) -> AppResult<Value> {
     if track["id"].as_str() != Some(id) { return Err(music::error("汽水分享页歌曲与请求不一致")); }
     Ok(json!({"tracks_info": [track]}))
 }
-fn parse_source(id: &str, kind: TypeName, data: &Value) -> AppResult<Value> {
+fn parse_source(id: &str, kind: SourceKind, data: &Value) -> AppResult<Value> {
     let label = kind.as_str();
     let page = &data["loaderData"][format!("{label}_page")];
-    let info = &page[if kind == TypeName::Playlist {
+    let info = &page[if kind == SourceKind::Playlist {
         "playlistInfo"
     } else {
         "albumInfo"
@@ -138,7 +138,7 @@ fn parse_source(id: &str, kind: TypeName, data: &Value) -> AppResult<Value> {
         .as_u64()
         .filter(|n| *n <= 50_000)
         .ok_or_else(|| music::error("汽水歌曲总数无效或超出上限"))? as usize;
-    let list = page[if kind == TypeName::Playlist {
+    let list = page[if kind == SourceKind::Playlist {
         "medias"
     } else {
         "trackList"
@@ -149,7 +149,7 @@ fn parse_source(id: &str, kind: TypeName, data: &Value) -> AppResult<Value> {
     let mut seen = HashSet::new();
     let mut count = 0;
     for item in list {
-        let track = if kind == TypeName::Playlist {
+        let track = if kind == SourceKind::Playlist {
             if item["type"].as_str() != Some("track") {
                 continue;
             }
@@ -168,7 +168,7 @@ fn parse_source(id: &str, kind: TypeName, data: &Value) -> AppResult<Value> {
     if count != expected {
         return Err(music::error("汽水分享页未提供完整歌曲列表，请稍后重试"));
     }
-    let name = info[if kind == TypeName::Playlist {
+    let name = info[if kind == SourceKind::Playlist {
         "title"
     } else {
         "name"
@@ -181,7 +181,7 @@ impl QishuiFetcher {
     async fn read(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         let id = normalize(kind, id)?;
@@ -229,13 +229,13 @@ impl QishuiFetcher {
 }
 #[async_trait::async_trait]
 impl PlaylistFetcher for QishuiFetcher {
-    async fn fetch(&self, id: &str, kind: TypeName) -> AppResult<Value> {
+    async fn fetch(&self, id: &str, kind: SourceKind) -> AppResult<Value> {
         self.read(id, kind, Arc::new(|_| {})).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         self.read(id, kind, progress).await
@@ -281,19 +281,19 @@ mod tests {
     fn source_links_are_strict() {
         assert_eq!(
             normalize(
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "https://www.qishui.com/share/playlist?playlist_id=7624447086608777235"
             )
             .unwrap(),
             "7624447086608777235"
         );
         assert!(normalize(
-            TypeName::Album,
+            SourceKind::Album,
             "https://www.qishui.com/share/playlist?playlist_id=1"
         )
         .is_err());
         assert!(normalize(
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "https://www.qishui.com.evil.invalid/share/playlist?playlist_id=1"
         )
         .is_err());
@@ -302,9 +302,9 @@ mod tests {
     #[test]
     fn partial_or_wrong_sources_never_commit() {
         let mut data = sample();
-        assert!(parse_source("2", TypeName::Playlist, &data).is_err());
+        assert!(parse_source("2", SourceKind::Playlist, &data).is_err());
         data["loaderData"]["playlist_page"]["playlistInfo"]["count_tracks"] = json!(2);
-        assert!(parse_source("7624447086608777235", TypeName::Playlist, &data).is_err());
+        assert!(parse_source("7624447086608777235", SourceKind::Playlist, &data).is_err());
     }
     #[test]
     fn embedded_json_is_read_as_data_not_script() {
@@ -314,7 +314,7 @@ mod tests {
         );
         let data = router_data(&text).unwrap();
         assert_eq!(
-            parse_source("7624447086608777235", TypeName::Playlist, &data).unwrap()["song_ids"],
+            parse_source("7624447086608777235", SourceKind::Playlist, &data).unwrap()["song_ids"],
             json!(["7634441185327745025"])
         );
         assert!(router_data("<script>malicious()</script>").is_err());
@@ -325,7 +325,7 @@ mod tests {
             sample()["loaderData"]["playlist_page"]["medias"][0]["entity"]["track"].clone();
         track["album"] = json!({"url_cover":{"urls":["https://p3-luna.douyinpic.com/img/"],"uri":"tos-cn/example","template_prefix":"tplv-b829550vbb"}});
         let data = json!({"loaderData":{"album_page":{"albumInfo":{"id":"7692011978622584882","name":"专辑","count_tracks":1},"trackList":[track]}}});
-        let source = parse_source("7692011978622584882", TypeName::Album, &data).unwrap();
+        let source = parse_source("7692011978622584882", SourceKind::Album, &data).unwrap();
         assert_eq!(
             source["tracks_info"][0]["cover_url"],
             "https://p3-luna.douyinpic.com/img/tos-cn/example~tplv-b829550vbb-crop-center:500:500.jpg"
@@ -342,7 +342,7 @@ mod tests {
     #[tokio::test]
     async fn local_mystery_keeps_canonical_metadata() {
         use super::super::SongDetailLoader;
-        let data = parse_source("7624447086608777235", TypeName::Playlist, &sample()).unwrap();
+        let data = parse_source("7624447086608777235", SourceKind::Playlist, &sample()).unwrap();
         let detail = QishuiDetailLoader
             .load_song_detail(&data, "7634441185327745025", true, "cover")
             .await
@@ -354,7 +354,7 @@ mod tests {
                 .load_song_metadata(&data, "7634441185327745025")
                 .await
                 .unwrap()
-                .name,
+                .title,
             "歌曲"
         );
     }
@@ -363,8 +363,8 @@ mod tests {
     async fn public_playlist_and_album() {
         let client = video::client("https://www.qishui.com/").unwrap();
         for (id, kind) in [
-            ("7624447086608777235", TypeName::Playlist),
-            ("7692011978622584882", TypeName::Album),
+            ("7624447086608777235", SourceKind::Playlist),
+            ("7692011978622584882", SourceKind::Album),
         ] {
             let data = QishuiFetcher.fetch(id, kind).await.unwrap();
             assert!(!data["song_ids"].as_array().unwrap().is_empty());

@@ -32,7 +32,7 @@ async fn dispatch_with_origin(
     let mut card = card.cloned();
     if let Some(card) = &mut card {
         if let Some(metadata) = &card.real_metadata {
-            card.name = metadata.name.clone();
+            card.title = metadata.title.clone();
             card.artist_names = metadata.artist_names.clone();
         }
         card.mystery_mode = false;

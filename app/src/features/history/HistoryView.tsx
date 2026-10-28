@@ -90,11 +90,11 @@ export function HistoryView() {
         const stamp = date === null ? null : new Date(date);
         const hasStamp = stamp !== null && !Number.isNaN(stamp.getTime());
         return <li key={key} data-motion-key={key} data-selected={selected.has(key) || undefined}>
-          <input type="checkbox" aria-label={t("选择记录 {p0}", { p0: entry.name || entry.songId })} checked={selected.has(key)} disabled={mutating || !!confirming}
+          <input type="checkbox" aria-label={t("选择记录 {p0}", { p0: entry.title || entry.songId })} checked={selected.has(key)} disabled={mutating || !!confirming}
             onChange={(event) => history.toggleSelected(entry, event.target.checked)} />
           <div className="history-cover">{cover ? <img src={cover} alt="" draggable={false} onError={() => history.failCover(entry)} /> : <Icon name="music" size={22} />}</div>
           <div className="history-record-content">
-            <strong>{!entry.name || /^[?？]+$/.test(entry.name) || entry.name === "神秘歌曲" ? t("信息暂不可用") : entry.name}</strong>
+            <strong>{!entry.title || /^[?？]+$/.test(entry.title) || entry.title === "神秘歌曲" ? t("信息暂不可用") : entry.title}</strong>
             <span className="history-artists">{["YouTube", "Bilibili"].includes(entry.platform) ? t("频道 / UP 主：") : ""}{entry.artistNames.filter((name) => !/^[?？]+$/.test(name)).join(" / ")}</span>
             <div className="row-meta"><PlatformTag id={entry.platform} /><span className="history-song-id">{entry.songId}</span>
               {stamp && hasStamp && <time dateTime={stamp.toISOString()}>{historyTimeFormatter(currentLocale()).format(stamp)}</time>}</div>
@@ -105,7 +105,7 @@ export function HistoryView() {
             <label><input type="checkbox" checked={entry.selectedAt !== null}
               onChange={(event) => history.mutate([identity], "selected", event.target.checked)} />{t("已选择")}</label>
           </fieldset>
-          <button className="icon-button delete-action history-delete" aria-label={t("删除记录 {p0}", { p0: entry.name || entry.songId })} disabled={mutating || !!confirming}
+          <button className="icon-button delete-action history-delete" aria-label={t("删除记录 {p0}", { p0: entry.title || entry.songId })} disabled={mutating || !!confirming}
             onClick={() => history.setConfirming({ kind: "delete", identities: [identity] })}><Icon name="remove" size={16} /></button>
         </li>;
       })}</ol>

@@ -164,30 +164,34 @@ pub enum HistoryExclusion {
 
 /// 单个歌单/专辑配置。对照旧版 `PlaylistAlbum`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PlaylistAlbum {
+pub struct SourceConfig {
     /// 平台名使用 `platforms::names` 中的稳定标识。
-    pub name: String,
+    #[serde(rename = "name")]
+    pub platform: String,
     /// 歌单/专辑 ID
     #[serde(rename = "playlist_album_id")]
-    pub playlist_album_id: String,
+    pub source_id: String,
     /// 类型：playlist | album
-    #[serde(rename = "typename", default = "default_typename")]
-    pub typename: String,
+    #[serde(rename = "typename", default = "default_source_kind")]
+    pub source_kind: String,
     /// 歌单/专辑名称（加载后填充）
     #[serde(default)]
-    pub playlist_album_name: String,
+    #[serde(rename = "playlist_album_name")]
+    pub title: String,
     /// 备注
     #[serde(default)]
-    pub playlist_album_remark: String,
+    #[serde(rename = "playlist_album_remark")]
+    pub remark: String,
     /// 更新时间戳
     #[serde(default)]
-    pub update_time: String,
+    #[serde(rename = "update_time")]
+    pub updated_at: String,
     /// 是否启用（互斥：同时只允许一个启用）
     #[serde(default)]
     pub enabled: bool,
 }
 
-fn default_typename() -> String {
+fn default_source_kind() -> String {
     "playlist".to_string()
 }
 
@@ -196,16 +200,22 @@ fn default_typename() -> String {
 #[serde(default)]
 pub struct MusicSetting {
     /// 发现的歌曲数量
-    pub number_of_discovered_songs: u32,
+    #[serde(rename = "number_of_discovered_songs")]
+    pub normal_song_count: u32,
     /// 是否包含神秘歌曲
-    pub have_mystery_song: bool,
+    #[serde(rename = "have_mystery_song")]
+    pub mystery_songs_enabled: bool,
     /// 神秘歌曲数量
-    pub num_of_mystery_song: u32,
+    #[serde(rename = "num_of_mystery_song")]
+    pub mystery_song_count: u32,
     /// 神秘歌曲封面 URL 或本地路径
-    pub mystery_song_cover: String,
+    #[serde(rename = "mystery_song_cover")]
+    pub mystery_cover: String,
     /// 缓存批数，0 = 禁用预加载
-    pub cache_batches: u32,
-    pub preload_deduplication: bool,
+    #[serde(rename = "cache_batches")]
+    pub preload_batch_count: u32,
+    #[serde(rename = "preload_deduplication")]
+    pub deduplicate_preloaded_batches: bool,
     /// Legacy absolute weighting configuration, used by `Traditional` mode.
     pub discovery_weighting: DiscoveryWeighting,
     /// Selects the active weighting model; the legacy enabled flag stays in sync.
@@ -214,43 +224,48 @@ pub struct MusicSetting {
     pub ranked_weighting: RankedWeighting,
     pub replacement_limit: u32,
     /// 取消后是否刷新
-    pub refreshing_after_cancel: bool,
+    #[serde(rename = "refreshing_after_cancel")]
+    pub refresh_on_cancel: bool,
     /// 全局快捷键
-    pub shortcut_key: String,
+    #[serde(rename = "shortcut_key")]
+    pub discovery_shortcut: String,
     /// Keyboard controls active only while the discovery interface is visible.
     pub discovery_keybindings: DiscoveryKeybindings,
     pub hand: crate::hand::HandSettings,
     pub hand_discovery: crate::hand::HandDiscoverySettings,
     /// Recent songs excluded from discovery; existing settings keep exclusion disabled.
-    pub history_exclusion: HistoryExclusion,
+    #[serde(rename = "history_exclusion")]
+    pub recent_exclusion_mode: HistoryExclusion,
     /// Recent songs excluded per platform; retention is fixed at 10,000 unique songs.
-    pub history_limit: u32,
+    #[serde(rename = "history_limit")]
+    pub recent_exclusion_limit: u32,
     /// 歌单/专辑列表
-    pub playlist_albums: Vec<PlaylistAlbum>,
+    #[serde(rename = "playlist_albums")]
+    pub sources: Vec<SourceConfig>,
 }
 
 impl Default for MusicSetting {
     /// 对应旧版 `create_default_setting()` 的内容。
     fn default() -> Self {
         Self {
-            number_of_discovered_songs: 3,
-            have_mystery_song: true,
-            num_of_mystery_song: 1,
-            mystery_song_cover: String::new(),
-            cache_batches: 2,
-            preload_deduplication: false,
+            normal_song_count: 3,
+            mystery_songs_enabled: true,
+            mystery_song_count: 1,
+            mystery_cover: String::new(),
+            preload_batch_count: 2,
+            deduplicate_preloaded_batches: false,
             discovery_weighting: DiscoveryWeighting::default(),
             weighting_mode: DiscoveryWeightingMode::None,
             ranked_weighting: RankedWeighting::default(),
             replacement_limit: 1,
-            refreshing_after_cancel: false,
-            shortcut_key: "Alt+D".to_string(),
+            refresh_on_cancel: false,
+            discovery_shortcut: "Alt+D".to_string(),
             discovery_keybindings: DiscoveryKeybindings::default(),
             hand: crate::hand::HandSettings::default(),
             hand_discovery: crate::hand::HandDiscoverySettings::default(),
-            history_exclusion: HistoryExclusion::Off,
-            history_limit: 200,
-            playlist_albums: Vec::new(),
+            recent_exclusion_mode: HistoryExclusion::Off,
+            recent_exclusion_limit: 200,
+            sources: Vec::new(),
         }
     }
 }
@@ -261,14 +276,14 @@ impl MusicSetting {
     /// the sampled cards. All other fields, including future additions, remain in
     /// the conservative comparison until explicitly classified as presentation-only.
     pub fn has_same_discovery_configuration(&self, other: &Self) -> bool {
-        let enabled = self.playlist_albums.iter().find(|source| source.enabled);
-        let other_enabled = other.playlist_albums.iter().find(|source| source.enabled);
+        let enabled = self.sources.iter().find(|source| source.enabled);
+        let other_enabled = other.sources.iter().find(|source| source.enabled);
         let same_source = match (enabled, other_enabled) {
             (None, None) => true,
             (Some(left), Some(right)) => {
-                left.name == right.name
-                    && left.playlist_album_id == right.playlist_album_id
-                    && left.typename == right.typename
+                left.platform == right.platform
+                    && left.source_id == right.source_id
+                    && left.source_kind == right.source_kind
             }
             _ => false,
         };
@@ -277,8 +292,8 @@ impl MusicSetting {
         }
         let comparable = |setting: &Self| {
             let mut copy = setting.clone();
-            copy.playlist_albums.clear();
-            copy.shortcut_key.clear();
+            copy.sources.clear();
+            copy.discovery_shortcut.clear();
             copy.discovery_keybindings = DiscoveryKeybindings::default();
             let hand_enabled = copy.hand.enabled;
             copy.hand = crate::hand::HandSettings::default();
@@ -313,7 +328,7 @@ impl MusicSetting {
     /// 对照旧版 `save()` line 64-70 的逻辑。
     pub fn normalize_enabled_exclusivity(&mut self) {
         let mut have_enabled = false;
-        for pa in &mut self.playlist_albums {
+        for pa in &mut self.sources {
             if pa.enabled {
                 if have_enabled {
                     pa.enabled = false;
@@ -338,14 +353,14 @@ impl MusicSetting {
 
     pub fn normalize_preferences(&mut self) {
         if !crate::hand::AUTO_PLAY_AVAILABLE {
-            self.hand.auto_play = false;
+            self.hand.auto_play_enabled = false;
         }
-        if let Some(source) = self.playlist_albums.iter().find(|source| source.enabled) {
+        if let Some(source) = self.sources.iter().find(|source| source.enabled) {
             self.hand.auto_play_detection =
-                self.hand.auto_play_detection.for_platform(&source.name);
+                self.hand.auto_play_detection.for_platform(&source.platform);
         }
-        self.history_limit = self.history_limit.min(MAX_HISTORY_LIMIT);
-        self.cache_batches = self.cache_batches.min(5);
+        self.recent_exclusion_limit = self.recent_exclusion_limit.min(MAX_HISTORY_LIMIT);
+        self.preload_batch_count = self.preload_batch_count.min(5);
         self.replacement_limit = self.replacement_limit.min(100);
         self.weighting_mode = self.weighting_mode();
         self.discovery_weighting.enabled =
@@ -382,6 +397,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn canonical_names_keep_existing_settings_and_source_json_compatible() {
+        let settings: MusicSetting = serde_json::from_value(serde_json::json!({
+            "number_of_discovered_songs": 5, "cache_batches": 0, "history_limit": 350,
+            "hand": { "auto_play": true, "edge_distance": -12, "position": 25, "overlap": 60, "tilt": 8 },
+            "playlist_albums": [{ "name": "QQMusic", "playlist_album_id": "00123", "typename": "album",
+                "playlist_album_name": "标题", "playlist_album_remark": "备注", "update_time": "123", "enabled": true }]
+        })).unwrap();
+        assert_eq!(settings.normal_song_count, 5);
+        assert_eq!(settings.preload_batch_count, 0);
+        assert_eq!(settings.recent_exclusion_limit, 350);
+        assert_eq!(settings.hand.position_percent, 25.0);
+        assert_eq!(settings.sources[0].platform, "QQMusic");
+        assert_eq!(settings.sources[0].source_id, "00123");
+        assert_eq!(settings.sources[0].title, "标题");
+        let wire = serde_json::to_value(&settings).unwrap();
+        assert_eq!(wire["number_of_discovered_songs"], 5);
+        assert_eq!(wire["history_limit"], 350);
+        assert_eq!(wire["hand"]["position"], 25.0);
+        assert_eq!(wire["hand"]["auto_play"], true);
+        assert_eq!(wire["playlist_albums"][0]["name"], "QQMusic");
+        assert_eq!(wire["playlist_albums"][0]["playlist_album_name"], "标题");
+        assert!(wire.get("sources").is_none());
+        assert!(wire["hand"].get("position_percent").is_none());
+        assert_eq!(serde_json::from_value::<MusicSetting>(wire).unwrap(), settings);
+    }
+
+    #[test]
     fn auto_play_preference_survives_load_and_save() {
         let path = std::env::temp_dir().join(format!(
             "discoas-auto-play-disabled-{}.json",
@@ -394,12 +436,12 @@ mod tests {
         .unwrap();
         let mut settings = MusicSetting::load_from_path(&path).unwrap();
         assert!(settings.hand.enabled);
-        assert!(settings.hand.auto_play);
+        assert!(settings.hand.auto_play_enabled);
         assert_eq!(
             settings.hand.auto_play_position,
             crate::hand::AutoPlayPosition::Last
         );
-        settings.hand.auto_play = true;
+        settings.hand.auto_play_enabled = true;
         settings.save_to_path(&path).unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -419,17 +461,17 @@ mod tests {
         }))
         .unwrap();
         let mut edited = original.clone();
-        edited.shortcut_key = "Ctrl+Shift+D".into();
+        edited.discovery_shortcut = "Ctrl+Shift+D".into();
         edited.discovery_keybindings.up = "ArrowUp".into();
         edited.hand_discovery.enabled = true;
         edited.hand_discovery.text_outline_width = 0.7;
-        edited.playlist_albums[0].playlist_album_name = "New name".into();
-        edited.playlist_albums[0].playlist_album_remark = "Only a remark".into();
-        edited.playlist_albums[0].update_time = "later".into();
-        let mut inactive = edited.playlist_albums[0].clone();
+        edited.sources[0].title = "New name".into();
+        edited.sources[0].remark = "Only a remark".into();
+        edited.sources[0].updated_at = "later".into();
+        let mut inactive = edited.sources[0].clone();
         inactive.enabled = false;
-        inactive.name = "QQMusic".into();
-        edited.playlist_albums.insert(0, inactive);
+        inactive.platform = "QQMusic".into();
+        edited.sources.insert(0, inactive);
         assert!(original.has_same_discovery_configuration(&edited));
         assert!(edited.has_same_discovery_configuration(&original));
 
@@ -506,18 +548,18 @@ mod tests {
             ]
         }"#;
         let s: MusicSetting = serde_json::from_str(json).unwrap();
-        assert_eq!(s.number_of_discovered_songs, 3);
-        assert!(s.have_mystery_song);
-        assert_eq!(s.shortcut_key, "Alt+D");
+        assert_eq!(s.normal_song_count, 3);
+        assert!(s.mystery_songs_enabled);
+        assert_eq!(s.discovery_shortcut, "Alt+D");
         assert_eq!(s.discovery_keybindings, DiscoveryKeybindings::default());
-        assert_eq!(s.playlist_albums.len(), 2);
+        assert_eq!(s.sources.len(), 2);
         assert_eq!(
             s.hand_discovery,
             crate::hand::HandDiscoverySettings::default()
         );
-        assert!(s.playlist_albums[0].enabled);
-        assert!(!s.playlist_albums[1].enabled);
-        assert_eq!(s.playlist_albums[1].name, "Spotify");
+        assert!(s.sources[0].enabled);
+        assert!(!s.sources[1].enabled);
+        assert_eq!(s.sources[1].platform, "Spotify");
     }
 
     /// 缺字段时用 serde default 兜底（对照旧版 .get(key, default)）。
@@ -535,12 +577,12 @@ mod tests {
             "playlist_albums": [{"name": "QQMusic", "playlist_album_id": "123"}]
         }"#;
         let s: MusicSetting = serde_json::from_str(json).unwrap();
-        let pa = &s.playlist_albums[0];
-        assert_eq!(pa.typename, "playlist"); // 默认值
+        let pa = &s.sources[0];
+        assert_eq!(pa.source_kind, "playlist"); // 默认值
         assert_eq!(pa.enabled, false); // 默认值
-        assert_eq!(pa.playlist_album_name, ""); // 默认值
-        assert_eq!(s.history_exclusion, HistoryExclusion::Off);
-        assert_eq!(s.history_limit, 200);
+        assert_eq!(pa.title, ""); // 默认值
+        assert_eq!(s.recent_exclusion_mode, HistoryExclusion::Off);
+        assert_eq!(s.recent_exclusion_limit, 200);
         assert_eq!(s.discovery_keybindings, DiscoveryKeybindings::default());
     }
 
@@ -548,29 +590,29 @@ mod tests {
     #[test]
     fn enabled_exclusivity_keeps_first() {
         let mut s = MusicSetting::default();
-        s.playlist_albums = vec![
-            PlaylistAlbum {
-                name: "A".into(),
-                playlist_album_id: "1".into(),
-                typename: "playlist".into(),
-                playlist_album_name: String::new(),
-                playlist_album_remark: String::new(),
-                update_time: String::new(),
+        s.sources = vec![
+            SourceConfig {
+                platform: "A".into(),
+                source_id: "1".into(),
+                source_kind: "playlist".into(),
+                title: String::new(),
+                remark: String::new(),
+                updated_at: String::new(),
                 enabled: true,
             },
-            PlaylistAlbum {
-                name: "B".into(),
-                playlist_album_id: "2".into(),
-                typename: "playlist".into(),
-                playlist_album_name: String::new(),
-                playlist_album_remark: String::new(),
-                update_time: String::new(),
+            SourceConfig {
+                platform: "B".into(),
+                source_id: "2".into(),
+                source_kind: "playlist".into(),
+                title: String::new(),
+                remark: String::new(),
+                updated_at: String::new(),
                 enabled: true, // 第二个也启用
             },
         ];
         s.normalize_enabled_exclusivity();
-        assert!(s.playlist_albums[0].enabled);
-        assert!(!s.playlist_albums[1].enabled);
+        assert!(s.sources[0].enabled);
+        assert!(!s.sources[1].enabled);
     }
 
     /// 默认设置写入磁盘后能被读回，且内容符合预期。
@@ -594,7 +636,7 @@ mod tests {
     #[test]
     fn new_controls_keep_legacy_defaults_and_validate_weight_relationships() {
         let setting: MusicSetting = serde_json::from_str("{}").unwrap();
-        assert!(!setting.preload_deduplication);
+        assert!(!setting.deduplicate_preloaded_batches);
         assert!(!setting.discovery_weighting.enabled);
         assert_eq!(setting.replacement_limit, 1);
         assert_eq!(setting.discovery_keybindings.replace, "R");

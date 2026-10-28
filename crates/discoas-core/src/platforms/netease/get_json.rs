@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 
 const BASE_URL: &str = "https://music.163.com";
@@ -95,10 +95,10 @@ fn verify_count(expected: u64, actual: usize) -> AppResult<()> {
     }
 }
 
-fn parse_playlist(data: &Value, id: &str, typename: TypeName) -> AppResult<Value> {
+fn parse_playlist(data: &Value, id: &str, source_kind: SourceKind) -> AppResult<Value> {
     check_response(data)?;
-    let (info, songs, expected, cover) = match typename {
-        TypeName::Playlist => {
+    let (info, songs, expected, cover) = match source_kind {
+        SourceKind::Playlist => {
             let info = data
                 .get("playlist")
                 .filter(|v| v.is_object())
@@ -121,7 +121,7 @@ fn parse_playlist(data: &Value, id: &str, typename: TypeName) -> AppResult<Value
                 info["coverImgUrl"].as_str().unwrap_or(""),
             )
         }
-        TypeName::Album => {
+        SourceKind::Album => {
             let info = data
                 .get("album")
                 .filter(|v| v.is_object())
@@ -165,24 +165,24 @@ fn parse_playlist(data: &Value, id: &str, typename: TypeName) -> AppResult<Value
         .as_secs();
     Ok(json!({
         "playlist_album_id": id, "playlist_album_name": name,
-        "playlist_album_type": typename.as_str(), "song_ids": ids,
+        "playlist_album_type": source_kind.as_str(), "song_ids": ids,
         "coverUrl": cover, "cover_url": cover, "saved_at": saved_at,
     }))
 }
 
 /// 完整读取后才返回；不依赖 AppHandle，也不写入用户数据。
-pub async fn fetch_playlist(id: &str, typename: TypeName) -> AppResult<Value> {
-    crate::platforms::validate_kind(crate::platforms::names::NETEASE, typename)?;
+pub async fn fetch_playlist(id: &str, source_kind: SourceKind) -> AppResult<Value> {
+    crate::platforms::validate_kind(crate::platforms::names::NETEASE, source_kind)?;
     numeric_id(id)?;
-    let data = match typename {
-        TypeName::Playlist => {
+    let data = match source_kind {
+        SourceKind::Playlist => {
             get_json(
                 "/api/v6/playlist/detail",
                 &[("id", id.into()), ("n", "100000".into()), ("s", "0".into())],
             )
             .await?
         }
-        TypeName::Album => match get_json(&format!("/api/v1/album/{id}"), &[]).await {
+        SourceKind::Album => match get_json(&format!("/api/v1/album/{id}"), &[]).await {
             Ok(data) => data,
             Err(primary_error) => {
                 get_json(&format!("/api/album/{id}"), &[])
@@ -196,7 +196,7 @@ pub async fn fetch_playlist(id: &str, typename: TypeName) -> AppResult<Value> {
         },
         _ => return Err(AppError::Platform("网易云只支持歌单或专辑".into())),
     };
-    parse_playlist(&data, id, typename)
+    parse_playlist(&data, id, source_kind)
 }
 
 /// 保留旧调用签名；网络或业务失败返回错误，不能被当成空详情缓存。
@@ -268,11 +268,11 @@ mod tests {
     #[tokio::test]
     #[ignore = "只读公网接口探针，日常测试不访问平台"]
     async fn live_public_samples_are_complete() {
-        let playlist = fetch_playlist("8285082830", TypeName::Playlist)
+        let playlist = fetch_playlist("8285082830", SourceKind::Playlist)
             .await
             .unwrap();
         assert!(playlist["song_ids"].as_array().unwrap().len() > 1000);
-        let album = fetch_playlist("32311", TypeName::Album).await.unwrap();
+        let album = fetch_playlist("32311", SourceKind::Album).await.unwrap();
         assert!(!album["song_ids"].as_array().unwrap().is_empty());
         let song_id = album["song_ids"][0].as_str().unwrap();
         assert!(fetch_song_detail(song_id).await.unwrap().is_some());
@@ -283,7 +283,7 @@ mod tests {
         let data = json!({"code":200,"playlist":{"name":"歌单","trackCount":3,
             "trackIds":[{"id":3352212988u64},{"id":"3388568485"},{"id":2749390174u64}],
             "tracks":[{"id":3352212988u64}],"coverImgUrl":"https://example.com/cover"}});
-        let parsed = parse_playlist(&data, "8285082830", TypeName::Playlist).unwrap();
+        let parsed = parse_playlist(&data, "8285082830", SourceKind::Playlist).unwrap();
         assert_eq!(
             parsed["song_ids"],
             json!(["3352212988", "3388568485", "2749390174"])
@@ -298,11 +298,11 @@ mod tests {
     fn truncated_directory_and_business_errors_do_not_become_empty_success() {
         let partial =
             json!({"code":200,"playlist":{"name":"歌单","trackCount":20,"tracks":[{"id":1}]}});
-        assert!(parse_playlist(&partial, "1", TypeName::Playlist).is_err());
+        assert!(parse_playlist(&partial, "1", SourceKind::Playlist).is_err());
         assert!(parse_playlist(
             &json!({"code":-462,"message":"请求受限"}),
             "1",
-            TypeName::Album
+            SourceKind::Album
         )
         .is_err());
     }
@@ -314,20 +314,20 @@ mod tests {
             json!({"code":200,"album":{"name":"专辑","size":2,"songs":[{"id":1},{"id":2}]}}),
         ] {
             assert_eq!(
-                parse_playlist(&data, "1", TypeName::Album).unwrap()["song_ids"],
+                parse_playlist(&data, "1", SourceKind::Album).unwrap()["song_ids"],
                 json!(["1", "2"])
             );
         }
         assert!(parse_playlist(
             &json!({"code":200,"album":{"name":"专辑","size":2,"songs":[]}}),
             "1",
-            TypeName::Album
+            SourceKind::Album
         )
         .is_err());
         assert!(parse_playlist(
             &json!({"code":200,"album":{"name":"专辑","songs":[{"id":1}]}}),
             "1",
-            TypeName::Album
+            SourceKind::Album
         )
         .is_err());
     }

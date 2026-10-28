@@ -4,7 +4,7 @@
 //! Native playback follows the official song page's existing `upPcStr` iframe,
 //! including its legacy GBK/Base64 metadata, without retrieving any audio.
 use super::{
-    public_music as music, video, FetchProgress, FetchProgressCallback, PlaylistFetcher, TypeName,
+    public_music as music, video, FetchProgress, FetchProgressCallback, PlaylistFetcher, SourceKind,
 };
 use crate::error::AppResult;
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -53,8 +53,8 @@ static NATIVE_LINK: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)<iframe\b[^>]*\bsrc\s*=\s*[\"'](kuwo://play/\?[^\"'<>]+)[\"']"#).unwrap()
 });
 
-pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
-    if !matches!(kind, TypeName::Playlist | TypeName::Album) {
+pub fn normalize(kind: SourceKind, input: &str) -> AppResult<String> {
+    if !matches!(kind, SourceKind::Playlist | SourceKind::Album) {
         return Err(music::error("酷我音乐只支持歌单与专辑"));
     }
     if !input.starts_with("http") {
@@ -70,12 +70,12 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
         return Err(music::error("分享链接的平台与当前选择不一致"));
     }
     let path = format!("{}{}", url.path(), url.fragment().unwrap_or("")).to_lowercase();
-    if (kind == TypeName::Playlist && path.contains("album"))
-        || (kind == TypeName::Album && path.contains("playlist"))
+    if (kind == SourceKind::Playlist && path.contains("album"))
+        || (kind == SourceKind::Album && path.contains("playlist"))
     {
         return Err(music::error("酷我链接类型与选择的歌单/专辑类型不一致"));
     }
-    let keys = if kind == TypeName::Playlist {
+    let keys = if kind == SourceKind::Playlist {
         &["pid", "playlistid", "id"][..]
     } else {
         &["albumid", "albumId", "id"][..]
@@ -87,7 +87,7 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
     {
         return music::numeric(&value);
     }
-    let marker = if kind == TypeName::Playlist {
+    let marker = if kind == SourceKind::Playlist {
         "playlist_detail/"
     } else {
         "album_detail/"
@@ -268,8 +268,8 @@ impl Pages {
         Ok(false)
     }
 }
-fn page_data(data: &Value, kind: TypeName) -> AppResult<(&[Value], usize, &str, &str)> {
-    if kind == TypeName::Playlist && data["result"].as_str() != Some("ok") {
+fn page_data(data: &Value, kind: SourceKind) -> AppResult<(&[Value], usize, &str, &str)> {
+    if kind == SourceKind::Playlist && data["result"].as_str() != Some("ok") {
         return Err(music::error("酷我歌单不可用"));
     }
     if data["ispub"].as_bool() == Some(false) {
@@ -278,7 +278,7 @@ fn page_data(data: &Value, kind: TypeName) -> AppResult<(&[Value], usize, &str, 
     let tracks = data["musiclist"]
         .as_array()
         .ok_or_else(|| music::error("酷我歌曲列表不可用"))?;
-    let key = if kind == TypeName::Playlist {
+    let key = if kind == SourceKind::Playlist {
         "total"
     } else {
         "songnum"
@@ -287,7 +287,7 @@ fn page_data(data: &Value, kind: TypeName) -> AppResult<(&[Value], usize, &str, 
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|n| *n <= MAX_ITEMS)
         .ok_or_else(|| music::error("酷我歌曲总数无效或超出上限"))?;
-    let name = data[if kind == TypeName::Playlist {
+    let name = data[if kind == SourceKind::Playlist {
         "title"
     } else {
         "name"
@@ -305,7 +305,7 @@ impl KuwoFetcher {
     async fn read(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         let id = normalize(kind, id)?;
@@ -319,7 +319,7 @@ impl KuwoFetcher {
             pages: 0,
         });
         for page in 0..=MAX_ITEMS / PAGE_SIZE {
-            let mut url = reqwest::Url::parse(if kind == TypeName::Playlist {
+            let mut url = reqwest::Url::parse(if kind == SourceKind::Playlist {
                 "https://nplserver.kuwo.cn/pl.svc"
             } else {
                 "https://search.kuwo.cn/r.s"
@@ -331,7 +331,7 @@ impl KuwoFetcher {
                     .append_pair("pn", &page.to_string())
                     .append_pair("rn", &PAGE_SIZE.to_string())
                     .append_pair("pcjson", "1");
-                if kind == TypeName::Playlist {
+                if kind == SourceKind::Playlist {
                     query
                         .append_pair("op", "getlistinfo")
                         .append_pair("encode", "utf8")
@@ -358,7 +358,7 @@ impl KuwoFetcher {
                 serde_json::from_str(&text).map_err(|_| music::error("酷我平台数据无效"))?;
             let (items, expected, page_name, page_cover) = page_data(&data, kind)?;
             let returned_id = music::string(
-                &data[if kind == TypeName::Playlist {
+                &data[if kind == SourceKind::Playlist {
                     "id"
                 } else {
                     "albumid"
@@ -368,7 +368,7 @@ impl KuwoFetcher {
             if returned_id.trim_start_matches('0') != id.trim_start_matches('0') {
                 return Err(music::error("酷我返回的来源与请求不一致"));
             }
-            if kind == TypeName::Playlist
+            if kind == SourceKind::Playlist
                 && music::string(&data["pn"]).and_then(|v| v.parse::<usize>().ok()) != Some(page)
             {
                 return Err(music::error("酷我歌曲分页未前进，请稍后重试"));
@@ -392,13 +392,13 @@ impl KuwoFetcher {
 }
 #[async_trait::async_trait]
 impl PlaylistFetcher for KuwoFetcher {
-    async fn fetch(&self, id: &str, kind: TypeName) -> AppResult<Value> {
+    async fn fetch(&self, id: &str, kind: SourceKind) -> AppResult<Value> {
         self.read(id, kind, Arc::new(|_| {})).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         self.read(id, kind, progress).await
@@ -413,15 +413,15 @@ mod tests {
     fn normalizes_and_rejects_cross_platform_and_kind() {
         assert_eq!(
             normalize(
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "https://www.kuwo.cn/playlist_detail/3677150229"
             )
             .unwrap(),
             "3677150229"
         );
-        assert!(normalize(TypeName::Playlist, "https://www.kuwo.cn/album_detail/435").is_err());
+        assert!(normalize(SourceKind::Playlist, "https://www.kuwo.cn/album_detail/435").is_err());
         assert!(normalize(
-            TypeName::Album,
+            SourceKind::Album,
             "https://kuwo.cn.evil.invalid/album_detail/435"
         )
         .is_err());
@@ -430,13 +430,13 @@ mod tests {
     #[test]
     fn strict_counts_and_metadata() {
         let data = json!({"result":"ok","total":2,"title":"公开歌单","musiclist":[{"id":"123","name":"示例","artist":"歌手甲&歌手乙"}]});
-        let (tracks, total, _, _) = page_data(&data, TypeName::Playlist).unwrap();
+        let (tracks, total, _, _) = page_data(&data, SourceKind::Playlist).unwrap();
         assert_eq!(total, 2);
         assert_eq!(
             parse_track(&tracks[0], "").unwrap()["artists"],
             json!(["歌手甲", "歌手乙"])
         );
-        assert!(page_data(&json!({"result":"ok","musiclist":[]}), TypeName::Playlist).is_err());
+        assert!(page_data(&json!({"result":"ok","musiclist":[]}), SourceKind::Playlist).is_err());
         assert!(parse_track(&json!({"id":"1"}), "").is_err());
     }
     fn track(id: usize) -> Value {
@@ -513,7 +513,7 @@ mod tests {
     async fn current_source_details_and_mystery_are_local() {
         let source = music::snapshot(
             "3677150229",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "歌单",
             "https://example.com/cover",
             vec![parse_track(&track(1), "https://example.com/cover").unwrap()],
@@ -537,7 +537,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Read-only public metadata probe"]
     async fn public_playlist_and_album() {
-        for (id, kind) in [("3677150229", TypeName::Playlist), ("435", TypeName::Album)] {
+        for (id, kind) in [("3677150229", SourceKind::Playlist), ("435", SourceKind::Album)] {
             let data = KuwoFetcher.fetch(id, kind).await.unwrap();
             assert!(!data["song_ids"].as_array().unwrap().is_empty());
             assert!(data["tracks_info"].as_array().unwrap().iter().all(|track| {

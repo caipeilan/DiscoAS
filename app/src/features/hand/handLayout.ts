@@ -28,12 +28,12 @@ export function mergeHandCards(previous: HandCard[], incoming: HandCard[], order
 export function handLayout(count: number, settings: HandSettings, area: HandRect, active = -1, fontSize = 14): CardPose[] {
   if (!count) return [];
   const vertical = settings.side !== "bottom";
-  const margin = Math.min(Math.max(0, settings.edge_distance) + 12, Math.min(area.width, area.height) / 4);
-  const edgeMargin = Math.min(settings.edge_distance + 12, Math.min(area.width, area.height) / 4);
+  const margin = Math.min(Math.max(0, settings.edgeOffsetPx) + 12, Math.min(area.width, area.height) / 4);
+  const edgeMargin = Math.min(settings.edgeOffsetPx + 12, Math.min(area.width, area.height) / 4);
   const card = handCardSize(fontSize);
   const size = Math.min(settings.scale, (area.width - 2 * margin) / 300, (area.height - 2 * margin) / (card.height + 120));
   const width = card.width * size, height = card.height * size;
-  const radians = settings.tilt * Math.PI / 180;
+  const radians = settings.tiltDegrees * Math.PI / 180;
   const widthAngle = Math.min(radians, Math.atan2(height, width));
   const heightAngle = Math.min(radians, Math.atan2(width, height));
   const halfWidth = (width * Math.cos(widthAngle) + height * Math.sin(widthAngle)) / 2;
@@ -41,10 +41,10 @@ export function handLayout(count: number, settings: HandSettings, area: HandRect
   const length = vertical ? Math.max(height * 1.12, halfHeight * 2) : Math.max(width * 1.12, halfWidth * 2);
   const axisMargin = margin + 16 * size;
   const available = (vertical ? area.height : area.width) - 2 * axisMargin;
-  const step = count < 2 ? 0 : Math.min((vertical ? height : width) * (1 - settings.overlap / 100), Math.max(0, (available - length) / (count - 1)));
+  const step = count < 2 ? 0 : Math.min((vertical ? height : width) * (1 - settings.overlapPercent / 100), Math.max(0, (available - length) / (count - 1)));
   const span = length + step * (count - 1);
   const start = vertical ? area.top : area.left;
-  const center = clamp(start + axisMargin + available * settings.position / 100, start + axisMargin + span / 2, start + axisMargin + available - span / 2);
+  const center = clamp(start + axisMargin + available * settings.positionPercent / 100, start + axisMargin + span / 2, start + axisMargin + available - span / 2);
   const bottomY = area.top + area.height - edgeMargin - halfHeight - 28 * size;
   return Array.from({ length: count }, (_, i) => {
     const offset = i - (count - 1) / 2;
@@ -54,11 +54,11 @@ export function handLayout(count: number, settings: HandSettings, area: HandRect
     if (vertical) {
       x = settings.side === "left" ? area.left + edgeMargin + halfWidth + 20 * size : area.left + area.width - edgeMargin - halfWidth - 20 * size;
       y = center + offset * step + shift;
-      angle = (settings.side === "left" ? 1 : -1) * settings.tilt;
+      angle = (settings.side === "left" ? 1 : -1) * settings.tiltDegrees;
     } else {
       x = center + offset * step + shift;
       y = bottomY + relative * relative * 28 * size;
-      angle = relative * settings.tilt;
+      angle = relative * settings.tiltDegrees;
     }
     const pose = { x, y, angle, width, height, scale: 1 };
     return i === active ? raisedHandPose(pose, settings.side, area) : pose;

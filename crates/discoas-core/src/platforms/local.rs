@@ -1,7 +1,7 @@
 //! Read-only local audio sources. Paths stay in the source snapshot; no player is opened here.
 use super::{FetchProgress, FetchProgressCallback, PlaylistFetcher, SongDetail, SongDetailLoader};
 use crate::{
-    core::playlist::TypeName,
+    core::playlist::SourceKind,
     error::{AppError, AppResult},
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -332,7 +332,7 @@ pub fn read_cover(reference: &str) -> AppResult<Vec<u8>> {
 pub struct LocalFetcher;
 #[async_trait::async_trait]
 impl PlaylistFetcher for LocalFetcher {
-    async fn fetch(&self, source: &str, kind: TypeName) -> AppResult<Value> {
+    async fn fetch(&self, source: &str, kind: SourceKind) -> AppResult<Value> {
         super::validate_kind(super::names::LOCAL, kind)?;
         let source: LocalSource =
             serde_json::from_str(source).map_err(|_| error("错误：本地来源需要路径清单"))?;
@@ -433,7 +433,7 @@ mod tests {
             discovery_service::DiscoveryService,
             hand::HandStore,
             model::PlaySongArgs,
-            settings::music_setting::{MusicSetting, PlaylistAlbum},
+            settings::music_setting::{MusicSetting, SourceConfig},
             storage::LibraryStore,
         };
         let fixture = Fixture::new();
@@ -448,22 +448,22 @@ mod tests {
             .save_playlist_json(
                 super::super::names::LOCAL,
                 &source.id(),
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 &data,
             )
             .unwrap();
         std::fs::create_dir_all(root.join("settings")).unwrap();
         let mut settings = MusicSetting::default();
-        settings.have_mystery_song = false;
+        settings.mystery_songs_enabled = false;
         settings.hand.enabled = true;
         settings.hand.keep_discovery_open = true;
-        settings.playlist_albums = vec![PlaylistAlbum {
-            name: super::super::names::LOCAL.into(),
-            playlist_album_id: source.id(),
-            typename: "playlist".into(),
-            playlist_album_name: "Local".into(),
-            playlist_album_remark: String::new(),
-            update_time: String::new(),
+        settings.sources = vec![SourceConfig {
+            platform: super::super::names::LOCAL.into(),
+            source_id: source.id(),
+            source_kind: "playlist".into(),
+            title: "Local".into(),
+            remark: String::new(),
+            updated_at: String::new(),
             enabled: true,
         }];
         settings
@@ -478,8 +478,8 @@ mod tests {
         let args = PlaySongArgs {
             platform: song.platform.clone(),
             song_id: song.song_id.clone(),
-            playlist_id: song.playlist_id.clone(),
-            typename: song.typename.clone(),
+            source_id: song.source_id.clone(),
+            source_kind: song.source_kind.clone(),
             filename: String::new(),
         };
         service

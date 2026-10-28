@@ -2,11 +2,11 @@
 
 use crate::core::cache::Cache;
 use crate::{
-    core::playlist::{Playlist, TypeName},
+    core::playlist::{Playlist, SourceKind},
     error::{AppError, AppResult},
     model::{CanonicalSongMetadata, SongCardDto},
     platforms::{self, SongDetailLoader},
-    settings::music_setting::{MusicSetting, PlaylistAlbum},
+    settings::music_setting::{MusicSetting, SourceConfig},
     storage::LibraryStore,
 };
 use rand::seq::SliceRandom;
@@ -96,8 +96,8 @@ pub fn select_batch_weighted(
             song_id,
             mystery_mode: index >= normal_count,
             platform: playlist.platform.clone(),
-            playlist_id: playlist.playlist_id.clone(),
-            typename: playlist.playlist_type.as_str().into(),
+            source_id: playlist.source_id.clone(),
+            source_kind: playlist.source_kind.as_str().into(),
             ..Default::default()
         })
         .collect();
@@ -146,16 +146,16 @@ fn select_weighted_ids(
 /// Convenience entry for explicit local storage; platform/UI code is not involved.
 pub struct DiscoverASong {
     pub platform: String,
-    pub playlist_type: TypeName,
-    pub playlist_id: String,
+    pub source_kind: SourceKind,
+    pub source_id: String,
 }
 
 impl DiscoverASong {
-    pub fn new(platform: String, playlist_type: TypeName, playlist_id: String) -> Self {
+    pub fn new(platform: String, source_kind: SourceKind, source_id: String) -> Self {
         Self {
             platform,
-            playlist_type,
-            playlist_id,
+            source_kind,
+            source_id,
         }
     }
 
@@ -167,7 +167,7 @@ impl DiscoverASong {
         mystery_count: usize,
     ) -> AppResult<DiscoverResult> {
         select_batch(
-            &store.load_playlist(&self.platform, &self.playlist_id, self.playlist_type)?,
+            &store.load_playlist(&self.platform, &self.source_id, self.source_kind)?,
             normal_count,
             have_mystery,
             mystery_count,
@@ -179,17 +179,17 @@ impl DiscoverASong {
 /// Cover image bytes are prepared by a separate service before presentation.
 pub async fn load_one_batch(
     source_data: &Value,
-    source: &PlaylistAlbum,
+    source: &SourceConfig,
     setting: &MusicSetting,
 ) -> AppResult<Vec<SongCardDto>> {
-    let loader = platforms::detail_loader_for(&source.name)?;
+    let loader = platforms::detail_loader_for(&source.platform)?;
     load_one_batch_with_loader(source_data, source, setting, loader.as_ref()).await
 }
 
 /// Injectable variant for other callers, platform extensions and offline tests.
 pub async fn load_one_batch_with_loader(
     source_data: &Value,
-    source: &PlaylistAlbum,
+    source: &SourceConfig,
     setting: &MusicSetting,
     loader: &dyn SongDetailLoader,
 ) -> AppResult<Vec<SongCardDto>> {
@@ -208,7 +208,7 @@ pub async fn load_one_batch_with_loader(
 /// Recent successful details are shared by foreground and preloaded batches.
 pub async fn load_one_batch_cached(
     source_data: &Value,
-    source: &PlaylistAlbum,
+    source: &SourceConfig,
     setting: &MusicSetting,
     cache: &Cache,
     excluded_song_ids: &HashSet<String>,
@@ -226,13 +226,13 @@ pub async fn load_one_batch_cached(
 
 pub async fn load_one_batch_cached_weighted(
     source_data: &Value,
-    source: &PlaylistAlbum,
+    source: &SourceConfig,
     setting: &MusicSetting,
     cache: &Cache,
     excluded_song_ids: &HashSet<String>,
     weights: &HashMap<String, f64>,
 ) -> AppResult<Vec<SongCardDto>> {
-    let loader = platforms::detail_loader_for(&source.name)?;
+    let loader = platforms::detail_loader_for(&source.platform)?;
     load_batch(
         source_data,
         source,
@@ -247,15 +247,15 @@ pub async fn load_one_batch_cached_weighted(
 
 async fn load_batch(
     source_data: &Value,
-    source: &PlaylistAlbum,
+    source: &SourceConfig,
     setting: &MusicSetting,
     loader: &dyn SongDetailLoader,
     cache: Option<&Cache>,
     excluded_song_ids: &HashSet<String>,
     weights: &HashMap<String, f64>,
 ) -> AppResult<Vec<SongCardDto>> {
-    let kind = TypeName::parse(&source.typename)?;
-    let playlist = Playlist::from_json(&source.name, kind, &source.playlist_album_id, source_data)?;
+    let kind = SourceKind::parse(&source.source_kind)?;
+    let playlist = Playlist::from_json(&source.platform, kind, &source.source_id, source_data)?;
     let snapshot = format!("{:x}", md5::compute(serde_json::to_vec(source_data)?));
     load_prepared_batch(
         source_data,
@@ -303,9 +303,9 @@ async fn load_prepared_batch(
 ) -> AppResult<Vec<SongCardDto>> {
     let selected = select_batch_weighted(
         playlist,
-        setting.number_of_discovered_songs as usize,
-        setting.have_mystery_song,
-        setting.num_of_mystery_song as usize,
+        setting.normal_song_count as usize,
+        setting.mystery_songs_enabled,
+        setting.mystery_song_count as usize,
         excluded_song_ids,
         weights,
     )?;
@@ -412,25 +412,25 @@ fn assemble_card(
         Ok(detail) => {
             song.playback_metadata = detail.playback_metadata;
             song.real_metadata = Some(CanonicalSongMetadata {
-                name: detail.name.clone(),
+                title: detail.name.clone(),
                 artist_names: detail.artist_names.clone(),
             });
-            song.name = detail.name;
+            song.title = detail.name;
             song.artist_names = detail.artist_names;
             song.album_pic_url = detail.album_pic_url;
             song.real_cover_url = Some(song.album_pic_url.clone());
         }
         Err(error) => {
-            song.name = format!("歌曲 {}", song.song_id);
+            song.title = format!("歌曲 {}", song.song_id);
             song.detail_error = Some(error.to_string());
         }
     }
     // Mask only the discovery projection; history keeps the canonical metadata.
     if song.mystery_mode {
-        song.name = "???".into();
+        song.title = "???".into();
         song.artist_names = vec!["???".into()];
         // The empty mystery cover selects the desktop's bundled question asset.
-        song.album_pic_url = setting.mystery_song_cover.clone();
+        song.album_pic_url = setting.mystery_cover.clone();
     }
     song.filename = if song.platform == platforms::names::LOCAL {
         source_data["tracks_info"]
@@ -455,7 +455,7 @@ fn assemble_card(
 fn detail_key(song: &SongCardDto, snapshot: &str) -> String {
     format!(
         "{snapshot}:{}:{}:{}:{}",
-        song.platform, song.typename, song.playlist_id, song.song_id
+        song.platform, song.source_kind, song.source_id, song.song_id
     )
 }
 
@@ -697,9 +697,9 @@ mod tests {
     }
     fn batch_setting() -> MusicSetting {
         MusicSetting {
-            number_of_discovered_songs: 3,
-            have_mystery_song: true,
-            num_of_mystery_song: 1,
+            normal_song_count: 3,
+            mystery_songs_enabled: true,
+            mystery_song_count: 1,
             ..Default::default()
         }
     }
@@ -733,12 +733,12 @@ mod tests {
         assert_eq!(loader.calls.load(Ordering::SeqCst), 1);
         for songs in [a, b] {
             assert!(songs.iter().all(|song| song.detail_error.is_none()));
-            assert_eq!(songs[3].name, "???");
+            assert_eq!(songs[3].title, "???");
             assert!(songs[3]
                 .real_metadata
                 .as_ref()
                 .unwrap()
-                .name
+                .title
                 .starts_with("real "));
         }
         let refreshed = json!({"song_ids":["1","2","3","4"],"revision":2});
@@ -841,7 +841,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(song.song_id, "one");
-        assert_eq!(song.name, "one");
+        assert_eq!(song.title, "one");
         assert!(song.detail_error.is_none());
         assert_eq!(loader.0.load(Ordering::SeqCst), 2);
     }
@@ -880,14 +880,14 @@ mod tests {
         }
     }
 
-    fn source(platform: &str) -> PlaylistAlbum {
-        PlaylistAlbum {
-            name: platform.into(),
-            playlist_album_id: "selected".into(),
-            typename: "playlist".into(),
-            playlist_album_name: String::new(),
-            playlist_album_remark: String::new(),
-            update_time: String::new(),
+    fn source(platform: &str) -> SourceConfig {
+        SourceConfig {
+            platform: platform.into(),
+            source_id: "selected".into(),
+            source_kind: "playlist".into(),
+            title: String::new(),
+            remark: String::new(),
+            updated_at: String::new(),
             enabled: true,
         }
     }
@@ -896,7 +896,7 @@ mod tests {
     fn sampling_caps_total_and_marks_only_available_mystery_tracks() {
         let playlist = Playlist::from_json(
             "Spotify",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "source",
             &json!({"song_ids": (0..20).collect::<Vec<_>>() }),
         )
@@ -911,7 +911,7 @@ mod tests {
         assert_eq!(result.mystery_count, 0);
         let small = Playlist::from_json(
             "Spotify",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "source",
             &json!({"song_ids": ["a", "a", "b", ""]}),
         )
@@ -961,7 +961,7 @@ mod tests {
     fn direct_sampling_handles_invalid_weights_without_zero_probability_or_panics() {
         let playlist = Playlist::from_json(
             "Spotify",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "source",
             &json!({"song_ids":["a","b","c","d","e","f","a",""]}),
         )
@@ -1004,8 +1004,8 @@ mod tests {
             ]
         });
         let settings = MusicSetting {
-            number_of_discovered_songs: 3,
-            num_of_mystery_song: 1,
+            normal_song_count: 3,
+            mystery_song_count: 1,
             ..Default::default()
         };
         for platform in ["KuwoMusic", "QishuiMusic", "YouTube", "Bilibili"] {
@@ -1014,15 +1014,15 @@ mod tests {
                 .unwrap();
             assert_eq!(songs.len(), 4);
             assert!(songs[3].mystery_mode);
-            assert_eq!(songs[3].name, "???");
+            assert_eq!(songs[3].title, "???");
             let known = songs.iter().find(|song| song.song_id == "known").unwrap();
-            assert_eq!(known.real_metadata.as_ref().unwrap().name, "Original");
+            assert_eq!(known.real_metadata.as_ref().unwrap().title, "Original");
             assert_eq!(
                 known.real_cover_url.as_deref(),
                 Some("https://example.invalid/cover")
             );
             let late = songs.iter().find(|song| song.song_id == "late").unwrap();
-            assert_eq!(late.real_metadata.as_ref().unwrap().name, "Late");
+            assert_eq!(late.real_metadata.as_ref().unwrap().title, "Late");
             for id in ["broken", "missing"] {
                 assert!(songs
                     .iter()
@@ -1038,20 +1038,20 @@ mod tests {
     async fn spotify_batch_uses_only_supplied_source_and_keeps_fallback_card() {
         let raw = json!({"song_ids":["known", "missing"], "tracks_info":[{"id":"known", "name":"Current source", "artists":["Artist"], "coverUrl":"https://example.invalid/cover"}]});
         let setting = MusicSetting {
-            number_of_discovered_songs: 2,
-            have_mystery_song: false,
+            normal_song_count: 2,
+            mystery_songs_enabled: false,
             ..Default::default()
         };
         let songs = load_one_batch(&raw, &source("Spotify"), &setting)
             .await
             .unwrap();
         let known = songs.iter().find(|song| song.song_id == "known").unwrap();
-        assert_eq!(known.name, "Current source");
+        assert_eq!(known.title, "Current source");
         assert_eq!(known.artist_names, ["Artist"]);
         assert!(known.detail_error.is_none());
-        assert_eq!(known.playlist_id, "selected");
+        assert_eq!(known.source_id, "selected");
         let missing = songs.iter().find(|song| song.song_id == "missing").unwrap();
-        assert_eq!(missing.name, "歌曲 missing");
+        assert_eq!(missing.title, "歌曲 missing");
         assert!(missing.detail_error.is_some());
     }
 
@@ -1059,8 +1059,8 @@ mod tests {
     async fn mystery_cover_and_kugou_filename_survive_batch_assembly() {
         let raw = json!({"song_ids":["A", "B"],"songs_info":[{"hash":"a","filename":"Artist - First","coverURL":"https://example.invalid/one"},{"hash":"b","filename":"Artist - Second","coverURL":"https://example.invalid/two"}]});
         let setting = MusicSetting {
-            number_of_discovered_songs: 1,
-            num_of_mystery_song: 1,
+            normal_song_count: 1,
+            mystery_song_count: 1,
             ..Default::default()
         };
         let songs = load_one_batch(&raw, &source("KugouMusic"), &setting)
@@ -1068,13 +1068,13 @@ mod tests {
             .unwrap();
         assert_eq!(songs.len(), 2);
         assert!(!songs[0].mystery_mode);
-        assert_eq!(songs[1].name, "???");
+        assert_eq!(songs[1].title, "???");
         assert_eq!(songs[1].album_pic_url, "");
         assert!(songs
             .iter()
             .all(|song| song.filename.starts_with("Artist - ")));
         let custom = MusicSetting {
-            mystery_song_cover: "C:/covers/question.png".into(),
+            mystery_cover: "C:/covers/question.png".into(),
             ..setting
         };
         assert_eq!(
@@ -1090,8 +1090,8 @@ mod tests {
     async fn details_run_four_at_a_time_and_keep_mystery_tracks_at_the_end() {
         let loader = InstrumentedLoader::default();
         let setting = MusicSetting {
-            number_of_discovered_songs: 10,
-            num_of_mystery_song: 5,
+            normal_song_count: 10,
+            mystery_song_count: 5,
             ..Default::default()
         };
         let songs = load_one_batch_with_loader(
@@ -1108,10 +1108,10 @@ mod tests {
         assert_eq!(songs.len(), 15);
         assert!(songs[..10]
             .iter()
-            .all(|song| !song.mystery_mode && song.name == song.song_id));
+            .all(|song| !song.mystery_mode && song.title == song.song_id));
         assert!(songs[10..]
             .iter()
-            .all(|song| song.mystery_mode && song.name == "???"));
+            .all(|song| song.mystery_mode && song.title == "???"));
     }
 
     #[tokio::test]
@@ -1119,8 +1119,8 @@ mod tests {
         let loader = InstrumentedLoader::default();
         let cache = Cache::new();
         let setting = MusicSetting {
-            number_of_discovered_songs: 1,
-            have_mystery_song: false,
+            normal_song_count: 1,
+            mystery_songs_enabled: false,
             ..Default::default()
         };
         let source = source("Spotify");
@@ -1169,7 +1169,7 @@ mod tests {
             )
             .await
             .unwrap()
-            .name,
+            .title,
             "???"
         );
         assert_eq!(loader.calls.load(Ordering::SeqCst), 2);
@@ -1180,8 +1180,8 @@ mod tests {
         let loader = InstrumentedLoader::default();
         let cache = Cache::new();
         let setting = MusicSetting {
-            number_of_discovered_songs: 1,
-            have_mystery_song: false,
+            normal_song_count: 1,
+            mystery_songs_enabled: false,
             ..Default::default()
         };
         let raw = json!({"song_ids":["a"]});
@@ -1216,7 +1216,7 @@ mod tests {
     fn excluding_recent_songs_keeps_batch_limits_and_reports_exhausted_sources() {
         let playlist = Playlist::from_json(
             "Spotify",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "source",
             &json!({"song_ids":["a","b","c","c"]}),
         )

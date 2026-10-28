@@ -14,7 +14,7 @@ pub struct PlaybackMetadata {
 /// Canonical metadata kept inside prepared batches, never sent to discovery views.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CanonicalSongMetadata {
-    pub name: String,
+    pub title: String,
     pub artist_names: Vec<String>,
 }
 
@@ -22,7 +22,8 @@ pub struct CanonicalSongMetadata {
 #[serde(rename_all = "camelCase")]
 pub struct SongCardDto {
     pub song_id: String,
-    pub name: String,
+    #[serde(rename = "name")]
+    pub title: String,
     pub artist_names: Vec<String>,
     pub album_pic_url: String,
     #[serde(default)]
@@ -33,9 +34,11 @@ pub struct SongCardDto {
     #[serde(default)]
     pub platform: String,
     #[serde(default)]
-    pub playlist_id: String,
+    #[serde(rename = "playlistId")]
+    pub source_id: String,
     #[serde(default)]
-    pub typename: String,
+    #[serde(rename = "typename")]
+    pub source_kind: String,
     #[serde(default)]
     pub filename: String,
     #[serde(default)]
@@ -119,9 +122,11 @@ pub struct PlaySongArgs {
     pub platform: String,
     pub song_id: String,
     #[serde(default)]
-    pub playlist_id: String,
+    #[serde(rename = "playlistId")]
+    pub source_id: String,
     #[serde(default)]
-    pub typename: String,
+    #[serde(rename = "typename")]
+    pub source_kind: String,
     #[serde(default)]
     pub filename: String,
 }
@@ -141,23 +146,28 @@ mod tests {
         assert!(song.detail_error.is_none());
         assert!(song.platform.is_empty());
         let value = serde_json::to_value(song).unwrap();
+        assert_eq!(value["name"], "Song");
+        assert_eq!(value["playlistId"], "");
+        assert_eq!(value["typename"], "");
+        assert!(value.get("title").is_none());
+        assert!(value.get("sourceId").is_none());
         assert_eq!(value["artistNames"], json!(["Artist"]));
         assert!(value.get("song_id").is_none());
         let play: PlaySongArgs =
             serde_json::from_value(json!({"platform":"Spotify", "songId":"track"})).unwrap();
         assert_eq!(play.song_id, "track");
-        assert!(play.playlist_id.is_empty());
+        assert!(play.source_id.is_empty());
         assert!(play.filename.is_empty());
     }
 
     #[test]
     fn mystery_transport_never_exposes_or_accepts_canonical_metadata() {
         let song = SongCardDto {
-            name: "???".into(),
+            title: "???".into(),
             artist_names: vec!["???".into()],
             mystery_mode: true,
             real_metadata: Some(CanonicalSongMetadata {
-                name: "Secret title".into(),
+                title: "Secret title".into(),
                 artist_names: vec!["Secret artist".into()],
             }),
             ..Default::default()

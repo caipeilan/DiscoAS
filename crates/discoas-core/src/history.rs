@@ -18,9 +18,12 @@ use std::{
 pub struct HistoryEntry {
     pub song_id: String,
     pub platform: String,
-    pub playlist_id: String,
-    pub typename: String,
-    pub name: String,
+    #[serde(rename = "playlistId")]
+    pub source_id: String,
+    #[serde(rename = "typename")]
+    pub source_kind: String,
+    #[serde(rename = "name")]
+    pub title: String,
     pub artist_names: Vec<String>,
     pub discovered_at: Option<u64>,
     pub selected_at: Option<u64>,
@@ -37,12 +40,12 @@ impl HistoryEntry {
         Self {
             song_id: song.song_id.clone(),
             platform: song.platform.clone(),
-            playlist_id: song.playlist_id.clone(),
-            typename: song.typename.clone(),
-            name: song
+            source_id: song.source_id.clone(),
+            source_kind: song.source_kind.clone(),
+            title: song
                 .real_metadata
                 .as_ref()
-                .map_or_else(|| song.name.clone(), |metadata| metadata.name.clone()),
+                .map_or_else(|| song.title.clone(), |metadata| metadata.title.clone()),
             artist_names: song.real_metadata.as_ref().map_or_else(
                 || song.artist_names.clone(),
                 |metadata| metadata.artist_names.clone(),
@@ -66,8 +69,8 @@ impl HistoryEntry {
             .max(self.selected_at.unwrap_or(0))
     }
     pub(crate) fn has_hidden_metadata(&self) -> bool {
-        self.name == "???"
-            || self.name == "神秘歌曲"
+        self.title == "???"
+            || self.title == "神秘歌曲"
             || self.artist_names.iter().any(|artist| artist == "???")
     }
 }
@@ -328,8 +331,8 @@ impl HistoryStore {
         let mut changed = 0;
         for entry in snapshot.discovered.iter_mut().chain(&mut snapshot.selected) {
             if let Some(metadata) = repairs.get(entry) {
-                if entry.has_hidden_metadata() && !metadata.name.trim().is_empty() {
-                    entry.name = metadata.name.clone();
+                if entry.has_hidden_metadata() && !metadata.title.trim().is_empty() {
+                    entry.title = metadata.title.clone();
                     entry.artist_names = metadata.artist_names.clone();
                     changed += 1;
                 }
@@ -360,7 +363,7 @@ impl HistoryStore {
             let song_id = row.song_id.clone();
             if let Some(detail) = repairs.get(&(platform.as_str(), song_id.as_str())) {
                 if row.has_hidden_metadata() && !detail.name.trim().is_empty() {
-                    row.name = detail.name.clone();
+                    row.title = detail.name.clone();
                     row.artist_names = detail.artist_names.clone();
                 }
                 if row.cover_url.is_empty() && !detail.album_pic_url.is_empty() {
@@ -538,9 +541,9 @@ fn merge_entry(merged: &mut HashMap<(String, String), HistoryEntry>, entry: Hist
         let discovered = old.discovered_at.max(entry.discovered_at);
         let selected = old.selected_at.max(entry.selected_at);
         let available_metadata = if !entry.has_hidden_metadata() {
-            Some((entry.name.clone(), entry.artist_names.clone()))
+            Some((entry.title.clone(), entry.artist_names.clone()))
         } else if !old.has_hidden_metadata() {
-            Some((old.name.clone(), old.artist_names.clone()))
+            Some((old.title.clone(), old.artist_names.clone()))
         } else {
             None
         };
@@ -554,7 +557,7 @@ fn merge_entry(merged: &mut HashMap<(String, String), HistoryEntry>, entry: Hist
         }
         if old.has_hidden_metadata() {
             if let Some((name, artists)) = available_metadata {
-                old.name = name;
+                old.title = name;
                 old.artist_names = artists;
             }
         }
@@ -579,7 +582,7 @@ fn upsert(entries: &mut Vec<HistoryEntry>, mut entry: HistoryEntry) {
             .iter()
             .find(|old| old.identity() == entry.identity() && !old.has_hidden_metadata())
         {
-            entry.name = old.name.clone();
+            entry.title = old.title.clone();
             entry.artist_names = old.artist_names.clone();
         }
     }
@@ -644,10 +647,10 @@ mod tests {
     fn song(id: &str, source: &str, platform: &str) -> SongCardDto {
         SongCardDto {
             song_id: id.into(),
-            playlist_id: source.into(),
+            source_id: source.into(),
             platform: platform.into(),
-            typename: "playlist".into(),
-            name: format!("Song {id}"),
+            source_kind: "playlist".into(),
+            title: format!("Song {id}"),
             ..Default::default()
         }
     }
@@ -685,7 +688,7 @@ mod tests {
             .into_iter()
             .find(|entry| entry.song_id == "a")
             .unwrap();
-        assert_eq!(entry.playlist_id, "source2");
+        assert_eq!(entry.source_id, "source2");
         assert!(entry.discovered_at.is_some() && entry.selected_at.is_some());
     }
     #[test]
@@ -729,27 +732,27 @@ mod tests {
         let fixture = Fixture::new();
         let store = fixture.store();
         let mut hidden = song("a", "one", "Spotify");
-        hidden.name = "???".into();
+        hidden.title = "???".into();
         hidden.artist_names = vec!["???".into()];
         store.record_selected(&hidden, 200).unwrap();
         let original = store.load().unwrap().selected[0].clone();
         let metadata = CanonicalSongMetadata {
-            name: "Real title".into(),
+            title: "Real title".into(),
             artist_names: vec!["Real artist".into()],
         };
         let repairs = vec![(original.clone(), metadata.clone())];
         assert_eq!(store.repair_metadata(&repairs).unwrap(), 1);
         let repaired = store.load().unwrap().selected[0].clone();
         assert_eq!(repaired.selected_at, original.selected_at);
-        assert_eq!(repaired.name, metadata.name);
-        assert_eq!(repaired.playlist_id, original.playlist_id);
+        assert_eq!(repaired.title, metadata.title);
+        assert_eq!(repaired.source_id, original.source_id);
         store.clear().unwrap();
         assert_eq!(store.repair_metadata(&repairs).unwrap(), 0);
         assert!(store.load().unwrap().selected.is_empty());
-        hidden.playlist_id = "new-source".into();
+        hidden.source_id = "new-source".into();
         store.record_selected(&hidden, 200).unwrap();
         assert_eq!(store.repair_metadata(&repairs).unwrap(), 0);
-        assert_eq!(store.load().unwrap().selected[0].name, "???");
+        assert_eq!(store.load().unwrap().selected[0].title, "???");
     }
 
     #[test]
@@ -761,14 +764,14 @@ mod tests {
         store
             .record_discovered(std::slice::from_ref(&song), 200)
             .unwrap();
-        song.name = "???".into();
+        song.title = "???".into();
         song.artist_names = vec!["???".into()];
         store
             .record_discovered(std::slice::from_ref(&song), 200)
             .unwrap();
         store.record_selected(&song, 200).unwrap();
         let entries = store.entries(200).unwrap();
-        assert_eq!(entries[0].name, "Song a");
+        assert_eq!(entries[0].title, "Song a");
         assert_eq!(entries[0].artist_names, ["Artist"]);
         assert!(entries[0].discovered_at.is_some() && entries[0].selected_at.is_some());
     }
@@ -964,9 +967,9 @@ mod tests {
         HistoryEntry {
             song_id: id.into(),
             platform: platform.into(),
-            playlist_id: "source".into(),
-            typename: "playlist".into(),
-            name: format!("Song {id}"),
+            source_id: "source".into(),
+            source_kind: "playlist".into(),
+            title: format!("Song {id}"),
             artist_names: Vec::new(),
             discovered_at: discovered,
             selected_at: selected,

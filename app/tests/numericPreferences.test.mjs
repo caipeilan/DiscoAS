@@ -37,16 +37,16 @@ test("basis calculation rejects missing, fractional, unsafe and invalid draw cou
 });
 test("calculated cadence scales with playlist and batch size without promising random coverage", () => {
   const small = calculateDiscoveryWeighting(40,4);
-  assert.deepEqual(small, {enabled:true,base_weight:100,discovered_penalty:25,selected_penalty:50,recovery_batches:3,boost_after_batches:10,boost_per_batch:10,max_weight:300});
+  assert.deepEqual(small, {enabled:true,baseWeight:100,discoveredPenalty:25,selectedPenalty:50,recoveryBatches:3,boostAfterBatches:10,boostPerBatch:10,maxWeight:300});
   const large = calculateDiscoveryWeighting(4887,4,false);
-  assert.equal(large.recovery_batches,306);
-  assert.equal(large.boost_after_batches,1222);
-  assert.equal(large.boost_per_batch,.0818);
+  assert.equal(large.recoveryBatches,306);
+  assert.equal(large.boostAfterBatches,1222);
+  assert.equal(large.boostPerBatch,.0818);
   assert.equal(large.enabled,false);
-  assert.equal(calculateDiscoveryWeighting(1,15).boost_after_batches,1);
-  assert.equal(calculateDiscoveryWeighting(1000000,1).boost_after_batches,10000);
-  assert.equal(calculateDiscoveryWeighting(1000000,1).boost_per_batch,.01);
-  assert.ok(calculateDiscoveryWeighting(1000,10).recovery_batches<calculateDiscoveryWeighting(1000,2).recovery_batches);
+  assert.equal(calculateDiscoveryWeighting(1,15).boostAfterBatches,1);
+  assert.equal(calculateDiscoveryWeighting(1000000,1).boostAfterBatches,10000);
+  assert.equal(calculateDiscoveryWeighting(1000000,1).boostPerBatch,.01);
+  assert.ok(calculateDiscoveryWeighting(1000,10).recoveryBatches<calculateDiscoveryWeighting(1000,2).recoveryBatches);
 });
 test("ranked soft band defaults to ten percent of the enabled playlist or twenty", () => {
   assert.equal(recommendedSoftBand(0), 20);

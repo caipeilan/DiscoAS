@@ -47,15 +47,20 @@ pub struct GuiSetting {
     #[serde(default)]
     pub follow_system_theme: bool,
     #[serde(default = "default_one")]
-    pub card_size: f64,
+    #[serde(rename = "card_size")]
+    pub discovery_card_scale: f64,
     #[serde(default = "default_one")]
-    pub cancel_button_size: f64,
+    #[serde(rename = "cancel_button_size")]
+    pub cancel_button_scale: f64,
     #[serde(default = "default_one")]
-    pub replacement_button_size: f64,
+    #[serde(rename = "replacement_button_size")]
+    pub replacement_button_scale: f64,
     #[serde(default = "default_one")]
-    pub discovery_bar_size: f64,
+    #[serde(rename = "discovery_bar_size")]
+    pub discovery_bar_scale: f64,
     #[serde(default = "default_one")]
-    pub setting_size: f64,
+    #[serde(rename = "setting_size")]
+    pub main_window_scale: f64,
     #[serde(default = "default_language")]
     pub language: String,
     // 日间配色
@@ -95,11 +100,11 @@ impl Default for GuiSetting {
             user_configured: false,
             night_mode: false,
             follow_system_theme: true,
-            card_size: 1.0,
-            cancel_button_size: 1.0,
-            replacement_button_size: 1.0,
-            discovery_bar_size: 1.0,
-            setting_size: 1.0,
+            discovery_card_scale: 1.0,
+            cancel_button_scale: 1.0,
+            replacement_button_scale: 1.0,
+            discovery_bar_scale: 1.0,
+            main_window_scale: 1.0,
             language: "zh_CN".to_string(),
             card: ColorGroup {
                 background: "#FFFFFF".into(),
@@ -154,11 +159,11 @@ impl GuiSetting {
             return Err(AppError::Platform("字体名称无效或过长".into()));
         }
         for (name, scale) in [
-            ("歌曲卡片", self.card_size),
-            ("取消按钮", self.cancel_button_size),
-            ("替换按钮", self.replacement_button_size),
-            ("发现信息条", self.discovery_bar_size),
-            ("设置界面", self.setting_size),
+            ("歌曲卡片", self.discovery_card_scale),
+            ("取消按钮", self.cancel_button_scale),
+            ("替换按钮", self.replacement_button_scale),
+            ("发现信息条", self.discovery_bar_scale),
+            ("设置界面", self.main_window_scale),
         ] {
             if !scale.is_finite() || !(0.5..=3.0).contains(&scale) {
                 return Err(AppError::Platform(format!("{name}缩放应为 0.5–3.0 倍")));
@@ -246,10 +251,10 @@ mod tests {
             }
         }"##;
         let s: GuiSetting = serde_json::from_str(json).unwrap();
-        assert_eq!(s.card_size, 1.75);
-        assert_eq!(s.cancel_button_size, 1.3);
-        assert_eq!(s.replacement_button_size, 1.0);
-        assert_eq!(s.discovery_bar_size, 1.0);
+        assert_eq!(s.discovery_card_scale, 1.75);
+        assert_eq!(s.cancel_button_scale, 1.3);
+        assert_eq!(s.replacement_button_scale, 1.0);
+        assert_eq!(s.discovery_bar_scale, 1.0);
         assert_eq!(s.font_family, "");
         assert_eq!(s.font_size, 14.0);
         assert!(!s.user_configured);
@@ -283,7 +288,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let mut original = GuiSetting::default();
-        original.card_size = 2.5;
+        original.discovery_card_scale = 2.5;
         original.night_mode = true;
         original.card.background = "#abcdef".into();
         original.font_family = "Microsoft YaHei UI".into();
@@ -292,7 +297,7 @@ mod tests {
         original.save_to_path(&path).unwrap();
 
         let loaded = GuiSetting::load_from_path(&path).unwrap();
-        assert_eq!(loaded.card_size, 2.5);
+        assert_eq!(loaded.discovery_card_scale, 2.5);
         assert!(loaded.night_mode);
         assert_eq!(loaded.card.background, "#abcdef");
         assert_eq!(loaded, original);
@@ -316,11 +321,11 @@ mod tests {
     #[test]
     fn accepts_original_scale_range_and_rejects_nonfinite_or_invalid_font_values() {
         let mut settings = GuiSetting::default();
-        settings.card_size = 3.0;
-        settings.cancel_button_size = 0.5;
-        settings.replacement_button_size = 3.0;
-        settings.discovery_bar_size = 0.5;
-        settings.setting_size = 2.99;
+        settings.discovery_card_scale = 3.0;
+        settings.cancel_button_scale = 0.5;
+        settings.replacement_button_scale = 3.0;
+        settings.discovery_bar_scale = 0.5;
+        settings.main_window_scale = 2.99;
         settings.font_size = 24.0;
         settings.font_family = "微软雅黑".into();
         assert!(settings.validate().is_ok());
@@ -330,18 +335,18 @@ mod tests {
         }
         settings.font_size = 10.0;
         for scale in [0.49, 3.01, f64::NAN, f64::INFINITY] {
-            settings.setting_size = scale;
+            settings.main_window_scale = scale;
             assert!(settings.validate().is_err());
         }
-        settings.setting_size = 0.5;
+        settings.main_window_scale = 0.5;
         for invalid in [0.49, 3.01, f64::NAN, f64::INFINITY] {
-            settings.replacement_button_size = invalid;
+            settings.replacement_button_scale = invalid;
             assert!(settings.validate().is_err());
         }
-        settings.replacement_button_size = 1.0;
-        settings.discovery_bar_size = 3.01;
+        settings.replacement_button_scale = 1.0;
+        settings.discovery_bar_scale = 3.01;
         assert!(settings.validate().is_err());
-        settings.discovery_bar_size = 1.0;
+        settings.discovery_bar_scale = 1.0;
         settings.font_family = "font\nname".into();
         assert!(settings.validate().is_err());
     }
@@ -355,7 +360,7 @@ mod tests {
         let mut settings = GuiSetting::default();
         settings.save_to_path(&path).unwrap();
         let before = std::fs::read(&path).unwrap();
-        settings.card_size = 3.01;
+        settings.discovery_card_scale = 3.01;
         assert!(settings.save_to_path(&path).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), before);
         std::fs::remove_file(path).unwrap();

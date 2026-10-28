@@ -7,7 +7,7 @@ export function setLanguage(value: string) {
 export function currentLocale(): string {
   return { zh_CN: "zh-CN", zh_TW: "zh-TW", en_US: "en-US" }[language];
 }
-export function sourceKind(kind: string): string {
+export function sourceKindLabel(kind: string): string {
   if (kind === "video") return t("视频");
   if (kind === "favorites") return t("收藏夹");
   if (kind === "collection") return t("合集");

@@ -6,10 +6,10 @@ use std::{
 };
 
 use crate::{
-    core::playlist::TypeName,
+    core::playlist::SourceKind,
     settings::{
         gui_setting::GuiSetting,
-        music_setting::{MusicSetting, PlaylistAlbum},
+        music_setting::{MusicSetting, SourceConfig},
     },
 };
 use discoas_core::storage::LibraryStore;
@@ -43,27 +43,29 @@ fn present_json_value<'de, D: Deserializer<'de>>(
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
 pub struct SourceIdentity {
     pub platform: String,
-    pub id: String,
-    pub kind: String,
+    #[serde(rename = "id")]
+    pub source_id: String,
+    #[serde(rename = "kind")]
+    pub source_kind: String,
 }
 
 impl SourceIdentity {
-    pub fn new(platform: &str, id: &str, kind: &str) -> Self {
+    pub fn new(platform: &str, source_id: &str, source_kind: &str) -> Self {
         Self {
             platform: platform.into(),
-            id: id.into(),
-            kind: kind.into(),
+            source_id: source_id.into(),
+            source_kind: source_kind.into(),
         }
     }
 }
 
 pub fn enabled_source(settings: &MusicSetting) -> Option<SourceIdentity> {
     settings
-        .playlist_albums
+        .sources
         .iter()
         .find(|source| source.enabled)
         .map(|source| {
-            SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename)
+            SourceIdentity::new(&source.platform, &source.source_id, &source.source_kind)
         })
 }
 
@@ -125,18 +127,18 @@ impl LibraryRepository {
         }
     }
 
-    pub fn cache_summary(&self, source: &PlaylistAlbum) -> Result<(usize, String), String> {
+    pub fn cache_summary(&self, source: &SourceConfig) -> Result<(usize, String), String> {
         self.cache_summary_with_missing(source)
             .map(|(count, cover, _)| (count, cover))
     }
 
     pub fn cache_summary_with_missing(
         &self,
-        source: &PlaylistAlbum,
+        source: &SourceConfig,
     ) -> Result<(usize, String, usize), String> {
-        let kind = TypeName::parse(&source.typename).map_err(|e| e.to_string())?;
+        let source_kind = SourceKind::parse(&source.source_kind).map_err(|e| e.to_string())?;
         let path = LibraryStore::new(&self.root)
-            .playlist_path(&source.name, &source.playlist_album_id, kind)
+            .playlist_path(&source.platform, &source.source_id, source_kind)
             .map_err(|e| e.to_string())?;
         let file =
             std::fs::File::open(path).map_err(|_| "本地缓存缺失，请更新此歌单".to_string())?;
@@ -145,10 +147,10 @@ impl LibraryRepository {
         let ids = raw.song_ids.as_array().ok_or("本地缓存没有歌曲列表")?;
         let unique: std::collections::HashSet<String> = ids
             .iter()
-            .filter_map(|id| {
-                id.as_str()
+            .filter_map(|source_id| {
+                source_id.as_str()
                     .map(String::from)
-                    .or_else(|| id.as_u64().map(|i| i.to_string()))
+                    .or_else(|| source_id.as_u64().map(|i| i.to_string()))
             })
             .filter(|s| !s.is_empty())
             .collect();
@@ -164,63 +166,63 @@ impl LibraryRepository {
         ))
     }
 
-    pub fn load_source(&self, platform: &str, id: &str, kind: TypeName) -> Result<Value, String> {
+    pub fn load_source(&self, platform: &str, source_id: &str, source_kind: SourceKind) -> Result<Value, String> {
         LibraryStore::new(&self.root)
-            .load_json(platform, id, kind)
+            .load_json(platform, source_id, source_kind)
             .map_err(|e| e.to_string())
     }
 
     pub fn save_source(
         &self,
         platform: &str,
-        id: &str,
-        kind: TypeName,
+        source_id: &str,
+        source_kind: SourceKind,
         data: &Value,
     ) -> Result<(String, usize), String> {
         LibraryStore::new(&self.root)
-            .save_playlist_json(platform, id, kind, data)
+            .save_playlist_json(platform, source_id, source_kind, data)
             .map_err(|e| e.to_string())
     }
 
     /// Reimports update metadata; an empty incoming remark keeps the user's old remark.
-    pub fn upsert_source(&self, mut incoming: PlaylistAlbum) -> Result<(), String> {
+    pub fn upsert_source(&self, mut incoming: SourceConfig) -> Result<(), String> {
         let mut settings = self.load_settings()?;
-        incoming.update_time = timestamp();
+        incoming.updated_at = timestamp();
         if let Some(existing) = settings
-            .playlist_albums
+            .sources
             .iter_mut()
             .find(|entry| same_source(entry, &incoming))
         {
-            existing.playlist_album_name = incoming.playlist_album_name;
-            existing.update_time = incoming.update_time;
-            if !incoming.playlist_album_remark.is_empty() {
-                existing.playlist_album_remark = incoming.playlist_album_remark;
+            existing.title = incoming.title;
+            existing.updated_at = incoming.updated_at;
+            if !incoming.remark.is_empty() {
+                existing.remark = incoming.remark;
             }
         } else {
-            incoming.enabled = settings.playlist_albums.iter().all(|entry| !entry.enabled);
-            settings.playlist_albums.push(incoming);
+            incoming.enabled = settings.sources.iter().all(|entry| !entry.enabled);
+            settings.sources.push(incoming);
         }
         self.save_settings(&settings)
     }
 
-    pub fn enable_source(&self, platform: &str, id: &str, kind: &str) -> Result<(), String> {
+    pub fn enable_source(&self, platform: &str, source_id: &str, source_kind: &str) -> Result<(), String> {
         let mut settings = self.load_settings()?;
         let selected = settings
-            .playlist_albums
+            .sources
             .iter()
-            .find(|entry| matches_source(entry, platform, id, kind))
+            .find(|entry| matches_source(entry, platform, source_id, source_kind))
             .ok_or("歌单已被移除")?;
         if self.cache_summary(selected)?.0 == 0 {
             return Err("此歌单没有可用缓存，请先更新".into());
         }
-        for entry in &mut settings.playlist_albums {
-            entry.enabled = matches_source(entry, platform, id, kind);
+        for entry in &mut settings.sources {
+            entry.enabled = matches_source(entry, platform, source_id, source_kind);
         }
         self.save_settings(&settings)
     }
 
-    pub fn remove_source(&self, platform: &str, id: &str, kind: &str) -> Result<(), String> {
-        self.remove_sources(&[SourceIdentity::new(platform, id, kind)])
+    pub fn remove_source(&self, platform: &str, source_id: &str, source_kind: &str) -> Result<(), String> {
+        self.remove_sources(&[SourceIdentity::new(platform, source_id, source_kind)])
     }
 
     /// Validate the complete selection before committing one atomic settings replacement.
@@ -232,17 +234,17 @@ impl LibraryRepository {
         let selected: HashSet<_> = sources.iter().collect();
         if selected.iter().any(|source| {
             !settings
-                .playlist_albums
+                .sources
                 .iter()
-                .any(|entry| matches_source(entry, &source.platform, &source.id, &source.kind))
+                .any(|entry| matches_source(entry, &source.platform, &source.source_id, &source.source_kind))
         }) {
             return Err("错误：歌单已被移除".into());
         }
-        settings.playlist_albums.retain(|entry| {
+        settings.sources.retain(|entry| {
             !selected.contains(&SourceIdentity::new(
-                &entry.name,
-                &entry.playlist_album_id,
-                &entry.typename,
+                &entry.platform,
+                &entry.source_id,
+                &entry.source_kind,
             ))
         });
         // Keep cache files available for reimport and recovery.
@@ -252,44 +254,44 @@ impl LibraryRepository {
     pub fn source(
         &self,
         platform: &str,
-        id: &str,
-        kind: &str,
-    ) -> Result<Option<PlaylistAlbum>, String> {
+        source_id: &str,
+        source_kind: &str,
+    ) -> Result<Option<SourceConfig>, String> {
         Ok(self
             .load_settings()?
-            .playlist_albums
+            .sources
             .into_iter()
-            .find(|entry| matches_source(entry, platform, id, kind)))
+            .find(|entry| matches_source(entry, platform, source_id, source_kind)))
     }
 
     /// Re-read live settings at commit: changing selection or editing a remark during a fetch survives.
     pub fn commit_refresh(
         &self,
-        mut source: PlaylistAlbum,
-        base: Option<&PlaylistAlbum>,
+        mut source: SourceConfig,
+        base: Option<&SourceConfig>,
         data: &Value,
         require_existing: bool,
     ) -> Result<(), String> {
-        let current = self.source(&source.name, &source.playlist_album_id, &source.typename)?;
+        let current = self.source(&source.platform, &source.source_id, &source.source_kind)?;
         if require_existing && current.is_none() {
             return Err("操作已取消".into());
         }
         if let (Some(base), Some(current)) = (base, &current) {
-            if base.playlist_album_remark != current.playlist_album_remark {
-                source.playlist_album_remark.clear();
+            if base.remark != current.remark {
+                source.remark.clear();
             }
         }
-        let kind = TypeName::parse(&source.typename).map_err(|e| e.to_string())?;
-        let (title, _) = self.save_source(&source.name, &source.playlist_album_id, kind, data)?;
-        source.playlist_album_name = title;
+        let source_kind = SourceKind::parse(&source.source_kind).map_err(|e| e.to_string())?;
+        let (title, _) = self.save_source(&source.platform, &source.source_id, source_kind, data)?;
+        source.title = title;
         self.upsert_source(source)
     }
 
     pub fn edit_remark(
         &self,
         platform: &str,
-        id: &str,
-        kind: &str,
+        source_id: &str,
+        source_kind: &str,
         remark: &str,
     ) -> Result<(), String> {
         if remark.chars().count() > 500 {
@@ -297,25 +299,25 @@ impl LibraryRepository {
         }
         let mut settings = self.load_settings()?;
         let source = settings
-            .playlist_albums
+            .sources
             .iter_mut()
-            .find(|entry| matches_source(entry, platform, id, kind))
+            .find(|entry| matches_source(entry, platform, source_id, source_kind))
             .ok_or("错误：歌单已被移除")?;
-        source.playlist_album_remark = remark.trim().to_string();
+        source.remark = remark.trim().to_string();
         self.save_settings(&settings)
     }
 }
 
-fn matches_source(entry: &PlaylistAlbum, platform: &str, id: &str, kind: &str) -> bool {
-    entry.name == platform && entry.typename == kind && entry.playlist_album_id == id
+fn matches_source(entry: &SourceConfig, platform: &str, source_id: &str, source_kind: &str) -> bool {
+    entry.platform == platform && entry.source_kind == source_kind && entry.source_id == source_id
 }
 
-fn same_source(first: &PlaylistAlbum, second: &PlaylistAlbum) -> bool {
+fn same_source(first: &SourceConfig, second: &SourceConfig) -> bool {
     matches_source(
         first,
-        &second.name,
-        &second.playlist_album_id,
-        &second.typename,
+        &second.platform,
+        &second.source_id,
+        &second.source_kind,
     )
 }
 
@@ -360,20 +362,20 @@ mod tests {
         }
     }
 
-    fn entry(id: &str, remark: &str) -> PlaylistAlbum {
-        PlaylistAlbum {
-            name: "NeteaseCloudMusic".into(),
-            playlist_album_id: id.into(),
-            typename: "playlist".into(),
-            playlist_album_name: format!("Playlist {id}"),
-            playlist_album_remark: remark.into(),
-            update_time: String::new(),
+    fn entry(source_id: &str, remark: &str) -> SourceConfig {
+        SourceConfig {
+            platform: "NeteaseCloudMusic".into(),
+            source_id: source_id.into(),
+            source_kind: "playlist".into(),
+            title: format!("Playlist {source_id}"),
+            remark: remark.into(),
+            updated_at: String::new(),
             enabled: false,
         }
     }
 
-    fn cache(id: &str) -> Value {
-        serde_json::json!({"playlist_album_id": id, "playlist_album_type": "playlist", "playlist_album_name": format!("Playlist {id}"), "song_ids": [1, "1", 2], "coverUrl":"https://example.com/old.jpg", "cover_url":"https://example.com/new.jpg"})
+    fn cache(source_id: &str) -> Value {
+        serde_json::json!({"playlist_album_id": source_id, "playlist_album_type": "playlist", "playlist_album_name": format!("Playlist {source_id}"), "song_ids": [1, "1", 2], "coverUrl":"https://example.com/old.jpg", "cover_url":"https://example.com/new.jpg"})
     }
 
     #[test]
@@ -382,7 +384,7 @@ mod tests {
         let repository = fixture.repository();
         let source = entry("123", "");
         let path = LibraryStore::new(repository.root())
-            .playlist_path("NeteaseCloudMusic", "123", TypeName::Playlist)
+            .playlist_path("NeteaseCloudMusic", "123", SourceKind::Playlist)
             .unwrap();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut raw = serde_json::json!({
@@ -434,10 +436,10 @@ mod tests {
         let mut before = MusicSetting::default();
         let mut active = entry("123", "");
         active.enabled = true;
-        before.playlist_albums.push(active.clone());
+        before.sources.push(active.clone());
         let mut unrelated = entry("123", "same id, different kind");
-        unrelated.typename = "album".into();
-        before.playlist_albums.push(unrelated);
+        unrelated.source_kind = "album".into();
+        before.sources.push(unrelated);
         let after = before.clone();
         assert!(source_refresh_changes_discovery(
             &before,
@@ -454,15 +456,15 @@ mod tests {
             ));
         }
         let mut switched = after.clone();
-        switched.playlist_albums[0].enabled = false;
-        switched.playlist_albums[1].enabled = true;
+        switched.sources[0].enabled = false;
+        switched.sources[1].enabled = true;
         assert!(source_refresh_changes_discovery(
             &before,
             &switched,
             &SourceIdentity::new("Spotify", "456", "playlist")
         ));
         let mut first_import = MusicSetting::default();
-        first_import.playlist_albums.push(active);
+        first_import.sources.push(active);
         assert!(source_refresh_changes_discovery(
             &MusicSetting::default(),
             &first_import,
@@ -479,9 +481,9 @@ mod tests {
     fn source_updates_preserve_remarks_keep_selection_exclusive_and_retain_removed_cache() {
         let fixture = TestData::new();
         let repository = fixture.repository();
-        for id in ["123", "456"] {
+        for source_id in ["123", "456"] {
             repository
-                .save_source("NeteaseCloudMusic", id, TypeName::Playlist, &cache(id))
+                .save_source("NeteaseCloudMusic", source_id, SourceKind::Playlist, &cache(source_id))
                 .unwrap();
         }
         repository.upsert_source(entry("123", "My remark")).unwrap();
@@ -489,23 +491,23 @@ mod tests {
             .upsert_source(entry("456", "Other source"))
             .unwrap();
         let mut refreshed = entry("123", "");
-        refreshed.playlist_album_name = "Updated title".into();
+        refreshed.title = "Updated title".into();
         repository.upsert_source(refreshed).unwrap();
         let settings = repository.load_settings().unwrap();
-        assert_eq!(settings.playlist_albums.len(), 2);
-        assert!(settings.playlist_albums[0].enabled);
-        assert!(!settings.playlist_albums[1].enabled);
+        assert_eq!(settings.sources.len(), 2);
+        assert!(settings.sources[0].enabled);
+        assert!(!settings.sources[1].enabled);
         assert_eq!(
-            settings.playlist_albums[0].playlist_album_remark,
+            settings.sources[0].remark,
             "My remark"
         );
         assert_eq!(
-            settings.playlist_albums[0].playlist_album_name,
+            settings.sources[0].title,
             "Updated title"
         );
         assert_eq!(
             repository
-                .cache_summary(&settings.playlist_albums[0])
+                .cache_summary(&settings.sources[0])
                 .unwrap(),
             (2, "https://example.com/old.jpg".into())
         );
@@ -513,12 +515,12 @@ mod tests {
             .enable_source("NeteaseCloudMusic", "456", "playlist")
             .unwrap();
         let settings = repository.load_settings().unwrap();
-        assert!(!settings.playlist_albums[0].enabled);
-        assert!(settings.playlist_albums[1].enabled);
+        assert!(!settings.sources[0].enabled);
+        assert!(settings.sources[1].enabled);
         repository
             .remove_source("NeteaseCloudMusic", "456", "playlist")
             .unwrap();
-        assert_eq!(repository.load_settings().unwrap().playlist_albums.len(), 1);
+        assert_eq!(repository.load_settings().unwrap().sources.len(), 1);
         assert!(repository.cache_summary(&entry("456", "")).is_ok());
     }
 
@@ -530,7 +532,7 @@ mod tests {
             .save_source(
                 "NeteaseCloudMusic",
                 "123",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 &cache("123"),
             )
             .unwrap();
@@ -546,14 +548,14 @@ mod tests {
             .is_err());
         assert_eq!(std::fs::read(repository.music_path()).unwrap(), before);
         let path = LibraryStore::new(repository.root())
-            .playlist_path("NeteaseCloudMusic", "123", TypeName::Playlist)
+            .playlist_path("NeteaseCloudMusic", "123", SourceKind::Playlist)
             .unwrap();
         let cache_before = std::fs::read(&path).unwrap();
         assert!(repository
             .save_source(
                 "NeteaseCloudMusic",
                 "123",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 &serde_json::json!({"song_ids":[]})
             )
             .is_err());
@@ -567,19 +569,19 @@ mod tests {
         let repository = fixture.repository();
         let playlist = entry("123", "Selected playlist");
         let mut album = entry("123", "Same ID, different kind");
-        album.typename = "album".into();
+        album.source_kind = "album".into();
         let mut other_platform = entry("123", "Same ID, different platform");
-        other_platform.name = "QQMusic".into();
+        other_platform.platform = "QQMusic".into();
         let mut cache_files = Vec::new();
         for source in [&playlist, &album, &other_platform] {
-            let kind = TypeName::parse(&source.typename).unwrap();
+            let source_kind = SourceKind::parse(&source.source_kind).unwrap();
             repository
-                .save_source(&source.name, &source.playlist_album_id, kind, &cache("123"))
+                .save_source(&source.platform, &source.source_id, source_kind, &cache("123"))
                 .unwrap();
             repository.upsert_source(source.clone()).unwrap();
             cache_files.push(
                 LibraryStore::new(repository.root())
-                    .playlist_path(&source.name, "123", kind)
+                    .playlist_path(&source.platform, "123", source_kind)
                     .unwrap(),
             );
         }
@@ -591,10 +593,10 @@ mod tests {
                 SourceIdentity::new("QQMusic", "123", "playlist"),
             ])
             .unwrap();
-        let remaining = repository.load_settings().unwrap().playlist_albums;
+        let remaining = repository.load_settings().unwrap().sources;
         assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].name, "NeteaseCloudMusic");
-        assert_eq!(remaining[0].typename, "album");
+        assert_eq!(remaining[0].platform, "NeteaseCloudMusic");
+        assert_eq!(remaining[0].source_kind, "album");
         assert!(!remaining[0].enabled);
         for path in cache_files {
             assert!(
@@ -633,19 +635,19 @@ mod tests {
         let repository = fixture.repository();
         let mut bases = Vec::new();
         let mut snapshots = Vec::new();
-        for id in ["123", "456"] {
+        for source_id in ["123", "456"] {
             repository
-                .save_source("NeteaseCloudMusic", id, TypeName::Playlist, &cache(id))
+                .save_source("NeteaseCloudMusic", source_id, SourceKind::Playlist, &cache(source_id))
                 .unwrap();
-            repository.upsert_source(entry(id, "Existing")).unwrap();
+            repository.upsert_source(entry(source_id, "Existing")).unwrap();
             bases.push(
                 repository
-                    .source("NeteaseCloudMusic", id, "playlist")
+                    .source("NeteaseCloudMusic", source_id, "playlist")
                     .unwrap()
                     .unwrap(),
             );
             let path = LibraryStore::new(repository.root())
-                .playlist_path("NeteaseCloudMusic", id, TypeName::Playlist)
+                .playlist_path("NeteaseCloudMusic", source_id, SourceKind::Playlist)
                 .unwrap();
             snapshots.push((path.clone(), std::fs::read(path).unwrap()));
         }
@@ -655,9 +657,9 @@ mod tests {
                     .iter()
                     .map(|source| {
                         SourceIdentity::new(
-                            &source.name,
-                            &source.playlist_album_id,
-                            &source.typename,
+                            &source.platform,
+                            &source.source_id,
+                            &source.source_kind,
                         )
                     })
                     .collect::<Vec<_>>(),
@@ -669,7 +671,7 @@ mod tests {
                     .commit_refresh(
                         base.clone(),
                         Some(&base),
-                        &cache(&base.playlist_album_id),
+                        &cache(&base.source_id),
                         true
                     )
                     .unwrap_err(),
@@ -679,7 +681,7 @@ mod tests {
         assert!(repository
             .load_settings()
             .unwrap()
-            .playlist_albums
+            .sources
             .is_empty());
         for (path, bytes) in snapshots {
             assert_eq!(std::fs::read(path).unwrap(), bytes);
@@ -690,12 +692,12 @@ mod tests {
     fn refresh_commit_merges_live_edits_and_selection_and_never_resurrects_removed_source() {
         let fixture = TestData::new();
         let repository = fixture.repository();
-        for id in ["123", "456"] {
+        for source_id in ["123", "456"] {
             repository
-                .save_source("NeteaseCloudMusic", id, TypeName::Playlist, &cache(id))
+                .save_source("NeteaseCloudMusic", source_id, SourceKind::Playlist, &cache(source_id))
                 .unwrap();
             repository
-                .upsert_source(entry(id, "Original remark"))
+                .upsert_source(entry(source_id, "Original remark"))
                 .unwrap();
         }
         let base = repository
@@ -722,11 +724,11 @@ mod tests {
             .source("NeteaseCloudMusic", "123", "playlist")
             .unwrap()
             .unwrap();
-        assert_eq!(source.playlist_album_name, "Fresh metadata");
-        assert_eq!(source.playlist_album_remark, "Edited during fetch");
+        assert_eq!(source.title, "Fresh metadata");
+        assert_eq!(source.remark, "Edited during fetch");
         assert!(!source.enabled);
         let path = LibraryStore::new(repository.root())
-            .playlist_path("NeteaseCloudMusic", "123", TypeName::Playlist)
+            .playlist_path("NeteaseCloudMusic", "123", SourceKind::Playlist)
             .unwrap();
         let saved = std::fs::read(&path).unwrap();
         repository
@@ -753,7 +755,7 @@ mod tests {
             .save_source(
                 "NeteaseCloudMusic",
                 "123",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 &cache("123"),
             )
             .unwrap();
@@ -771,8 +773,8 @@ mod tests {
             .source("NeteaseCloudMusic", "123", "playlist")
             .unwrap()
             .unwrap();
-        assert_eq!(after.playlist_album_remark, "");
-        assert_eq!(before.update_time, after.update_time);
+        assert_eq!(after.remark, "");
+        assert_eq!(before.updated_at, after.updated_at);
         assert!(repository
             .edit_remark("NeteaseCloudMusic", "123", "playlist", &"字".repeat(501))
             .is_err());

@@ -12,12 +12,12 @@ const themeOutput = ts.transpileModule(fs.readFileSync(new URL("../src/theme.ts"
 const { effectiveNightMode } = await import(`data:text/javascript;base64,${Buffer.from(themeOutput).toString("base64")}`);
 
 test("system appearance follows changes while explicit and legacy choices stay fixed", () => {
-  const system = { night_mode: false, follow_system_theme: true };
+  const system = { nightMode: false, followSystemTheme: true };
   assert.equal(effectiveNightMode(system, false), false);
   assert.equal(effectiveNightMode(system, true), true);
-  assert.equal(effectiveNightMode({ night_mode: true, follow_system_theme: false }, false), true);
-  assert.equal(effectiveNightMode({ night_mode: false }, true), false);
-  assert.equal(effectiveNightMode({ night_mode: true }, false), true);
+  assert.equal(effectiveNightMode({ nightMode: true, followSystemTheme: false }, false), true);
+  assert.equal(effectiveNightMode({ nightMode: false }, true), false);
+  assert.equal(effectiveNightMode({ nightMode: true }, false), true);
 });
 
 test("primary button text meets 4.5:1 contrast in both themes and hover states", () => {
@@ -32,21 +32,21 @@ test("primary button text meets 4.5:1 contrast in both themes and hover states",
   }
 });
 test("existing default palettes adopt the theme without changing saved preferences", () => {
-  const day = Object.freeze({ background: "#FFFFFF", background_hover: "#e3f3f6", border: "#76d2fd", font_color: "#000000" });
-  const night = Object.freeze({ background: "#565656", background_hover: "#3d75bf", border: "#76d2fd", font_color: "#ffffff" });
+  const day = Object.freeze({ background: "#FFFFFF", backgroundHover: "#e3f3f6", border: "#76d2fd", fontColor: "#000000" });
+  const night = Object.freeze({ background: "#565656", backgroundHover: "#3d75bf", border: "#76d2fd", fontColor: "#ffffff" });
   assert.equal(discoveryThemePalette("card", false, day).border, themePalettes.card.border);
   assert.equal(discoveryThemePalette("card", true, night).background, themePalettes.card_night.background);
   assert.equal(day.border, "#76d2fd");
   assert.equal(night.background, "#565656");
 });
 test("a partially customized palette is preserved as a whole", () => {
-  const saved = { background: "#FFFFFF", background_hover: "#e3f3f6", border: "#d08a21", font_color: "#000000" };
+  const saved = { background: "#FFFFFF", backgroundHover: "#e3f3f6", border: "#d08a21", fontColor: "#000000" };
   assert.strictEqual(discoveryThemePalette("card", false, saved), saved);
 });
 test("old day and night close controls adopt distinct opaque theme colors", () => {
-  const day = { background: "#fecbc1", background_hover: "#fd8b76", border: "#fc6044", font_color: "#000000" };
-  const night = { background: "#400601", background_hover: "#bd0316", border: "#fc6044", font_color: "#ffffff" };
-  assert.equal(discoveryThemePalette("cancel", false, day).font_color, themePalettes.cancel.font_color);
-  assert.equal(discoveryThemePalette("cancel", true, night).font_color, themePalettes.cancel_night.font_color);
+  const day = { background: "#fecbc1", backgroundHover: "#fd8b76", border: "#fc6044", fontColor: "#000000" };
+  const night = { background: "#400601", backgroundHover: "#bd0316", border: "#fc6044", fontColor: "#ffffff" };
+  assert.equal(discoveryThemePalette("cancel", false, day).fontColor, themePalettes.cancel.fontColor);
+  assert.equal(discoveryThemePalette("cancel", true, night).fontColor, themePalettes.cancel_night.fontColor);
   assert.strictEqual(discoveryThemePalette("cancel", true, day), day);
 });

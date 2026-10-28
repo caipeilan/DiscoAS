@@ -12,7 +12,7 @@ export function HandPlayShortcuts({ value, discoveryEnabled, onChange }: {
   onChange: (value: HandSettings) => void;
 }) {
   const shortcuts = Array.from({ length: 9 }, (_, index) =>
-    value.play_shortcuts?.[index] ?? defaultHandSettings.play_shortcuts[index]);
+    value.playShortcuts?.[index] ?? defaultHandSettings.playShortcuts[index]);
   return <section className="settings-section">
     <h2>{t("手牌与迷你发现快捷键")}</h2>
     <SettingRow title={t("手牌快捷键")} description={t("展开或收纳手牌；手牌模式或迷你发现开启时生效。")}
@@ -23,10 +23,10 @@ export function HandPlayShortcuts({ value, discoveryEnabled, onChange }: {
       {shortcuts.map((key, index) => <SettingRow key={index} title={t("第 {p0} 张", { p0: index + 1 })}>
         <ShortcutRecorder label={t("打出第 {p0} 张手牌", { p0: index + 1 })} value={key} onChange={(next) => {
           const keys = [...shortcuts]; keys[index] = next;
-          onChange({ ...value, play_shortcuts: keys });
+          onChange({ ...value, playShortcuts: keys });
         }} />
       </SettingRow>)}
-      <div className="appearance-actions"><button type="button" className="button secondary" onClick={() => onChange({ ...value, play_shortcuts: [...defaultHandSettings.play_shortcuts] })}>{t("恢复打出快捷键")}</button></div>
+      <div className="appearance-actions"><button type="button" className="button secondary" onClick={() => onChange({ ...value, playShortcuts: [...defaultHandSettings.playShortcuts] })}>{t("恢复打出快捷键")}</button></div>
     </AnimatedDetails>
   </section>;
 }

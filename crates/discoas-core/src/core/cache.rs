@@ -41,8 +41,8 @@ fn batch_identity(batch: &[SongCardDto]) -> BatchIdentity {
             (
                 song.platform.clone(),
                 song.song_id.clone(),
-                song.playlist_id.clone(),
-                song.typename.clone(),
+                song.source_id.clone(),
+                song.source_kind.clone(),
             )
         })
         .collect()
@@ -548,7 +548,7 @@ impl Cache {
         store: &crate::storage::LibraryStore,
         platform: &str,
         id: &str,
-        kind: super::playlist::TypeName,
+        kind: super::playlist::SourceKind,
     ) -> crate::AppResult<Arc<super::source_snapshot::SourceSnapshot>> {
         self.resources.sources.load(store, platform, id, kind)
     }
@@ -741,7 +741,7 @@ mod tests {
     fn dto(id: &str) -> SongCardDto {
         SongCardDto {
             song_id: id.into(),
-            name: String::new(),
+            title: String::new(),
             artist_names: Vec::new(),
             album_pic_url: String::new(),
             mystery_mode: false,

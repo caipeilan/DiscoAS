@@ -14,7 +14,7 @@ import { useOnboarding } from "../onboarding/useOnboarding";
 import "./discovery.css";
 
 export function DiscoveryView({ state, status, loading, songError, songs, playing, collecting, replacing, slotRevision, previewGui, previewPointer, previewKey, cancelling, batchRevision, overlayPhase, busy = "", cancel, discover, play, replace, manageLibrary }: {
-  state: Pick<AppState, "settings" | "guiSettings"> & { playlists: Array<{ platform: string; enabled: boolean }> };
+  state: Pick<AppState, "settings" | "guiSettings"> & { sources: Array<{ platform: string; enabled: boolean }> };
   status: DiscoveryState;
   loading: boolean;
   songError: string;
@@ -36,7 +36,7 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
   replace: (song: Song) => Promise<void>;
   manageLibrary: () => void;
 }) {
-  const enabled = state.playlists.find((p) => p.enabled);
+  const enabled = state.sources.find((p) => p.enabled);
   const grid = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -47,8 +47,8 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
   const active = !loading && !cancelling && !playing && !songError && !busy && overlayPhase === "open";
   const { selectedIndex, pointedIndex, inputMode, pointerMove, pointerDown, pointerLeave, focusIndex } = useKeyboardSelection({
     songs, grid, active, batchRevision, play, replace, preview, externalPointer: previewPointer, previewKey, preserveSlots: true,
-    layoutKey: `${gui.card_size}:${gui.font_size ?? 0}`,
-    keybindings: state.settings.discovery_keybindings || defaultDiscoveryKeybindings,
+    layoutKey: `${gui.discoveryCardScale}:${gui.fontSize ?? 0}`,
+    keybindings: state.settings.discoveryKeybindings || defaultDiscoveryKeybindings,
   });
   const showBar = status.exclusionEnabled || status.replacementEnabled;
   const guide = useOnboarding();
@@ -72,8 +72,8 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
     const update = () => {
       if (grid.current) {
         const width = grid.current.clientWidth;
-        const cardWidth = 200 * gui.card_size;
-        const gap = 45 * gui.card_size;
+        const cardWidth = 200 * gui.discoveryCardScale;
+        const gap = 45 * gui.discoveryCardScale;
         setColumns(Math.min(5, Math.max(1, songs.length), Math.max(1, Math.floor((width + gap) / (cardWidth + gap)))));
       }
       if (!body.current || !grid.current) { setBarTop(null); return; }
@@ -108,7 +108,7 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
     <div className="discovery-body" ref={body} data-input-mode={inputMode} data-preview={preview || undefined} data-onboarding-step={preview ? undefined : guideStep || undefined}
       data-hand-mode={state.settings.hand?.enabled || undefined} data-collecting={collecting || undefined}
       onPointerMove={pointerMove} onPointerDown={pointerDown} onPointerLeave={pointerLeave}
-      style={{ "--replacement-scale": gui.replacement_button_size || 1, "--discovery-bar-scale": gui.discovery_bar_size || 1,
+      style={{ "--replacement-scale": gui.replacementButtonScale || 1, "--discovery-bar-scale": gui.discoveryBarScale || 1,
         "--discovery-columns": columns } as CSSProperties}>
       <div
         className="discovery-heading"
@@ -162,7 +162,7 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
                 aria-label={
                   state.settings.hand?.enabled ? t("加入手牌") : song.mysteryMode
                     ? t("播放神秘歌曲")
-                    : t("播放 {p0}", { p0: song.name })
+                    : t("播放 {p0}", { p0: song.title })
                 }
               >
                 <div className="song-art">
@@ -172,17 +172,17 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
                     prepared
                     warning={song.coverError}
                     mystery={song.mysteryMode}
-                    label={song.mysteryMode ? t("神秘歌曲") : song.name}
+                    label={song.mysteryMode ? t("神秘歌曲") : song.title}
                   />
                 </div>
-                <strong>{song.mysteryMode ? "???" : song.name}</strong>
+                <strong>{song.mysteryMode ? "???" : song.title}</strong>
                 <span className="song-artist">
                   {song.mysteryMode ? "???" : song.artistNames.join(" / ") || t("歌手信息暂不可用")}
                 </span>
               </button>
               {status.replacementEnabled && !preview && (
                 <button className="song-replace-button" type="button" tabIndex={-1}
-                  aria-label={song.mysteryMode ? t("替换神秘歌曲") : t("替换 {p0}", { p0: song.name })}
+                  aria-label={song.mysteryMode ? t("替换神秘歌曲") : t("替换 {p0}", { p0: song.title })}
                   disabled={!active || replacing !== null || status.replacementsRemaining < 1}
                   onClick={(event) => { event.stopPropagation(); void replace(song); }}>
                   <Icon name="refresh" className={replacing === i ? "spin" : ""} />

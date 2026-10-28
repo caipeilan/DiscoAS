@@ -167,14 +167,14 @@ pub async fn start_onboarding(
         let platform = crate::platforms::names::NETEASE.to_string();
         let remark = MusicSetting::load(&app)
             .map_err(|error| error.to_string())?
-            .playlist_albums
+            .sources
             .into_iter()
             .find(|source| {
-                source.name == platform
-                    && source.playlist_album_id == id
-                    && source.typename == "playlist"
+                source.platform == platform
+                    && source.source_id == id
+                    && source.source_kind == "playlist"
             })
-            .map(|source| source.playlist_album_remark)
+            .map(|source| source.remark)
             .unwrap_or_default();
         super::library::import_playlist(
             app.clone(),

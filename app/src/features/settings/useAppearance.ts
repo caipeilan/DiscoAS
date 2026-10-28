@@ -11,7 +11,7 @@ export function useAppearance(gui: GuiSettings) {
   useEffect(() => {
     applyAppearance(gui);
     const system = window.matchMedia("(prefers-color-scheme: dark)");
-    const changed = () => { if (gui.follow_system_theme) applyAppearance(gui); };
+    const changed = () => { if (gui.followSystemTheme) applyAppearance(gui); };
     system.addEventListener("change", changed);
     return () => system.removeEventListener("change", changed);
   }, [gui]);

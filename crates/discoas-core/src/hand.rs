@@ -19,7 +19,8 @@ pub struct HandSettings {
     pub reveal_mystery: bool,
     pub resident: bool,
     pub keep_discovery_open: bool,
-    pub auto_play: bool,
+    #[serde(rename = "auto_play")]
+    pub auto_play_enabled: bool,
     pub create_cards: bool,
     pub auto_play_position: AutoPlayPosition,
     pub auto_play_detection: AutoDetectionMode,
@@ -28,10 +29,14 @@ pub struct HandSettings {
     pub side: HandSide,
     pub capacity: u32,
     pub scale: f64,
-    pub edge_distance: f64,
-    pub position: f64,
-    pub overlap: f64,
-    pub tilt: f64,
+    #[serde(rename = "edge_distance")]
+    pub edge_offset_px: f64,
+    #[serde(rename = "position")]
+    pub position_percent: f64,
+    #[serde(rename = "overlap")]
+    pub overlap_percent: f64,
+    #[serde(rename = "tilt")]
+    pub tilt_degrees: f64,
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -97,7 +102,7 @@ impl Default for HandSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            auto_play: false,
+            auto_play_enabled: false,
             create_cards: false,
             auto_play_position: AutoPlayPosition::First,
             auto_play_detection: AutoDetectionMode::Mixed,
@@ -109,10 +114,10 @@ impl Default for HandSettings {
             side: HandSide::Bottom,
             capacity: 10,
             scale: 1.0,
-            edge_distance: 12.0,
-            position: 50.0,
-            overlap: 45.0,
-            tilt: 12.0,
+            edge_offset_px: 12.0,
+            position_percent: 50.0,
+            overlap_percent: 45.0,
+            tilt_degrees: 12.0,
         }
     }
 }
@@ -123,10 +128,10 @@ impl HandSettings {
         }
         for (value, min, max) in [
             (self.scale, 0.5, 3.0),
-            (self.edge_distance, -500.0, 500.0),
-            (self.position, 0.0, 100.0),
-            (self.overlap, 0.0, 90.0),
-            (self.tilt, 0.0, 45.0),
+            (self.edge_offset_px, -500.0, 500.0),
+            (self.position_percent, 0.0, 100.0),
+            (self.overlap_percent, 0.0, 90.0),
+            (self.tilt_degrees, 0.0, 45.0),
         ] {
             if !value.is_finite() || value < min || value > max {
                 return Err("错误：手牌布局超出范围".into());
@@ -146,10 +151,14 @@ pub struct HandDiscoverySettings {
     pub liquid_mode: LiquidMode,
     pub side: HandSide,
     pub scale: f64,
-    pub edge_distance: f64,
-    pub position: f64,
-    pub overlap: f64,
-    pub tilt: f64,
+    #[serde(rename = "edge_distance")]
+    pub edge_offset_px: f64,
+    #[serde(rename = "position")]
+    pub position_percent: f64,
+    #[serde(rename = "overlap")]
+    pub overlap_percent: f64,
+    #[serde(rename = "tilt")]
+    pub tilt_degrees: f64,
 }
 impl Default for HandDiscoverySettings {
     fn default() -> Self {
@@ -162,10 +171,10 @@ impl Default for HandDiscoverySettings {
             liquid_mode: LiquidMode::Static,
             side: hand.side,
             scale: hand.scale,
-            edge_distance: hand.edge_distance,
-            position: hand.position,
-            overlap: hand.overlap,
-            tilt: hand.tilt,
+            edge_offset_px: hand.edge_offset_px,
+            position_percent: hand.position_percent,
+            overlap_percent: hand.overlap_percent,
+            tilt_degrees: hand.tilt_degrees,
         }
     }
 }
@@ -175,10 +184,10 @@ impl HandDiscoverySettings {
             enabled: self.enabled,
             side: self.side,
             scale: self.scale,
-            edge_distance: self.edge_distance,
-            position: self.position,
-            overlap: self.overlap,
-            tilt: self.tilt,
+            edge_offset_px: self.edge_offset_px,
+            position_percent: self.position_percent,
+            overlap_percent: self.overlap_percent,
+            tilt_degrees: self.tilt_degrees,
             ..Default::default()
         }
     }
@@ -273,7 +282,7 @@ impl StoredHandCard {
     pub fn project(&self, mystery_cover: &str) -> HandCard {
         let mut song = self.song.clone();
         if song.mystery_mode && !self.revealed {
-            song.name = "???".into();
+            song.title = "???".into();
             song.artist_names = vec!["???".into()];
             song.album_pic_url = mystery_cover.into();
             song.cover_data_uri = None;
@@ -292,8 +301,8 @@ impl StoredHandCard {
         PlaySongArgs {
             platform: self.song.platform.clone(),
             song_id: self.song.song_id.clone(),
-            playlist_id: self.song.playlist_id.clone(),
-            typename: self.song.typename.clone(),
+            source_id: self.song.source_id.clone(),
+            source_kind: self.song.source_kind.clone(),
             filename: self.song.filename.clone(),
         }
     }
@@ -351,7 +360,7 @@ impl HandStore {
             return Err("错误：歌曲已在手牌中".into());
         }
         if let Some(metadata) = song.real_metadata.take() {
-            song.name = metadata.name;
+            song.title = metadata.title;
             song.artist_names = metadata.artist_names;
         }
         if let Some(cover) = song.real_cover_url.take() {
@@ -455,10 +464,10 @@ mod tests {
         SongCardDto {
             song_id: id.into(),
             platform: "KugouMusic".into(),
-            playlist_id: "old-source".into(),
-            typename: "playlist".into(),
+            source_id: "old-source".into(),
+            source_kind: "playlist".into(),
             filename: "Trusted filename".into(),
-            name: "Title".into(),
+            title: "Title".into(),
             artist_names: vec!["Artist".into()],
             ..Default::default()
         }
@@ -469,11 +478,11 @@ mod tests {
         let store = f.store();
         let mut secret = song("secret");
         secret.mystery_mode = true;
-        secret.name = "???".into();
+        secret.title = "???".into();
         secret.album_pic_url = "question.png".into();
         secret.cover_data_uri = Some("data:image/png;base64,large".into());
         secret.real_metadata = Some(CanonicalSongMetadata {
-            name: "Canonical title".into(),
+            title: "Canonical title".into(),
             artist_names: vec!["Canonical artist".into()],
         });
         secret.real_cover_url = Some("real-cover.png".into());
@@ -482,9 +491,9 @@ mod tests {
         let restored = f.store().get(&card.id).unwrap().1;
         assert_eq!(restored.song.playback_metadata, secret.playback_metadata);
         assert_eq!(restored.playback_args().filename, "Trusted filename");
-        assert_eq!(restored.playback_args().playlist_id, "old-source");
+        assert_eq!(restored.playback_args().source_id, "old-source");
         let hidden = restored.project("new-question.png");
-        assert_eq!(hidden.song.name, "???");
+        assert_eq!(hidden.song.title, "???");
         assert_eq!(hidden.song.album_pic_url, "new-question.png");
         assert!(!serde_json::to_string(&hidden)
             .unwrap()
@@ -505,7 +514,7 @@ mod tests {
             .unwrap()
             .project("question.png");
         assert!(!revealed.song.mystery_mode);
-        assert_eq!(revealed.song.name, "Canonical title");
+        assert_eq!(revealed.song.title, "Canonical title");
         assert_eq!(revealed.song.album_pic_url, "real-cover.png");
     }
     #[test]
@@ -514,7 +523,7 @@ mod tests {
         let store = f.store();
         let settings = HandSettings {
             capacity: 2,
-            edge_distance: -120.5,
+            edge_offset_px: -120.5,
             ..Default::default()
         };
         settings.validate().unwrap();

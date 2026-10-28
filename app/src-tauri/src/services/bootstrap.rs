@@ -7,9 +7,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::playlist::{PlaylistJson, TypeName},
+    core::playlist::{PlaylistJson, SourceKind},
     error::AppResult,
-    settings::music_setting::{MusicSetting, PlaylistAlbum},
+    settings::music_setting::{MusicSetting, SourceConfig},
 };
 use discoas_core::storage::LibraryStore;
 
@@ -22,7 +22,8 @@ const MARKER_FILENAME: &str = ".discoas-bootstrap-v1.json";
 struct BootstrapMarker {
     application: String,
     format_version: u32,
-    playlist_id: String,
+    #[serde(rename = "playlist_id")]
+    source_id: String,
     // Accept receipts from 2.0.0; ownership and cache bytes already identify the seed.
     #[serde(default, skip_serializing, rename = "snapshot_sha256")]
     _legacy_snapshot_hash: Option<serde::de::IgnoredAny>,
@@ -33,7 +34,7 @@ impl BootstrapMarker {
         Self {
             application: "DiscoAS".into(),
             format_version: 1,
-            playlist_id: AUTHOR_PLAYLIST_ID.into(),
+            source_id: AUTHOR_PLAYLIST_ID.into(),
             _legacy_snapshot_hash: None,
         }
     }
@@ -69,13 +70,13 @@ pub fn seed_new_user(root: &Path) -> AppResult<bool> {
     let expected_marker = BootstrapMarker::new();
     let store = LibraryStore::new(root);
     let cache_path =
-        store.playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, TypeName::Playlist)?;
+        store.playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, SourceKind::Playlist)?;
     let marker_bytes = match marker {
         MarkerFile::Present(bytes) => {
             if !serde_json::from_slice::<BootstrapMarker>(&bytes).is_ok_and(|marker| {
                 marker.application == expected_marker.application
                     && marker.format_version == expected_marker.format_version
-                    && marker.playlist_id == expected_marker.playlist_id
+                    && marker.source_id == expected_marker.source_id
             }) {
                 return Ok(false);
             }
@@ -96,17 +97,17 @@ pub fn seed_new_user(root: &Path) -> AppResult<bool> {
     store.save_playlist_json(
         "NeteaseCloudMusic",
         AUTHOR_PLAYLIST_ID,
-        TypeName::Playlist,
+        SourceKind::Playlist,
         &raw,
     )?;
     let settings = MusicSetting {
-        playlist_albums: vec![PlaylistAlbum {
-            name: "NeteaseCloudMusic".into(),
-            playlist_album_id: source.playlist_album_id,
-            typename: source.playlist_album_type,
-            playlist_album_name: source.playlist_album_name,
-            playlist_album_remark: String::new(),
-            update_time: source.saved_at.to_string(),
+        sources: vec![SourceConfig {
+            platform: "NeteaseCloudMusic".into(),
+            source_id: source.source_id,
+            source_kind: source.source_kind,
+            title: source.title,
+            remark: String::new(),
+            updated_at: source.saved_at.to_string(),
             enabled: true,
         }],
         ..MusicSetting::default()
@@ -246,6 +247,17 @@ fn has_existing_data(root: &Path) -> std::io::Result<bool> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn canonical_source_id_accepts_existing_bootstrap_receipts() {
+        let marker: BootstrapMarker = serde_json::from_value(serde_json::json!({
+            "application": "DiscoAS", "format_version": 1, "playlist_id": AUTHOR_PLAYLIST_ID,
+        })).unwrap();
+        assert_eq!(marker.source_id, AUTHOR_PLAYLIST_ID);
+        let wire = serde_json::to_value(marker).unwrap();
+        assert_eq!(wire["playlist_id"], AUTHOR_PLAYLIST_ID);
+        assert!(wire.get("source_id").is_none());
+    }
+
     struct Fixture(std::path::PathBuf);
 
     impl Fixture {
@@ -282,14 +294,14 @@ mod tests {
         assert!(!root.join(MARKER_FILENAME).exists());
         let settings =
             MusicSetting::load_from_path(&root.join("settings/music_setting.json")).unwrap();
-        assert_eq!(settings.playlist_albums.len(), 1);
-        let source = &settings.playlist_albums[0];
-        assert_eq!(source.name, "NeteaseCloudMusic");
-        assert_eq!(source.playlist_album_id, AUTHOR_PLAYLIST_ID);
+        assert_eq!(settings.sources.len(), 1);
+        let source = &settings.sources[0];
+        assert_eq!(source.platform, "NeteaseCloudMusic");
+        assert_eq!(source.source_id, AUTHOR_PLAYLIST_ID);
         assert!(source.enabled);
-        assert!(source.playlist_album_remark.is_empty());
+        assert!(source.remark.is_empty());
         let playlist = LibraryStore::new(&root)
-            .load_playlist(&source.name, &source.playlist_album_id, TypeName::Playlist)
+            .load_playlist(&source.platform, &source.source_id, SourceKind::Playlist)
             .unwrap();
         let seed: PlaylistJson = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
         assert_eq!(playlist.song_ids, seed.song_ids);
@@ -324,7 +336,7 @@ mod tests {
         // explicit empty selection even after deleting its retained cache file.
         MusicSetting::default().save_to_path(&path).unwrap();
         let cache = LibraryStore::new(&fixture.0)
-            .playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, TypeName::Playlist)
+            .playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, SourceKind::Playlist)
             .unwrap();
         std::fs::remove_file(cache).unwrap();
         assert!(!seed_new_user(&fixture.0).unwrap());
@@ -373,9 +385,9 @@ mod tests {
     fn shipped_snapshot_is_complete_unique_and_contains_only_public_cache_fields() {
         let raw: serde_json::Value = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
         let source: PlaylistJson = serde_json::from_value(raw.clone()).unwrap();
-        assert_eq!(source.playlist_album_id, AUTHOR_PLAYLIST_ID);
-        assert_eq!(source.playlist_album_type, "playlist");
-        assert!(!source.playlist_album_name.trim().is_empty());
+        assert_eq!(source.source_id, AUTHOR_PLAYLIST_ID);
+        assert_eq!(source.source_kind, "playlist");
+        assert!(!source.title.trim().is_empty());
         assert!(!source.song_ids.is_empty());
         assert_eq!(
             source
@@ -420,7 +432,7 @@ mod tests {
                 .save_playlist_json(
                     "NeteaseCloudMusic",
                     AUTHOR_PLAYLIST_ID,
-                    TypeName::Playlist,
+                    SourceKind::Playlist,
                     &raw,
                 )
                 .unwrap();
@@ -448,14 +460,14 @@ mod tests {
             let settings =
                 MusicSetting::load_from_path(&fixture.0.join("settings/music_setting.json"))
                     .unwrap();
-            assert_eq!(settings.playlist_albums.len(), 1);
-            assert!(settings.playlist_albums[0].enabled);
+            assert_eq!(settings.sources.len(), 1);
+            assert!(settings.sources[0].enabled);
             assert_eq!(
-                settings.playlist_albums[0].playlist_album_id,
+                settings.sources[0].source_id,
                 AUTHOR_PLAYLIST_ID
             );
             let playlist = LibraryStore::new(&fixture.0)
-                .load_playlist("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, TypeName::Playlist)
+                .load_playlist("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, SourceKind::Playlist)
                 .unwrap();
             let seed: PlaylistJson = serde_json::from_str(DEFAULT_PLAYLIST).unwrap();
             assert_eq!(playlist.song_ids, seed.song_ids);
@@ -472,7 +484,7 @@ mod tests {
             .unwrap();
         let settings_before = std::fs::read(&settings_path).unwrap();
         let cache_path = LibraryStore::new(&fixture.0)
-            .playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, TypeName::Playlist)
+            .playlist_path("NeteaseCloudMusic", AUTHOR_PLAYLIST_ID, SourceKind::Playlist)
             .unwrap();
         let cache_before = std::fs::read(&cache_path).unwrap();
         assert!(!seed_new_user(&fixture.0).unwrap());

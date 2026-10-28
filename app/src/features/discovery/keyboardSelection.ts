@@ -15,7 +15,7 @@ export function moveCardSelection(index: number, direction: SelectionDirection, 
 }
 
 export function discoveryBatchKey(songs: Song[], revision: number): string {
-  return JSON.stringify([revision, songs.map((song) => [song.platform, song.typename, song.playlistId, song.songId])]);
+  return JSON.stringify([revision, songs.map((song) => [song.platform, song.sourceKind, song.sourceId, song.songId])]);
 }
 
 export function keyboardAction(event: KeyboardEvent, bindings: DiscoveryKeybindings): SelectionDirection | "select" | "replace" | null {

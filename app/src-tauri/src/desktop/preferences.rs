@@ -61,7 +61,7 @@ pub async fn save_preferences(
     let hand_changed = old.hand != settings.hand
         || old.hand_discovery != settings.hand_discovery
         || old.discovery_keybindings != settings.discovery_keybindings
-        || old.mystery_song_cover != settings.mystery_song_cover;
+        || old.mystery_cover != settings.mystery_cover;
     if invalidated {
         cache.invalidate().await;
         crate::commands::publish_discovery_state(&app, cache.inner()).await;
@@ -145,13 +145,13 @@ pub async fn save_desktop_preferences(
     };
     let _ = app.emit("desktop-changed", &patch);
     if !settings.minimize_after_playback
-        || old.minimize_delay_seconds != settings.minimize_delay_seconds
+        || old.temporary_hide_seconds != settings.temporary_hide_seconds
     {
         crate::client_window::cancel_pending();
     }
     if old.client_window_mode != settings.client_window_mode
         || old.client_separate_desktop != settings.client_separate_desktop
-        || old.minimize_delay_seconds != settings.minimize_delay_seconds
+        || old.temporary_hide_seconds != settings.temporary_hide_seconds
     {
         super::client_isolation::cancel_pending();
     }

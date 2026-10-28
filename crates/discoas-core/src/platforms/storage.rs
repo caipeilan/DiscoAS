@@ -1,6 +1,6 @@
 //! 平台缓存只在完整抓取成功后写入，保留平台专有的歌曲字段。
 use crate::{
-    core::playlist::{Playlist, TypeName},
+    core::playlist::{Playlist, SourceKind},
     error::{AppError, AppResult},
 };
 use serde_json::Value;
@@ -25,7 +25,7 @@ impl LibraryStore {
     }
 
     /// Preserve the existing `<platform>/<playlist|album>/<id>.json` layout.
-    pub fn playlist_path(&self, platform: &str, id: &str, kind: TypeName) -> AppResult<PathBuf> {
+    pub fn playlist_path(&self, platform: &str, id: &str, kind: SourceKind) -> AppResult<PathBuf> {
         validate_id(id)?;
         super::fetcher_for(platform)?;
         super::validate_kind(platform, kind)?;
@@ -36,13 +36,13 @@ impl LibraryStore {
             .join(format!("{id}.json")))
     }
 
-    pub fn load_json(&self, platform: &str, id: &str, kind: TypeName) -> AppResult<Value> {
+    pub fn load_json(&self, platform: &str, id: &str, kind: SourceKind) -> AppResult<Value> {
         Ok(serde_json::from_slice(&std::fs::read(
             self.playlist_path(platform, id, kind)?,
         )?)?)
     }
 
-    pub fn load_playlist(&self, platform: &str, id: &str, kind: TypeName) -> AppResult<Playlist> {
+    pub fn load_playlist(&self, platform: &str, id: &str, kind: SourceKind) -> AppResult<Playlist> {
         Playlist::load_from_path(platform, kind, id, &self.playlist_path(platform, id, kind)?)
     }
 
@@ -51,7 +51,7 @@ impl LibraryStore {
         &self,
         platform: &str,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         data: &Value,
     ) -> AppResult<(String, usize)> {
         save_playlist_json(
@@ -179,12 +179,12 @@ mod tests {
         });
         assert_eq!(
             store
-                .save_playlist_json("Spotify", "source", TypeName::Playlist, &data)
+                .save_playlist_json("Spotify", "source", SourceKind::Playlist, &data)
                 .unwrap(),
             ("Saved source".into(), 1)
         );
         let path = store
-            .playlist_path("Spotify", "source", TypeName::Playlist)
+            .playlist_path("Spotify", "source", SourceKind::Playlist)
             .unwrap();
         assert_eq!(path, folder.join("Spotify/playlist/source.json"));
         let bytes = std::fs::read(&path).unwrap();
@@ -192,29 +192,29 @@ mod tests {
             .save_playlist_json(
                 "Spotify",
                 "source",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 &serde_json::json!({"song_ids":[]})
             )
             .is_err());
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         assert_eq!(
             store
-                .load_json("Spotify", "source", TypeName::Playlist)
+                .load_json("Spotify", "source", SourceKind::Playlist)
                 .unwrap(),
             data
         );
         assert_eq!(
             store
-                .load_playlist("Spotify", "source", TypeName::Playlist)
+                .load_playlist("Spotify", "source", SourceKind::Playlist)
                 .unwrap()
                 .song_ids,
             ["track"]
         );
         assert!(store
-            .playlist_path("../Spotify", "source", TypeName::Playlist)
+            .playlist_path("../Spotify", "source", SourceKind::Playlist)
             .is_err());
         assert!(store
-            .playlist_path("Spotify", "../outside", TypeName::Playlist)
+            .playlist_path("Spotify", "../outside", SourceKind::Playlist)
             .is_err());
         std::fs::remove_dir_all(folder).unwrap();
     }

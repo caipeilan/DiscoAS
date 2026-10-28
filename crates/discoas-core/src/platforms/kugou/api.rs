@@ -3,7 +3,7 @@
 //! Numeric IDs retain the original mobilecdn compatibility API.
 
 use crate::{
-    core::playlist::TypeName,
+    core::playlist::SourceKind,
     error::{AppError, AppResult},
 };
 use once_cell::sync::Lazy;
@@ -73,11 +73,11 @@ fn numeric(s: &str) -> bool {
 fn opaque(s: &str) -> bool {
     !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
-fn token(s: &str, kind: TypeName) -> Option<Identity> {
+fn token(s: &str, kind: SourceKind) -> Option<Identity> {
     if numeric(s) {
         return Some(Identity::Numeric(s.into()));
     }
-    if kind == TypeName::Playlist {
+    if kind == SourceKind::Playlist {
         if s.strip_prefix("gcid_").is_some_and(opaque) {
             return Some(Identity::Gcid(s.into()));
         }
@@ -87,16 +87,16 @@ fn token(s: &str, kind: TypeName) -> Option<Identity> {
     }
     None
 }
-fn url_identity(url: &Url, kind: TypeName) -> Option<Identity> {
+fn url_identity(url: &Url, kind: SourceKind) -> Option<Identity> {
     let keys: &[&str] = match kind {
-        TypeName::Playlist => &[
+        SourceKind::Playlist => &[
             "global_collection_id",
             "global_specialid",
             "gcid",
             "specialid",
             "special_id",
         ],
-        TypeName::Album => &["albumid", "album_id"],
+        SourceKind::Album => &["albumid", "album_id"],
         _ => return None,
     };
     for key in keys {
@@ -107,8 +107,8 @@ fn url_identity(url: &Url, kind: TypeName) -> Option<Identity> {
         }
     }
     let pattern = match kind {
-        TypeName::Playlist => r"/(?:songlist|plist/list)/([^/?#]+)",
-        TypeName::Album => r"/album/(?:info/)?([0-9]+)",
+        SourceKind::Playlist => r"/(?:songlist|plist/list)/([^/?#]+)",
+        SourceKind::Album => r"/album/(?:info/)?([0-9]+)",
         _ => return None,
     };
     Regex::new(pattern)
@@ -116,7 +116,7 @@ fn url_identity(url: &Url, kind: TypeName) -> Option<Identity> {
         .captures(url.path())
         .and_then(|c| token(&c[1], kind))
 }
-fn parse_identity(input: &str, kind: TypeName) -> AppResult<Identity> {
+fn parse_identity(input: &str, kind: SourceKind) -> AppResult<Identity> {
     let input = input.trim();
     if let Some(identity) = token(input, kind) {
         return Ok(identity);
@@ -145,8 +145,8 @@ fn parse_identity(input: &str, kind: TypeName) -> AppResult<Identity> {
     }
     Err(error("请输入数字 ID、gcid、集合 ID 或酷狗分享链接/分享码"))
 }
-fn html_identity(html: &str, kind: TypeName) -> Option<Identity> {
-    if kind == TypeName::Playlist {
+fn html_identity(html: &str, kind: SourceKind) -> Option<Identity> {
+    if kind == SourceKind::Playlist {
         for pattern in [r"gcid_[A-Za-z0-9_]+", r"collection_[A-Za-z0-9_]+"] {
             if let Some(m) = Regex::new(pattern).expect("valid share regex").find(html) {
                 if let Some(identity) = token(m.as_str(), kind) {
@@ -156,11 +156,11 @@ fn html_identity(html: &str, kind: TypeName) -> Option<Identity> {
         }
     }
     let patterns: &[&str] = match kind {
-        TypeName::Playlist => &[
+        SourceKind::Playlist => &[
             r#"(?i)["']?special_?id["']?\s*[:=]\s*["']?([0-9]+)"#,
             r"/(?:songlist|plist/list)/([0-9]+)",
         ],
-        TypeName::Album => &[
+        SourceKind::Album => &[
             r#"(?i)["']?album_?id["']?\s*[:=]\s*["']?([0-9]+)"#,
             r"/album/(?:info/)?([0-9]+)",
         ],
@@ -258,7 +258,7 @@ fn decoded_collection(value: &Value) -> AppResult<String> {
         .ok_or_else(|| error("分享身份解析未返回集合信息"))?;
     let id = field(entry, &["global_collection_id", "global_specialid"]);
     if matches!(
-        token(&id, TypeName::Playlist),
+        token(&id, SourceKind::Playlist),
         Some(Identity::Collection(_))
     ) {
         Ok(id)
@@ -277,7 +277,7 @@ async fn decode_gcid(gcid: &str) -> AppResult<String> {
         .body(body)).await?;
     decoded_collection(&value)
 }
-async fn resolve_identity(input: &str, kind: TypeName) -> AppResult<Identity> {
+async fn resolve_identity(input: &str, kind: SourceKind) -> AppResult<Identity> {
     let mut identity = parse_identity(input, kind)?;
     if let Identity::ShareCode(code) = identity {
         // A fixed official endpoint, never an arbitrary user-supplied URL.
@@ -343,10 +343,10 @@ async fn collection_request(id: &str, page: Option<usize>) -> AppResult<Value> {
     )
     .await
 }
-async fn numeric_request(id: &str, kind: TypeName, page: Option<usize>) -> AppResult<Value> {
+async fn numeric_request(id: &str, kind: SourceKind, page: Option<usize>) -> AppResult<Value> {
     let (resource, key) = match kind {
-        TypeName::Playlist => ("special", "specialid"),
-        TypeName::Album => ("album", "albumid"),
+        SourceKind::Playlist => ("special", "specialid"),
+        SourceKind::Album => ("album", "albumid"),
         _ => return Err(error("只支持歌单或专辑")),
     };
     let mut params = BTreeMap::from([
@@ -399,7 +399,7 @@ pub(super) async fn album_cover(id: &str) -> AppResult<String> {
     if !numeric(id) {
         return Ok(String::new());
     }
-    let value = numeric_request(id, TypeName::Album, None).await?;
+    let value = numeric_request(id, SourceKind::Album, None).await?;
     Ok(cover(data(&value)?))
 }
 fn normalize_song(song: &Value, album_id: Option<&str>, album_cover: &str) -> AppResult<Value> {
@@ -509,13 +509,13 @@ impl Pages {
     }
 }
 
-pub async fn fetch_playlist(id: &str, kind: TypeName) -> AppResult<Value> {
+pub async fn fetch_playlist(id: &str, kind: SourceKind) -> AppResult<Value> {
     fetch_playlist_inner(id, kind, None).await
 }
 
 pub async fn fetch_playlist_with_progress(
     id: &str,
-    kind: TypeName,
+    kind: SourceKind,
     progress: crate::platforms::FetchProgressCallback,
 ) -> AppResult<Value> {
     progress(crate::platforms::FetchProgress {
@@ -528,13 +528,13 @@ pub async fn fetch_playlist_with_progress(
 
 async fn fetch_playlist_inner(
     id: &str,
-    kind: TypeName,
+    kind: SourceKind,
     progress: Option<crate::platforms::FetchProgressCallback>,
 ) -> AppResult<Value> {
     crate::platforms::validate_kind(crate::platforms::names::KUGOU, kind)?;
     let (resolved, modern) = match resolve_identity(id, kind).await? {
         Identity::Numeric(id) => (id, false),
-        Identity::Collection(id) if kind == TypeName::Playlist => (id, true),
+        Identity::Collection(id) if kind == SourceKind::Playlist => (id, true),
         _ => return Err(error("未解析到受支持的歌单/专辑身份")),
     };
     let metadata = if modern {
@@ -570,7 +570,7 @@ async fn fetch_playlist_inner(
     }
     pages.check_metadata_hint(metadata_total)?;
     let received = pages.rows.len();
-    let album = if kind == TypeName::Album {
+    let album = if kind == SourceKind::Album {
         Some(resolved.as_str())
     } else {
         None
@@ -611,33 +611,33 @@ mod tests {
         assert_eq!(
             parse_identity(
                 "https://www.kugou.com/songlist/gcid_3z17seve8z2z051/",
-                TypeName::Playlist
+                SourceKind::Playlist
             )
             .unwrap(),
             Identity::Gcid("gcid_3z17seve8z2z051".into())
         );
         assert_eq!(
-            parse_identity("collection_3_2248574973_2_0", TypeName::Playlist).unwrap(),
+            parse_identity("collection_3_2248574973_2_0", SourceKind::Playlist).unwrap(),
             Identity::Collection("collection_3_2248574973_2_0".into())
         );
         assert!(parse_identity(
             "https://kugou.com.evil.invalid/songlist/123",
-            TypeName::Playlist
+            SourceKind::Playlist
         )
         .is_err());
-        assert!(parse_identity("../123", TypeName::Playlist).is_err());
+        assert!(parse_identity("../123", SourceKind::Playlist).is_err());
     }
     #[test]
     fn share_html_and_batch_decode_preserve_global_identity() {
         assert_eq!(
             html_identity(
                 r#"global_specialid:"collection_3_1_2_0",specialid:-2147483648"#,
-                TypeName::Playlist
+                SourceKind::Playlist
             ),
             Some(Identity::Collection("collection_3_1_2_0".into()))
         );
         assert_eq!(
-            html_identity(r#"album_id="12345""#, TypeName::Album),
+            html_identity(r#"album_id="12345""#, SourceKind::Album),
             Some(Identity::Numeric("12345".into()))
         );
         assert_eq!(
@@ -732,7 +732,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires public network access"]
     async fn public_gcid_import_probe() {
-        let result = fetch_playlist("gcid_3z17seve8z2z051", TypeName::Playlist)
+        let result = fetch_playlist("gcid_3z17seve8z2z051", SourceKind::Playlist)
             .await
             .unwrap();
         assert_eq!(result["source_transport"], "https");
@@ -747,7 +747,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires public network access"]
     async fn public_numeric_import_probe() {
-        let result = fetch_playlist("7365552", TypeName::Playlist).await.unwrap();
+        let result = fetch_playlist("7365552", SourceKind::Playlist).await.unwrap();
         assert_eq!(result["source_transport"], "legacy_http");
         assert!(result["source_received"].as_u64().unwrap() > 500);
         assert_eq!(result["source_total"], result["source_received"]);
@@ -760,7 +760,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires public network access"]
     async fn public_album_import_probe() {
-        let playlist = fetch_playlist("gcid_3z17seve8z2z051", TypeName::Playlist)
+        let playlist = fetch_playlist("gcid_3z17seve8z2z051", SourceKind::Playlist)
             .await
             .unwrap();
         let album_id = playlist["songs_info"]
@@ -770,7 +770,7 @@ mod tests {
             .filter_map(|song| song["album_id"].as_str())
             .find(|id| numeric(id))
             .unwrap();
-        let album = fetch_playlist(album_id, TypeName::Album).await.unwrap();
+        let album = fetch_playlist(album_id, SourceKind::Album).await.unwrap();
         assert_eq!(album["playlist_album_type"], "album");
         assert!(!album["song_ids"].as_array().unwrap().is_empty());
         assert!(!album["coverUrl"].as_str().unwrap().is_empty());

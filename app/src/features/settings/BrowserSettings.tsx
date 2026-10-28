@@ -36,7 +36,7 @@ export function BrowserSettings({ settings, setSettings }: {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!desktop || settings.browser_playback_mode !== "extension" || !inView || working) return;
+    if (!desktop || settings.browserPlaybackMode !== "extension" || !inView || working) return;
     let active = true;
     let timer: ReturnType<typeof setInterval> | undefined;
     const refresh = () => call<BrowserBridgeStatus>("get_browser_bridge_status").then((next) => {
@@ -52,7 +52,7 @@ export function BrowserSettings({ settings, setSettings }: {
     visibility();
     document.addEventListener("visibilitychange", visibility);
     return () => { active = false; clearInterval(timer); document.removeEventListener("visibilitychange", visibility); };
-  }, [inView, working, settings.browser_playback_mode]);
+  }, [inView, working, settings.browserPlaybackMode]);
   const action = async (prepare: boolean) => {
     lastPrepared.current = prepare;
     setOperation(prepare ? "prepare" : "check"); setError("");
@@ -72,15 +72,15 @@ export function BrowserSettings({ settings, setSettings }: {
     <SettingRow title={t("播放方式")} description={t("连接后会重复使用同一个播放标签页。请保持浏览器和 DiscoAS 运行。") }>
       <Select
         label={t("浏览器播放方式")}
-        value={settings.browser_playback_mode}
-        onChange={(value) => setSettings((current) => ({ ...current, browser_playback_mode: value as DesktopPreferences["browser_playback_mode"] }))}
+        value={settings.browserPlaybackMode}
+        onChange={(value) => setSettings((current) => ({ ...current, browserPlaybackMode: value as DesktopPreferences["browserPlaybackMode"] }))}
         options={[
           { value: "extension", label: t("连接浏览器播放器") },
           { value: "direct", label: t("在新标签页中打开") },
         ]}
       />
     </SettingRow>
-    <Reveal open={settings.browser_playback_mode === "extension"}><SettingRow title={t("浏览器")}>
+    <Reveal open={settings.browserPlaybackMode === "extension"}><SettingRow title={t("浏览器")}>
       <Select label={t("浏览器")} value={browser} disabled={working}
         onChange={(value) => { browserChosen.current = true; setBrowser(value as "chromium" | "firefox"); setPreparedPath(""); }}
         options={[{ value: "chromium", label: "Chrome / Edge" }, { value: "firefox", label: "Firefox" }]} />

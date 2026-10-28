@@ -83,8 +83,8 @@ fn project_songs(songs: &[discoas_core::model::SongCardDto], previous: &[Arc<Han
             (
                 &song.platform,
                 &song.song_id,
-                &song.playlist_id,
-                &song.typename,
+                &song.source_id,
+                &song.source_kind,
             )
                 .hash(&mut hash);
             let id = format!("hand-discovery-{:x}", hash.finish());
@@ -137,10 +137,10 @@ mod tests {
         let original = projected.cards((1, 0), &batch);
         let same = projected.cards((1, 0), &[]);
         assert!(Arc::ptr_eq(&original[0], &same[0]));
-        batch[0].name = "Repaired".into();
+        batch[0].title = "Repaired".into();
         let repaired = projected.cards((1, 1), &batch);
         assert!(!Arc::ptr_eq(&original[0], &repaired[0]));
-        assert_eq!(repaired[0].song.name, "Repaired");
+        assert_eq!(repaired[0].song.title, "Repaired");
         assert!(projected.cards((2, 1), &[]).is_empty());
     }
 }

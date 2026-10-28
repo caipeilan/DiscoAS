@@ -1,8 +1,8 @@
 //! Fully offline example of the same discovery service used by the desktop application.
 use discoas_core::{
-    core::{cache::Cache, playlist::TypeName},
+    core::{cache::Cache, playlist::SourceKind},
     discovery_service::DiscoveryService,
-    settings::music_setting::{MusicSetting, PlaylistAlbum},
+    settings::music_setting::{MusicSetting, SourceConfig},
     storage::LibraryStore,
 };
 use serde_json::json;
@@ -24,19 +24,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rand::random::<u64>()
     )));
     let store = LibraryStore::new(&data.0);
-    let source = PlaylistAlbum {
-        name: "Spotify".into(),
-        playlist_album_id: "offline_demo".into(),
-        typename: "playlist".into(),
-        playlist_album_name: "Offline demo".into(),
-        playlist_album_remark: String::new(),
-        update_time: String::new(),
+    let source = SourceConfig {
+        platform: "Spotify".into(),
+        source_id: "offline_demo".into(),
+        source_kind: "playlist".into(),
+        title: "Offline demo".into(),
+        remark: String::new(),
+        updated_at: String::new(),
         enabled: true,
     };
     store.save_playlist_json(
         "Spotify",
         "offline_demo",
-        TypeName::Playlist,
+        SourceKind::Playlist,
         &json!({
             "playlist_album_name":"Offline demo", "song_ids":["first", "second"],
             "tracks_info":[
@@ -46,10 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     )?;
     let settings = MusicSetting {
-        number_of_discovered_songs: 1,
-        num_of_mystery_song: 1,
-        cache_batches: 0,
-        playlist_albums: vec![source],
+        normal_song_count: 1,
+        mystery_song_count: 1,
+        preload_batch_count: 0,
+        sources: vec![source],
         ..Default::default()
     };
     settings.save_to_path(&store.root().join("settings/music_setting.json"))?;

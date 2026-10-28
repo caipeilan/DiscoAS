@@ -1,10 +1,10 @@
 import { useState } from "react";
-import type { LibraryEntry } from "../../types";
+import type { SourceSummary } from "../../types";
 import { Icon } from "../../Icon";
 import { t, errorText } from "../../i18n";
 
 export function RemarkDialog({ entry, busy, close, save }: {
-  entry: LibraryEntry;
+  entry: SourceSummary;
   busy: boolean;
   close: () => void;
   save: (remark: string) => Promise<void>;

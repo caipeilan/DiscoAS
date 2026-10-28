@@ -3,12 +3,13 @@ import { listen, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
+import { decodeDesktopValue, encodeDesktopArgs } from "./desktopWire";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
 import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch, GuiSettings,
   HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint,
   HandDragSnapshot, HandDragIntent, HandDragEnd } from "../types";
 
-export interface PlaySongArgs { platform: string; songId: string; playlistId: string; typename: string }
+export interface PlaySongArgs { platform: string; songId: string; sourceId: string; sourceKind: string }
 
 import type { AutoHandState } from "../features/hand/autoHandState";
 import type { OnboardingState } from "../features/onboarding/onboardingState";
@@ -237,7 +238,7 @@ export async function openPlaybackSettings() {
 
 export function call<T>(name: DesktopCommand, args?: Record<string, unknown>): Promise<T> {
   return desktop
-    ? invoke<T>(name, args).catch((error) => {
+    ? invoke<unknown>(name, encodeDesktopArgs(name, args)).then(decodeDesktopValue<T>).catch((error) => {
       if (name !== "log_frontend_error")
         invoke("log_frontend_error", { context: name }).catch(() => { });
       throw error;
@@ -250,7 +251,7 @@ export function onDesktopEvent<E extends keyof DesktopEvents>(
   handler: (payload: DesktopEvents[E]) => void | Promise<void>,
 ): Promise<() => void> {
   if (!desktop) return Promise.resolve(() => {});
-  return listen<DesktopEvents[E]>(event, ({ payload }) => handler(payload));
+  return listen<unknown>(event, ({ payload }) => handler(decodeDesktopValue<DesktopEvents[E]>(payload)));
 }
 
 export async function hideCurrentWindow() {

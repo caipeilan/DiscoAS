@@ -11,7 +11,8 @@ pub struct DesktopPreferences {
     pub pause_before_playback: bool,
     pub overlay_monitor: String,
     pub minimize_after_playback: bool,
-    pub minimize_delay_seconds: f64,
+    #[serde(rename = "minimize_delay_seconds")]
+    pub temporary_hide_seconds: f64,
     pub client_window_mode: String,
     pub client_separate_desktop: bool,
     pub spotify_playback_mode: String,
@@ -29,7 +30,7 @@ impl Default for DesktopPreferences {
             pause_before_playback: false,
             overlay_monitor: "current".into(),
             minimize_after_playback: true,
-            minimize_delay_seconds: 4.0,
+            temporary_hide_seconds: 4.0,
             client_window_mode: "off".into(),
             client_separate_desktop: false,
             spotify_playback_mode: "extension".into(),
@@ -50,8 +51,8 @@ impl DesktopPreferences {
         {
             return Err("错误：显示器选项无效".into());
         }
-        if !self.minimize_delay_seconds.is_finite()
-            || !(0.0..=30.0).contains(&self.minimize_delay_seconds)
+        if !self.temporary_hide_seconds.is_finite()
+            || !(0.0..=30.0).contains(&self.temporary_hide_seconds)
         {
             return Err("错误：最小化等待时间应为 0–30 秒".into());
         }
@@ -181,9 +182,9 @@ mod tests {
     fn decimal_minimize_wait_roundtrips_and_legacy_integer_wait_remains_compatible() {
         let legacy: DesktopPreferences =
             serde_json::from_str(r#"{"minimize_delay_seconds":4}"#).unwrap();
-        assert_eq!(legacy.minimize_delay_seconds, 4.0);
+        assert_eq!(legacy.temporary_hide_seconds, 4.0);
         let settings = DesktopPreferences {
-            minimize_delay_seconds: 4.125,
+            temporary_hide_seconds: 4.125,
             ..Default::default()
         };
         let path = std::env::temp_dir().join(format!(
@@ -199,14 +200,14 @@ mod tests {
     fn minimize_wait_must_be_finite_and_between_zero_and_thirty_seconds() {
         for value in [0.0, 0.125, 29.999, 30.0] {
             let settings = DesktopPreferences {
-                minimize_delay_seconds: value,
+                temporary_hide_seconds: value,
                 ..Default::default()
             };
             assert!(settings.validate().is_ok());
         }
         for value in [-0.001, 30.001, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let settings = DesktopPreferences {
-                minimize_delay_seconds: value,
+                temporary_hide_seconds: value,
                 ..Default::default()
             };
             assert!(settings.validate().is_err());

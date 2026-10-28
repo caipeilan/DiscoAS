@@ -25,8 +25,8 @@ export default function DiscoverWindow() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [discovery.cancel, discovery.status.preview, discovery.previewGui]);
-  const state = { ...preferences, playlists: preferences.settings.playlist_albums.map((source) => ({
-    platform: source.name, enabled: source.enabled,
+  const state = { ...preferences, sources: preferences.settings.sources.map((source) => ({
+    platform: source.platform, enabled: source.enabled,
   })) };
   const show = (name: "show_main" | "show_discover") => {
     void call(name).catch((e) => notice(errorText(e), true));

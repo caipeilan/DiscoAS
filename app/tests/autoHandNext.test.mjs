@@ -7,8 +7,8 @@ const source = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { autoHandNextId } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
-const first = { enabled: true, auto_play: true, auto_play_position: "first" };
-const last = { ...first, auto_play_position: "last" };
+const first = { enabled: true, autoPlayEnabled: true, autoPlayPosition: "first" };
+const last = { ...first, autoPlayPosition: "last" };
 const a = { id: "a" }, b = { id: "b" }, c = { id: "c" };
 const mini = { id: "mini", discovery: true }, refill = { id: "refill", placeholder: true };
 
@@ -36,7 +36,7 @@ test("collection, discard, play and committed reorder move the next-card indicat
 
 test("disabling either mode or entering the settings preview removes the indication", () => {
   assert.equal(autoHandNextId([a], { ...first, enabled: false }), null);
-  assert.equal(autoHandNextId([a], { ...first, auto_play: false }), null);
+  assert.equal(autoHandNextId([a], { ...first, autoPlayEnabled: false }), null);
   assert.equal(autoHandNextId([a], first, true), null);
   assert.equal(autoHandNextId([a], first), "a");
 });

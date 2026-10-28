@@ -1,5 +1,5 @@
 //! Explicit network example: fetch validated metadata, then optionally persist it.
-use discoas_core::{core::playlist::TypeName, platforms::fetcher_for, storage::LibraryStore};
+use discoas_core::{core::playlist::SourceKind, platforms::fetcher_for, storage::LibraryStore};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -7,7 +7,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !(3..=4).contains(&arguments.len()) {
         return Err("用法：fetch_source <NeteaseCloudMusic|QQMusic|KugouMusic|KuwoMusic|QishuiMusic|Spotify|YouTube|Bilibili> <来源类型> <ID> [user_data目录]".into());
     }
-    let kind = TypeName::parse(&arguments[1])?;
+    let kind = SourceKind::parse(&arguments[1])?;
     let data = fetcher_for(&arguments[0])?
         .fetch(&arguments[2], kind)
         .await?;

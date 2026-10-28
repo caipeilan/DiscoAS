@@ -39,7 +39,7 @@ pub mod names {
     pub const LOCAL: &str = "LocalMusic";
 }
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -53,28 +53,28 @@ pub struct FetchProgress {
 pub type FetchProgressCallback = Arc<dyn Fn(FetchProgress) + Send + Sync>;
 
 /// Source kinds accepted by each platform; shared by desktop and other callers.
-pub fn supported_kinds(platform: &str) -> AppResult<&'static [TypeName]> {
+pub fn supported_kinds(platform: &str) -> AppResult<&'static [SourceKind]> {
     match platform {
-        names::LOCAL => Ok(&[TypeName::Playlist]),
+        names::LOCAL => Ok(&[SourceKind::Playlist]),
         names::NETEASE
         | names::QQ
         | names::KUGOU
         | names::SPOTIFY
         | names::KUWO
         | names::QISHUI
-        | names::APPLE_MUSIC => Ok(&[TypeName::Playlist, TypeName::Album]),
-        names::YOUTUBE => Ok(&[TypeName::Playlist, TypeName::Video]),
+        | names::APPLE_MUSIC => Ok(&[SourceKind::Playlist, SourceKind::Album]),
+        names::YOUTUBE => Ok(&[SourceKind::Playlist, SourceKind::Video]),
         names::BILIBILI => Ok(&[
-            TypeName::Favorites,
-            TypeName::Collection,
-            TypeName::Series,
-            TypeName::Video,
+            SourceKind::Favorites,
+            SourceKind::Collection,
+            SourceKind::Series,
+            SourceKind::Video,
         ]),
         other => Err(AppError::UnsupportedPlatform(other.into())),
     }
 }
 
-pub fn validate_kind(platform: &str, kind: TypeName) -> AppResult<()> {
+pub fn validate_kind(platform: &str, kind: SourceKind) -> AppResult<()> {
     if supported_kinds(platform)?.contains(&kind) {
         Ok(())
     } else {
@@ -89,13 +89,13 @@ pub fn validate_kind(platform: &str, kind: TypeName) -> AppResult<()> {
 #[async_trait::async_trait]
 pub trait PlaylistFetcher: Send + Sync {
     /// Read and validate a complete source snapshot without writing local files.
-    async fn fetch(&self, id: &str, typename: TypeName) -> AppResult<serde_json::Value>;
+    async fn fetch(&self, id: &str, source_kind: SourceKind) -> AppResult<serde_json::Value>;
 
     /// Single-response sources report start/completion; paginated sources override this.
     async fn fetch_with_progress(
         &self,
         id: &str,
-        typename: TypeName,
+        source_kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<serde_json::Value> {
         progress(FetchProgress {
@@ -103,7 +103,7 @@ pub trait PlaylistFetcher: Send + Sync {
             total: None,
             pages: 0,
         });
-        let data = self.fetch(id, typename).await?;
+        let data = self.fetch(id, source_kind).await?;
         let count = data["song_ids"].as_array().map_or(0, Vec::len);
         progress(FetchProgress {
             completed: count,
@@ -178,7 +178,7 @@ pub trait SongDetailLoader: Send + Sync {
     ) -> AppResult<crate::model::CanonicalSongMetadata> {
         let detail = self.load_song_detail(source, song_id, false, "").await?;
         Ok(crate::model::CanonicalSongMetadata {
-            name: detail.name,
+            title: detail.name,
             artist_names: detail.artist_names,
         })
     }
@@ -221,8 +221,8 @@ pub fn build_window_name(name: &str, artist_names: &[String]) -> String {
 /// Generate a validated playback target without opening a local application.
 pub fn build_scheme_url(args: &crate::model::PlaySongArgs) -> AppResult<String> {
     storage::validate_id(&args.song_id)?;
-    if !args.playlist_id.is_empty() {
-        storage::validate_id(&args.playlist_id)?;
+    if !args.source_id.is_empty() {
+        storage::validate_id(&args.source_id)?;
     }
     Ok(match args.platform.as_str() {
         names::LOCAL => local::playback_path(&args.song_id, &args.filename)?,
@@ -232,13 +232,13 @@ pub fn build_scheme_url(args: &crate::model::PlaySongArgs) -> AppResult<String> 
         names::KUWO => kuwo::playback_url(&args.song_id)?,
         names::QISHUI => qishui::playback_url(&args.song_id)?,
         names::APPLE_MUSIC => apple_music::playback_url(&args.song_id)?,
-        names::SPOTIFY if args.typename == "album" && !args.playlist_id.is_empty() => {
+        names::SPOTIFY if args.source_kind == "album" && !args.source_id.is_empty() => {
             format!(
                 "spotify:track:{}?context=spotify%3Aalbum%3A{}&play=true",
-                args.song_id, args.playlist_id
+                args.song_id, args.source_id
             )
         }
-        names::SPOTIFY => spotify::card::scheme_url(&args.song_id, &args.playlist_id),
+        names::SPOTIFY => spotify::card::scheme_url(&args.song_id, &args.source_id),
         names::YOUTUBE => youtube::playback_url(&args.song_id)?,
         names::BILIBILI => bilibili::playback_url(&args.song_id)?,
         other => return Err(AppError::UnsupportedPlatform(other.into())),
@@ -254,15 +254,15 @@ mod playback_tests {
     fn source_capabilities_keep_video_kinds_out_of_music_platforms() {
         assert_eq!(
             supported_kinds(names::YOUTUBE).unwrap(),
-            &[TypeName::Playlist, TypeName::Video]
+            &[SourceKind::Playlist, SourceKind::Video]
         );
         assert_eq!(
             supported_kinds(names::BILIBILI).unwrap(),
             &[
-                TypeName::Favorites,
-                TypeName::Collection,
-                TypeName::Series,
-                TypeName::Video
+                SourceKind::Favorites,
+                SourceKind::Collection,
+                SourceKind::Series,
+                SourceKind::Video
             ]
         );
         for platform in [
@@ -274,8 +274,8 @@ mod playback_tests {
             names::QISHUI,
             names::APPLE_MUSIC,
         ] {
-            assert!(validate_kind(platform, TypeName::Video).is_err());
-            assert!(validate_kind(platform, TypeName::Album).is_ok());
+            assert!(validate_kind(platform, SourceKind::Video).is_err());
+            assert!(validate_kind(platform, SourceKind::Album).is_ok());
         }
         for (platform, song, kind, expected) in [
             (
@@ -313,8 +313,8 @@ mod playback_tests {
                 build_scheme_url(&PlaySongArgs {
                     platform: platform.into(),
                     song_id: song.into(),
-                    typename: kind.into(),
-                    playlist_id: "source".into(),
+                    source_kind: kind.into(),
+                    source_id: "source".into(),
                     filename: String::new()
                 })
                 .unwrap(),
@@ -326,7 +326,7 @@ mod playback_tests {
     struct LocalFetcher;
     #[async_trait::async_trait]
     impl PlaylistFetcher for LocalFetcher {
-        async fn fetch(&self, _id: &str, _kind: TypeName) -> AppResult<serde_json::Value> {
+        async fn fetch(&self, _id: &str, _kind: SourceKind) -> AppResult<serde_json::Value> {
             Ok(serde_json::json!({"song_ids":["a", "b"]}))
         }
     }
@@ -338,7 +338,7 @@ mod playback_tests {
         let source = LocalFetcher
             .fetch_with_progress(
                 "one",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 Arc::new(move |progress| recorded.lock().unwrap().push(progress)),
             )
             .await
@@ -365,8 +365,8 @@ mod playback_tests {
         PlaySongArgs {
             platform: names::SPOTIFY.into(),
             song_id: "trackId".into(),
-            playlist_id: "albumId".into(),
-            typename: "album".into(),
+            source_id: "albumId".into(),
+            source_kind: "album".into(),
             filename: String::new(),
         }
     }
@@ -379,7 +379,7 @@ mod playback_tests {
             "spotify:track:trackId?context=spotify%3Aalbum%3AalbumId&play=true"
         );
         let playlist = PlaySongArgs {
-            typename: "playlist".into(),
+            source_kind: "playlist".into(),
             ..args
         };
         assert!(build_scheme_url(&playlist)
@@ -395,7 +395,7 @@ mod playback_tests {
                 ..spotify_args()
             },
             PlaySongArgs {
-                playlist_id: "album&play=false".into(),
+                source_id: "album&play=false".into(),
                 ..spotify_args()
             },
         ] {

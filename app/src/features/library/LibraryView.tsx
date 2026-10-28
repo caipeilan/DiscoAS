@@ -1,9 +1,9 @@
-import type { AppState, LibraryEntry, LibraryProgress } from "../../types";
+import type { AppState, SourceSummary, LibraryProgress } from "../../types";
 import { platforms } from "../../types";
 import { Icon } from "../../Icon";
 import { Cover } from "../../components/Cover";
 import { PlatformTag, formatDate } from "../../components/PlatformTag";
-import { t, errorText, sourceKind, itemCountUnit } from "../../i18n";
+import { t, errorText, sourceKindLabel, itemCountUnit } from "../../i18n";
 import { sourceKey } from "./libraryModel";
 import type { LibrarySort } from "./libraryModel";
 import { OperationProgress } from "./OperationProgress";
@@ -23,22 +23,22 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
   sort: LibrarySort;
   setSort: (value: LibrarySort) => void;
   selected: Set<string>;
-  toggleSelected: (entry: LibraryEntry) => void;
+  toggleSelected: (entry: SourceSummary) => void;
   selectVisible: () => void;
   updateSelected: () => Promise<unknown>;
   removeSelected: () => void;
-  editRemark: (entry: LibraryEntry) => void;
+  editRemark: (entry: SourceSummary) => void;
   progress: LibraryProgress | null;
   cancelling: boolean;
   cancelOperation: () => void;
   operationSummary: string;
   importDialogOpen: boolean;
-  filtered: LibraryEntry[];
+  filtered: SourceSummary[];
   openImport: () => void;
-  confirmRemove: (entry: LibraryEntry) => void;
+  confirmRemove: (entry: SourceSummary) => void;
   migrate: () => Promise<void>;
-  enablePlaylist: (entry: LibraryEntry) => Promise<unknown>;
-  updatePlaylist: (entry: LibraryEntry) => Promise<unknown>;
+  enablePlaylist: (entry: SourceSummary) => Promise<unknown>;
+  updatePlaylist: (entry: SourceSummary) => Promise<unknown>;
   importSample: () => Promise<unknown>;
   discover?: () => void;
 }) {
@@ -46,9 +46,9 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
   // Each row used to serialize its identity three times per render.
   const sourceKeys = useMemo(() => new Map(filtered.map((entry) => [entry, sourceKey(entry)] as const)), [filtered]);
   useListMotion(list, filtered, `${query}\n${filter}`);
-  const enabled = state.playlists.find((p) => p.enabled);
-  const normalCount = state.settings.number_of_discovered_songs;
-  const mysteryCount = state.settings.have_mystery_song ? state.settings.num_of_mystery_song : 0;
+  const enabled = state.sources.find((p) => p.enabled);
+  const normalCount = state.settings.normalSongCount;
+  const mysteryCount = state.settings.mysterySongsEnabled ? state.settings.mysterySongCount : 0;
   return (
     <>
       {state.startupRefreshError && (
@@ -69,7 +69,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
           {t("添加歌单")}
         </button>
       </header>
-      {state.legacyDataPath && state.playlists.length === 0 && (
+      {state.legacyDataPath && state.sources.length === 0 && (
         <div className="migration-banner">
           <Icon name="import" />
           <div>
@@ -113,7 +113,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
             </div>
           </div>
           <button type="button" className="discover-launch" aria-label={t("开始发现")}
-            title={t("开始发现 · {p0}", { p0: state.settings.shortcut_key || t("发现一首歌") })}
+            title={t("开始发现 · {p0}", { p0: state.settings.discoveryShortcut || t("发现一首歌") })}
             disabled={!!busy || startup} onClick={() => discover?.()}>
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5.6a1.1 1.1 0 0 1 1.65-.95l10.1 6.4a1.12 1.12 0 0 1 0 1.9l-10.1 6.4A1.1 1.1 0 0 1 6 18.4Z" /></svg>
           </button>
@@ -145,7 +145,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
           {t("个卡池")}
         </span>
       </div>
-      {state.playlists.length > 0 && <div className="library-selection">
+      {state.sources.length > 0 && <div className="library-selection">
         <label><input type="checkbox" disabled={!!busy || !filtered.length} checked={filtered.length > 0 && filtered.every((entry) => selected.has(sourceKeys.get(entry)!))} onChange={selectVisible} />{t("选择当前列表")}</label>
         <span>{t("已选择 {p0} 个卡池", { p0: selected.size })}</span>
         <div className="library-batch-actions">
@@ -161,7 +161,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
               data-selected={selected.has(sourceKeys.get(p)!) || undefined}
               key={sourceKeys.get(p)}
               data-motion-key={sourceKeys.get(p)}
-              data-onboarding-source={JSON.stringify([p.platform, p.kind, p.id])}
+              data-onboarding-source={JSON.stringify([p.platform, p.sourceKind, p.sourceId])}
             >
               <input className="source-checkbox" type="checkbox" aria-label={t("选择 {p0}", { p0: p.title })} checked={selected.has(sourceKeys.get(p)!)} disabled={!!busy} onChange={() => toggleSelected(p)} />
               <Cover
@@ -179,7 +179,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
                 </h3>
                 <div className="row-meta">
                   <PlatformTag id={p.platform} />
-                  <span>{sourceKind(p.kind)}</span>
+                  <span>{sourceKindLabel(p.sourceKind)}</span>
                   <span>
                     {p.songCount.toLocaleString()}
                     {itemCountUnit(p.platform)}
@@ -241,7 +241,7 @@ export function LibraryView({ state, busy, startup, query, setQuery, filter, set
           <Icon name="refresh" className="spin" />
           <p>{t("正在读取本地歌单…")}</p>
         </div>
-      ) : state.playlists.length === 0 ? (
+      ) : state.sources.length === 0 ? (
         <div className="empty-state">
           <div className="empty-art">
             <Icon name="library" size={34} />

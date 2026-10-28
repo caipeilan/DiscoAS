@@ -149,7 +149,7 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Preparat
             platform: platform.into(),
             main_hwnd: window.map(|window| window.hwnd),
             mode,
-            delay_seconds: settings.minimize_delay_seconds,
+            delay_seconds: settings.temporary_hide_seconds,
             restore_hidden,
             leave_in_place,
             moved_to_background: false,
@@ -215,7 +215,7 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Preparat
                 platform: platform.to_string(),
                 main_hwnd: Some(window.hwnd),
                 mode,
-                delay_seconds: settings.minimize_delay_seconds,
+                delay_seconds: settings.temporary_hide_seconds,
                 restore_hidden: was_hidden,
                 leave_in_place: true,
                 moved_to_background: false,
@@ -259,7 +259,7 @@ pub(crate) fn prepare(platform: &str, settings: &DesktopPreferences) -> Preparat
             platform: platform.to_string(),
             main_hwnd: Some(window.hwnd),
             mode,
-            delay_seconds: settings.minimize_delay_seconds,
+            delay_seconds: settings.temporary_hide_seconds,
             restore_hidden: was_hidden,
             leave_in_place: false,
             moved_to_background: true,
@@ -628,7 +628,7 @@ mod tests {
         let settings = DesktopPreferences {
             client_window_mode: "temporary".into(),
             client_separate_desktop: true,
-            minimize_delay_seconds: 0.2,
+            temporary_hide_seconds: 0.2,
             ..Default::default()
         };
         let handle = match super::prepare(crate::platforms::names::NETEASE, &settings) {
@@ -682,7 +682,7 @@ mod tests {
         let settings = DesktopPreferences {
             client_window_mode: "temporary".into(),
             client_separate_desktop: true,
-            minimize_delay_seconds: 0.2,
+            temporary_hide_seconds: 0.2,
             ..Default::default()
         };
         let handle = match super::prepare(crate::platforms::names::NETEASE, &settings) {

@@ -1,7 +1,7 @@
 //! Platform share-link normalization, independent of windows and command state.
-use crate::{core::playlist::TypeName, platforms};
+use crate::{core::playlist::SourceKind, platforms};
 
-pub fn normalize_source(platform: &str, kind: TypeName, input: &str) -> Result<String, String> {
+pub fn normalize_source(platform: &str, kind: SourceKind, input: &str) -> Result<String, String> {
     platforms::validate_kind(platform, kind).map_err(|e| e.to_string())?;
     let input = input.trim();
     let extracted = regex::Regex::new(r#"https?://[^\s<>\"，。]+"#)
@@ -51,7 +51,7 @@ pub fn normalize_source(platform: &str, kind: TypeName, input: &str) -> Result<S
                 validate_qq_link_kind(&url, kind)?;
             }
             let fragment = url.fragment().unwrap_or("");
-            let keys = if platform == platforms::names::QQ && kind == TypeName::Album {
+            let keys = if platform == platforms::names::QQ && kind == SourceKind::Album {
                 vec!["albummid", "albumid", "id"]
             } else {
                 vec!["disstid", "id"]
@@ -126,7 +126,7 @@ fn preferred_query(url: &reqwest::Url, keys: &[&str]) -> Option<(String, String)
     })
 }
 
-fn normalize_kugou_link(url: &reqwest::Url, kind: TypeName) -> Result<String, String> {
+fn normalize_kugou_link(url: &reqwest::Url, kind: SourceKind) -> Result<String, String> {
     let playlist_keys = [
         "gcid",
         "global_collection_id",
@@ -139,16 +139,16 @@ fn normalize_kugou_link(url: &reqwest::Url, kind: TypeName) -> Result<String, St
     let playlist = preferred_query(url, &playlist_keys);
     let album = preferred_query(url, &album_keys);
     let path = url.path().to_ascii_lowercase();
-    if (kind == TypeName::Playlist
+    if (kind == SourceKind::Playlist
         && (path.contains("/album/") || (playlist.is_none() && album.is_some())))
-        || (kind == TypeName::Album
+        || (kind == SourceKind::Album
             && (path.contains("/songlist")
                 || path.contains("/plist/list/")
                 || (album.is_none() && playlist.is_some())))
     {
         return Err("酷狗链接类型与选择的歌单/专辑类型不一致".into());
     }
-    if let Some((key, value)) = if kind == TypeName::Playlist {
+    if let Some((key, value)) = if kind == SourceKind::Playlist {
         playlist
     } else {
         album
@@ -161,8 +161,8 @@ fn normalize_kugou_link(url: &reqwest::Url, kind: TypeName) -> Result<String, St
         });
     }
     let pattern = match kind {
-        TypeName::Playlist => r"/(?:songlist|plist/list)/([^/?#]+)",
-        TypeName::Album => r"/album/(?:info/)?([0-9]+)(?:\.html)?(?:/|$)",
+        SourceKind::Playlist => r"/(?:songlist|plist/list)/([^/?#]+)",
+        SourceKind::Album => r"/album/(?:info/)?([0-9]+)(?:\.html)?(?:/|$)",
         _ => return Err("酷狗只支持歌单或专辑".into()),
     };
     if let Some(capture) = regex::Regex::new(pattern).unwrap().captures(url.path()) {
@@ -173,7 +173,7 @@ fn normalize_kugou_link(url: &reqwest::Url, kind: TypeName) -> Result<String, St
         .ok_or_else(|| "酷狗链接中未找到歌单、专辑或分享码".into())
 }
 
-fn validate_qq_link_kind(url: &reqwest::Url, kind: TypeName) -> Result<(), String> {
+fn validate_qq_link_kind(url: &reqwest::Url, kind: SourceKind) -> Result<(), String> {
     let path = format!(
         "{} {}",
         url.path(),
@@ -186,7 +186,7 @@ fn validate_qq_link_kind(url: &reqwest::Url, kind: TypeName) -> Result<(), Strin
     let playlist = path.contains("/playlist/")
         || path.contains("/playsquare/")
         || preferred_query(url, &["disstid"]).is_some();
-    if (kind == TypeName::Playlist && album) || (kind == TypeName::Album && playlist) {
+    if (kind == SourceKind::Playlist && album) || (kind == SourceKind::Album && playlist) {
         return Err("QQ 音乐链接类型与选择的歌单/专辑类型不一致".into());
     }
     Ok(())
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(
             normalize_source(
                 "NeteaseCloudMusic",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "分享：https://music.163.com/#/playlist?id=8285082830"
             )
             .unwrap(),
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(
             normalize_source(
                 "QQMusic",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "https://y.qq.com/n/ryqq/playlist/9595891286"
             )
             .unwrap(),
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(
             normalize_source(
                 "Spotify",
-                TypeName::Album,
+                SourceKind::Album,
                 "spotify:album:5WeGi6mozFSiTXVDg319GA"
             )
             .unwrap(),
@@ -226,15 +226,15 @@ mod tests {
         );
         assert!(normalize_source(
             "Spotify",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "https://open.spotify.com/album/5WeGi6mozFSiTXVDg319GA"
         )
         .is_err());
-        assert!(normalize_source("QQMusic", TypeName::Playlist, "https://evil.example/x").is_err());
+        assert!(normalize_source("QQMusic", SourceKind::Playlist, "https://evil.example/x").is_err());
         assert_eq!(
             normalize_source(
                 "AppleMusic",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "https://music.apple.com/cn/playlist/x/pl.u-V9D7v0NuB55rVjL"
             )
             .unwrap(),
@@ -242,11 +242,11 @@ mod tests {
         );
         assert!(normalize_source(
             "AppleMusic",
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "https://music.apple.com/cn/album/x/255920420"
         )
         .is_err());
-        assert_eq!(normalize_source("KugouMusic",TypeName::Playlist,"https://www.kugou.com/songlist?specialid=-2147483648&global_specialid=collection_3_123").unwrap(),"collection_3_123");
+        assert_eq!(normalize_source("KugouMusic",SourceKind::Playlist,"https://www.kugou.com/songlist?specialid=-2147483648&global_specialid=collection_3_123").unwrap(),"collection_3_123");
     }
     #[test]
     fn kugou_links_preserve_identity_and_prioritize_modern_query_fields() {
@@ -260,7 +260,7 @@ mod tests {
             ("https://www.kugou.com/plist/list/7365552.html", "7365552"),
             ("https://www.kugou.com/#/songlist?specialid=123&gcid=3z17seve8z2z051", "gcid_3z17seve8z2z051"),
         ] {
-            assert_eq!(normalize_source("KugouMusic", TypeName::Playlist, link).unwrap(), expected);
+            assert_eq!(normalize_source("KugouMusic", SourceKind::Playlist, link).unwrap(), expected);
         }
         for link in [
             "https://www.kugou.com/album/12345.html",
@@ -268,14 +268,14 @@ mod tests {
             "https://m.kugou.com/song.html?album_id=12345&id=ignored",
         ] {
             assert_eq!(
-                normalize_source("KugouMusic", TypeName::Album, link).unwrap(),
+                normalize_source("KugouMusic", SourceKind::Album, link).unwrap(),
                 "12345"
             );
-            assert!(normalize_source("KugouMusic", TypeName::Playlist, link).is_err());
+            assert!(normalize_source("KugouMusic", SourceKind::Playlist, link).is_err());
         }
         assert!(normalize_source(
             "KugouMusic",
-            TypeName::Album,
+            SourceKind::Album,
             "https://www.kugou.com/songlist/gcid_3z17seve8z2z051/"
         )
         .is_err());
@@ -289,14 +289,14 @@ mod tests {
             "https://i.y.qq.com/v8/playsong.html?albummid=003DFRzD192KKD",
         ] {
             assert_eq!(
-                normalize_source("QQMusic", TypeName::Album, link).unwrap(),
+                normalize_source("QQMusic", SourceKind::Album, link).unwrap(),
                 "003DFRzD192KKD"
             );
-            assert!(normalize_source("QQMusic", TypeName::Playlist, link).is_err());
+            assert!(normalize_source("QQMusic", SourceKind::Playlist, link).is_err());
         }
         assert!(normalize_source(
             "QQMusic",
-            TypeName::Album,
+            SourceKind::Album,
             "https://y.qq.com/n/ryqq/playlist/9595891286"
         )
         .is_err());

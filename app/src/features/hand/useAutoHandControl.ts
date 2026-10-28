@@ -16,7 +16,7 @@ export function useAutoHandControl() {
   const toggle = async () => {
     if (pending) return;
     setPending(true);
-    try { const next = await call<AutoHandState>("set_auto_hand_enabled", { enabled: !state.enabled }); setState(old => mergeAutoHandState(old, next)); }
+    try { const next = await call<AutoHandState>("set_auto_hand_enabled", { enabled: !state.active }); setState(old => mergeAutoHandState(old, next)); }
     finally { setPending(false); }
   };
   return { state, pending, toggle };

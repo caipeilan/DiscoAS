@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
 import { shortcutFromEvent } from "./.compiled/shortcut.js";
-import { setLanguage, t, errorText, sourceKind, isCancelledError } from "./.compiled/i18n.js";
+import { setLanguage, t, errorText, sourceKindLabel, isCancelledError } from "./.compiled/i18n.js";
 import { translations } from "./.compiled/translations.js";
 const preferencesSource = fs.readFileSync(
   new URL("../src/features/settings/preferences.ts", import.meta.url),
@@ -99,18 +99,18 @@ test("all UI message keys have both translations with matching placeholders", ()
   }
 });
 test("backend library updates do not mark settings drafts dirty", () => {
-  const saved = { number_of_discovered_songs: 3, shortcut_key: "Alt+D", playlist_albums: [] };
-  assert.equal(samePreferences(saved, { ...saved, playlist_albums: [{ enabled: true }] }), true);
-  assert.equal(samePreferences(saved, { ...saved, number_of_discovered_songs: 4 }), false);
-  assert.equal(samePreferences(saved, { ...saved, shortcut_key: "Ctrl+D" }), false);
+  const saved = { normalSongCount: 3, discoveryShortcut: "Alt+D", sources: [] };
+  assert.equal(samePreferences(saved, { ...saved, sources: [{ enabled: true }] }), true);
+  assert.equal(samePreferences(saved, { ...saved, normalSongCount: 4 }), false);
+  assert.equal(samePreferences(saved, { ...saved, discoveryShortcut: "Ctrl+D" }), false);
 });
 test("appearance draft comparison includes hidden colors but excludes configuration metadata", () => {
-  const saved = { night_mode: false, card: { background: "#fff" }, user_configured: false };
-  assert.equal(sameGuiPreferences(saved, { ...saved, user_configured: true }), true);
-  assert.equal(sameGuiPreferences(saved, { ...saved, night_mode: true }), false);
+  const saved = { nightMode: false, card: { background: "#fff" }, userConfigured: false };
+  assert.equal(sameGuiPreferences(saved, { ...saved, userConfigured: true }), true);
+  assert.equal(sameGuiPreferences(saved, { ...saved, nightMode: true }), false);
   assert.equal(sameGuiPreferences(saved, { ...saved, card: { background: "#000" } }), false);
-  assert.equal(sameGuiPreferences(saved, { ...saved, replacement_button_size: 1.4 }), false);
-  assert.equal(sameGuiPreferences(saved, { ...saved, discovery_bar_size: 1.4 }), false);
+  assert.equal(sameGuiPreferences(saved, { ...saved, replacementButtonScale: 1.4 }), false);
+  assert.equal(sameGuiPreferences(saved, { ...saved, discoveryBarScale: 1.4 }), false);
 });
 test("Tauri dependencies stay behind the desktop service boundary", () => {
   for (const path of sourceFiles(new URL("../src/", import.meta.url))) {
@@ -126,7 +126,7 @@ test("language changes translate text and interpolate metadata without translati
   setLanguage("en_US");
   assert.equal(t("播放 {p0}", { p0: "歌名 {unknown}" }), "Play 歌名 {unknown}");
   assert.equal(t("设置"), "Settings");
-  assert.equal(sourceKind("playlist"), "Playlist");
+  assert.equal(sourceKindLabel("playlist"), "Playlist");
   assert.equal(t("歌单"), "Library");
   assert.match(
     errorText("快捷键 Alt+D 无法注册，可能已被其他应用占用"),
@@ -174,11 +174,11 @@ test("legacy pool messages use consistent terms without rewriting interpolated t
 });
 test("source search and sorting preserve the original list and include remarks", () => {
   const entries = [
-    { platform: "Spotify", kind: "playlist", id: "1", title: "Beta", remark: "Commute", updatedAt: "2026-10-07 10:00:00" },
-    { platform: "QQMusic", kind: "album", id: "2", title: "Alpha", remark: "", updatedAt: "2026-10-07 11:00:00" },
+    { platform: "Spotify", sourceKind: "playlist", sourceId: "1", title: "Beta", remark: "Commute", updatedAt: "2026-10-07 10:00:00" },
+    { platform: "QQMusic", sourceKind: "album", sourceId: "2", title: "Alpha", remark: "", updatedAt: "2026-10-07 11:00:00" },
   ];
-  assert.deepEqual(filterLibrary(entries, "  COMMUTE ", "Spotify", "added", "en-US").map((entry) => entry.id), ["1"]);
-  assert.deepEqual(filterLibrary(entries, "", "", "name", "en-US").map((entry) => entry.id), ["2", "1"]);
-  assert.deepEqual(filterLibrary(entries, "", "", "updated", "en-US").map((entry) => entry.id), ["2", "1"]);
-  assert.deepEqual(entries.map((entry) => entry.id), ["1", "2"]);
+  assert.deepEqual(filterLibrary(entries, "  COMMUTE ", "Spotify", "added", "en-US").map((entry) => entry.sourceId), ["1"]);
+  assert.deepEqual(filterLibrary(entries, "", "", "name", "en-US").map((entry) => entry.sourceId), ["2", "1"]);
+  assert.deepEqual(filterLibrary(entries, "", "", "updated", "en-US").map((entry) => entry.sourceId), ["2", "1"]);
+  assert.deepEqual(entries.map((entry) => entry.sourceId), ["1", "2"]);
 });

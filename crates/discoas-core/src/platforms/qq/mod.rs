@@ -4,7 +4,7 @@ pub mod get_json;
 pub mod sign;
 pub use get_json::fetch_playlist;
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 use crate::platforms::{build_window_name, SongDetail, SongDetailLoader};
 use async_trait::async_trait;
@@ -14,16 +14,16 @@ pub struct QqFetcher;
 
 #[async_trait]
 impl crate::platforms::PlaylistFetcher for QqFetcher {
-    async fn fetch(&self, id: &str, typename: TypeName) -> AppResult<Value> {
-        get_json::fetch_playlist(id, typename).await
+    async fn fetch(&self, id: &str, source_kind: SourceKind) -> AppResult<Value> {
+        get_json::fetch_playlist(id, source_kind).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        typename: TypeName,
+        source_kind: SourceKind,
         progress: crate::platforms::FetchProgressCallback,
     ) -> AppResult<Value> {
-        get_json::fetch_playlist_with_progress(id, typename, progress).await
+        get_json::fetch_playlist_with_progress(id, source_kind, progress).await
     }
 }
 

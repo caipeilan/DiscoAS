@@ -53,7 +53,7 @@ pub(super) async fn read(mut response: Response) -> AppResult<String> {
 
 pub(super) fn snapshot(
     id: &str,
-    kind: super::TypeName,
+    kind: super::SourceKind,
     name: &str,
     cover: &str,
     tracks: Vec<Value>,
@@ -153,7 +153,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn detail_is_local_and_mystery_does_not_discard_real_window_name() {
-        let cache = snapshot("BV1xx411c7mD", super::super::TypeName::Video, "Source", "", vec![json!({"id":"BV1xx411c7mD_p2","name":"第二分 P","artists":["上传者"],"cover_url":"https://example.com/cover"})], 0).unwrap();
+        let cache = snapshot("BV1xx411c7mD", super::super::SourceKind::Video, "Source", "", vec![json!({"id":"BV1xx411c7mD_p2","name":"第二分 P","artists":["上传者"],"cover_url":"https://example.com/cover"})], 0).unwrap();
         let real = VideoDetailLoader
             .load_song_detail(&cache, "BV1xx411c7mD_p2", false, "")
             .await

@@ -23,7 +23,7 @@ pub fn disable_unavailable_auto_play(path: &Path) -> Result<bool, String> {
 
 pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindings, String> {
     let keybindings = setting.discovery_keybindings.normalized()?;
-    if setting.history_limit > 10000 {
+    if setting.recent_exclusion_limit > 10000 {
         return Err("错误：排除上限应为 0–10000".into());
     }
     match setting.weighting_mode() {
@@ -36,18 +36,18 @@ pub fn validate_preferences(setting: &MusicSetting) -> Result<DiscoveryKeybindin
     if setting.replacement_limit > 100 {
         return Err("错误：替换次数应为 0–100".into());
     }
-    let mystery = if setting.have_mystery_song {
-        setting.num_of_mystery_song
+    let mystery = if setting.mystery_songs_enabled {
+        setting.mystery_song_count
     } else {
         0
     };
-    if !(1..=15).contains(&setting.number_of_discovered_songs)
+    if !(1..=15).contains(&setting.normal_song_count)
         || mystery > 14
-        || setting.number_of_discovered_songs.saturating_add(mystery) > 15
+        || setting.normal_song_count.saturating_add(mystery) > 15
     {
         return Err("每次发现普通歌曲需为 1–15 首，普通与神秘歌曲合计最多 15 首".into());
     }
-    if setting.cache_batches > 5 {
+    if setting.preload_batch_count > 5 {
         return Err("预加载批数应为 0–5".into());
     }
     Ok(keybindings)
@@ -59,9 +59,9 @@ pub fn prepare_music_preferences(
     mut incoming: MusicSetting,
 ) -> Result<MusicSetting, String> {
     incoming.discovery_keybindings = validate_preferences(&incoming)?;
-    incoming.playlist_albums = current.playlist_albums.clone();
+    incoming.sources = current.sources.clone();
     incoming.normalize_preferences();
-    incoming.shortcut_key = incoming.shortcut_key.trim().to_string();
+    incoming.discovery_shortcut = incoming.discovery_shortcut.trim().to_string();
     incoming.hand.shortcut = incoming.hand.shortcut.trim().to_string();
     Ok(incoming)
 }
@@ -113,31 +113,31 @@ mod tests {
         let current = MusicSetting::default();
         let mut draft = current.clone();
         draft.hand.enabled = true;
-        draft.hand.auto_play = true;
+        draft.hand.auto_play_enabled = true;
         let prepared = prepare_music_preferences(&current, draft).unwrap();
         assert!(prepared.hand.enabled);
-        assert!(prepared.hand.auto_play);
+        assert!(prepared.hand.auto_play_enabled);
     }
     #[test]
     fn preferences_cannot_disable_all_songs() {
         let mut s = MusicSetting::default();
-        s.number_of_discovered_songs = 0;
-        s.have_mystery_song = false;
+        s.normal_song_count = 0;
+        s.mystery_songs_enabled = false;
         assert!(validate_preferences(&s).is_err());
     }
 
     #[test]
     fn exclusion_and_replacement_limits_are_separate_and_weights_reject_invalid_drafts() {
         let mut s = MusicSetting::default();
-        s.history_limit = 0;
+        s.recent_exclusion_limit = 0;
         s.replacement_limit = 0;
         assert!(validate_preferences(&s).is_ok());
-        s.history_limit = 10000;
+        s.recent_exclusion_limit = 10000;
         s.replacement_limit = 100;
         assert!(validate_preferences(&s).is_ok());
-        s.history_limit = 10001;
+        s.recent_exclusion_limit = 10001;
         assert!(validate_preferences(&s).is_err());
-        s.history_limit = 100;
+        s.recent_exclusion_limit = 100;
         s.replacement_limit = 101;
         assert!(validate_preferences(&s).is_err());
         s.replacement_limit = 1;
@@ -159,18 +159,18 @@ mod tests {
     #[test]
     fn preferences_allow_fifteen_songs_and_five_batches_but_never_overflow() {
         let mut s = MusicSetting::default();
-        s.number_of_discovered_songs = 12;
-        s.num_of_mystery_song = 3;
-        s.cache_batches = 5;
+        s.normal_song_count = 12;
+        s.mystery_song_count = 3;
+        s.preload_batch_count = 5;
         assert!(validate_preferences(&s).is_ok());
-        s.num_of_mystery_song = 4;
+        s.mystery_song_count = 4;
         assert!(validate_preferences(&s).is_err());
-        s.number_of_discovered_songs = u32::MAX;
-        s.num_of_mystery_song = u32::MAX;
+        s.normal_song_count = u32::MAX;
+        s.mystery_song_count = u32::MAX;
         assert!(validate_preferences(&s).is_err());
-        s.number_of_discovered_songs = 15;
-        s.have_mystery_song = false;
-        s.cache_batches = 6;
+        s.normal_song_count = 15;
+        s.mystery_songs_enabled = false;
+        s.preload_batch_count = 6;
         assert!(validate_preferences(&s).is_err());
     }
 
@@ -178,37 +178,37 @@ mod tests {
     fn preference_save_keeps_sources_loaded_after_the_settings_screen_opened() {
         let mut current = MusicSetting::default();
         current
-            .playlist_albums
-            .push(crate::settings::music_setting::PlaylistAlbum {
-                name: "NeteaseCloudMusic".into(),
-                playlist_album_id: "123".into(),
-                typename: "playlist".into(),
-                playlist_album_name: "Imported while editing preferences".into(),
-                playlist_album_remark: String::new(),
-                update_time: String::new(),
+            .sources
+            .push(crate::settings::music_setting::SourceConfig {
+                platform: "NeteaseCloudMusic".into(),
+                source_id: "123".into(),
+                source_kind: "playlist".into(),
+                title: "Imported while editing preferences".into(),
+                remark: String::new(),
+                updated_at: String::new(),
                 enabled: true,
             });
         let mut stale_form = MusicSetting::default();
-        stale_form.shortcut_key = " Ctrl+Shift+D ".into();
-        stale_form.number_of_discovered_songs = 8;
+        stale_form.discovery_shortcut = " Ctrl+Shift+D ".into();
+        stale_form.normal_song_count = 8;
         let prepared = prepare_music_preferences(&current, stale_form).unwrap();
-        assert_eq!(prepared.playlist_albums, current.playlist_albums);
-        assert_eq!(prepared.number_of_discovered_songs, 8);
-        assert_eq!(prepared.shortcut_key, "Ctrl+Shift+D");
+        assert_eq!(prepared.sources, current.sources);
+        assert_eq!(prepared.normal_song_count, 8);
+        assert_eq!(prepared.discovery_shortcut, "Ctrl+Shift+D");
     }
 
     #[test]
     fn detection_uses_the_live_source_when_a_settings_draft_is_saved() {
         let mut current = MusicSetting::default();
         current
-            .playlist_albums
-            .push(crate::settings::music_setting::PlaylistAlbum {
-                name: "KuwoMusic".into(),
-                playlist_album_id: "123".into(),
-                typename: "playlist".into(),
-                playlist_album_name: String::new(),
-                playlist_album_remark: String::new(),
-                update_time: String::new(),
+            .sources
+            .push(crate::settings::music_setting::SourceConfig {
+                platform: "KuwoMusic".into(),
+                source_id: "123".into(),
+                source_kind: "playlist".into(),
+                title: String::new(),
+                remark: String::new(),
+                updated_at: String::new(),
                 enabled: true,
             });
         let mut draft = MusicSetting::default();
@@ -218,7 +218,7 @@ mod tests {
             prepared.hand.auto_play_detection,
             discoas_core::hand::AutoDetectionMode::Window
         );
-        current.playlist_albums[0].name = "YouTube".into();
+        current.sources[0].platform = "YouTube".into();
         let prepared = prepare_music_preferences(&current, prepared).unwrap();
         assert_eq!(
             prepared.hand.auto_play_detection,
@@ -233,7 +233,7 @@ mod tests {
         incoming.discovery_keybindings.up = "shift + ctrl + w".into();
         let prepared = prepare_music_preferences(&current, incoming.clone()).unwrap();
         assert_eq!(prepared.discovery_keybindings.up, "Ctrl+Shift+W");
-        assert_eq!(prepared.shortcut_key, current.shortcut_key);
+        assert_eq!(prepared.discovery_shortcut, current.discovery_shortcut);
         incoming.discovery_keybindings.left = "ctrl+shift+W".into();
         assert_eq!(
             prepare_music_preferences(&current, incoming.clone()).unwrap_err(),

@@ -93,6 +93,25 @@
 
 ## 修改时必须保持的行为
 
+### 模型命名与兼容边界
+
+Rust 领域字段使用 `snake_case`，TypeScript 应用模型使用 `camelCase`。来源统一称为 `source`，同时包含歌单、专辑、视频及本地来源。来源身份必须同时包含 `platform`、`source_id` / `sourceId`、`source_kind` / `sourceKind`；歌曲身份使用 `platform` 和 `song_id` / `songId`，手牌身份使用独立的卡牌 ID。ID 始终保留为字符串。
+
+| 含义 | Rust | TypeScript |
+| --- | --- | --- |
+| 来源配置、列表摘要、来源类型 | `SourceConfig`、`SourceSummary`、`SourceKind` | `SourceConfig`、`SourceSummary`、`sourceKind` |
+| 来源列表 | `sources` | `sources` |
+| 曲名或来源标题 | `title` | `title` |
+| 普通发现数、神秘发现开关与数量 | `normal_song_count`、`mystery_songs_enabled`、`mystery_song_count` | `normalSongCount`、`mysterySongsEnabled`、`mysterySongCount` |
+| 预加载批数与跨批去重 | `preload_batch_count`、`deduplicate_preloaded_batches` | `preloadBatchCount`、`deduplicatePreloadedBatches` |
+| 近期排除数量与模式 | `recent_exclusion_limit`、`recent_exclusion_mode` | `recentExclusionLimit`、`recentExclusionMode` |
+| 自动出牌的保存设置、当前会话状态 | `auto_play_enabled`、`active` | `autoPlayEnabled`、`active` |
+| 尺寸、位置、重叠、倾角 | `*_scale`、`position_percent`、`overlap_percent`、`tilt_degrees`、`edge_offset_px` | `*Scale`、`positionPercent`、`overlapPercent`、`tiltDegrees`、`edgeOffsetPx` |
+
+已有磁盘 JSON、Tauri 命令参数和扩展协议继续使用原字段名。例如设置中的 `playlist_albums` / `number_of_discovered_songs`，歌曲消息中的 `name` / `playlistId` / `typename`，来源摘要中的 `id` / `kind`，AUTO 消息中的 `enabled`。Rust 用明确的 Serde 重命名保留这些名称；前端在 `services/desktopWire.ts` 集中转换，视图和功能 Hook 使用应用模型名。新增转换必须检查读取与写回，并保留 `false`、`0` 和带前导零的 ID。
+
+Tauri 命令包装层保留已注册的命令名和参数名，例如 `import_playlist` 的 `typename` / `source`；进入桌面业务层后使用 `source_kind` / `source_input`。未来控制台与第三方接口应建立单独的公开命名契约，复用领域实现与校验。
+
 普通与神秘歌曲合计最多 15 首，预加载最多 5 批。歌曲批次返回前准备封面字节，前端整批解码后显示；来源或设置变化后旧预加载不能重新入队。歌单/专辑封面只在导入和更新时读取网络，快照读取只用本地缓存。
 
 每次批次准备通过 `SamplingInputs` 捕获来源和一份历史快照，近期排除与加权从同一快照计算；预加载去重直接使用这些输入，再加入已预留歌曲，不重复读盘。一次预加载任务只在入口读取设置、历史与来源一次，循环内只扩展已预留歌曲；设置、来源或历史失效使 generation 变化时才重新读取，保留 generation 隔离与实时记录更新。
@@ -299,6 +318,7 @@ npm run tauri dev
 | 发现与本地选歌 | 按修改选择 `test:discovery`、`test:keyboard`、`test:motion` |
 | 封面、来源、歌单、历史 | 按修改选择 `test:covers`、`test:source`、`test:library`、`test:history` |
 | 设置、控件、数值、主题 | 按修改选择 `test:preferences`、`test:settings-layout`、`test:controls`、`test:numeric`、`test:theme` |
+| 共享模型字段与旧消息兼容 | `test:transport`；Rust 模型、设置、来源缓存与首次启动标记的序列化测试；核心示例编译；独立数据下原生读写设置并重启读回 |
 | 托盘、更新、安装器 | 按修改选择 `test:tray`、`test:updates`、`test:installer` |
 | 浏览器或 Spotify 扩展 | 对应 `test:browser` 或 `test:spotify` |
 | Rust 核心或桌面层 | 对应 crate 的 `cargo check --offline`，以及 `cargo test --offline <模块或用例名>` |

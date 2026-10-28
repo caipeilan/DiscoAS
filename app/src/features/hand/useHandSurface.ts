@@ -116,7 +116,7 @@ export function useHandSurface(context: SurfaceContext) {
     if (toolbarElement.current) observer.observe(toolbarElement.current);
     void measure();
     return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); if (scheduleRegions.current === schedule) scheduleRegions.current = () => {}; };
-  }, [snapshot.generation, snapshot.preview, snapshot.expanded, snapshot.cards, snapshot.settings, snapshot.gui.font_size,
+  }, [snapshot.generation, snapshot.preview, snapshot.expanded, snapshot.cards, snapshot.settings, snapshot.gui.fontSize,
     snapshot.workArea, snapshot.surface?.left, snapshot.surface?.top, snapshot.surface?.width, snapshot.surface?.height, snapshot.surface?.scale,
     phase, drag?.id, drag?.index, drag?.intake, flying, discarding, busy, error, clearConfirm, hidden, cardsMounted, dockPoint, dockMoving, layoutKey]);
 

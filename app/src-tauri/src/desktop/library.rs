@@ -1,6 +1,6 @@
 //! Playlist commands resolve app paths and coordinate events around path-based services.
 use crate::{
-    core::{cache::Cache, playlist::TypeName},
+    core::{cache::Cache, playlist::SourceKind},
     paths,
     services::{
         library::{
@@ -11,7 +11,7 @@ use crate::{
     },
     settings::{
         gui_setting::GuiSetting,
-        music_setting::{MusicSetting, PlaylistAlbum},
+        music_setting::{MusicSetting, SourceConfig},
     },
 };
 use serde::Serialize;
@@ -31,10 +31,12 @@ pub struct DesktopStatus {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LibraryEntry {
+pub struct SourceSummary {
     platform: String,
-    id: String,
-    kind: String,
+    #[serde(rename = "id")]
+    source_id: String,
+    #[serde(rename = "kind")]
+    source_kind: String,
     title: String,
     remark: String,
     enabled: bool,
@@ -50,32 +52,33 @@ pub struct LibraryEntry {
 #[serde(rename_all = "camelCase")]
 pub struct LibraryPatch {
     settings: MusicSetting,
-    updated_playlists: Vec<LibraryEntry>,
+    #[serde(rename = "updatedPlaylists")]
+    updated_sources: Vec<SourceSummary>,
     startup_refresh_error: Option<String>,
 }
 
-fn library_entry(app: &tauri::AppHandle, repository: &LibraryRepository, p: &PlaylistAlbum) -> LibraryEntry {
+fn source_summary(app: &tauri::AppHandle, repository: &LibraryRepository, p: &SourceConfig) -> SourceSummary {
     let (count, cover, missing, error) = match repository.cache_summary_with_missing(p) {
         Ok((c, u, m)) => (c, u, m, None),
         Err(e) => (0, String::new(), 0, Some(e)),
     };
-    LibraryEntry {
-        platform: p.name.clone(), id: p.playlist_album_id.clone(), kind: p.typename.clone(),
-        title: if p.playlist_album_name.is_empty() { p.playlist_album_id.clone() } else { p.playlist_album_name.clone() },
-        remark: p.playlist_album_remark.clone(), enabled: p.enabled,
+    SourceSummary {
+        platform: p.platform.clone(), source_id: p.source_id.clone(), source_kind: p.source_kind.clone(),
+        title: if p.title.is_empty() { p.source_id.clone() } else { p.title.clone() },
+        remark: p.remark.clone(), enabled: p.enabled,
         song_count: count, missing_count: missing,
         cover_data_uri: crate::image_cache::read_library_cover(app,
-            &crate::image_cache::library_key(&p.name, &p.typename, &p.playlist_album_id)),
-        cover_url: cover, updated_at: p.update_time.clone(), cache_error: error,
+            &crate::image_cache::library_key(&p.platform, &p.source_kind, &p.source_id)),
+        cover_url: cover, updated_at: p.updated_at.clone(), cache_error: error,
     }
 }
 
 fn library_patch(app: &tauri::AppHandle, repository: &LibraryRepository, updated: Option<&SourceIdentity>) -> Result<LibraryPatch, String> {
     let settings = repository.load_settings()?;
-    let updated_playlists = settings.playlist_albums.iter()
-        .filter(|p| updated.is_some_and(|id| id.platform == p.name && id.kind == p.typename && id.id == p.playlist_album_id))
-        .map(|p| library_entry(app, repository, p)).collect();
-    Ok(LibraryPatch { settings, updated_playlists,
+    let updated_sources = settings.sources.iter()
+        .filter(|p| updated.is_some_and(|source| source.platform == p.platform && source.source_kind == p.source_kind && source.source_id == p.source_id))
+        .map(|p| source_summary(app, repository, p)).collect();
+    Ok(LibraryPatch { settings, updated_sources,
         startup_refresh_error: app.state::<DesktopStatus>().startup_refresh_error.lock().unwrap().clone() })
 }
 
@@ -86,7 +89,8 @@ pub struct Snapshot {
     gui_settings: GuiSetting,
     desktop_settings: crate::desktop_preferences::DesktopPreferences,
     desktop_settings_error: Option<String>,
-    playlists: Vec<LibraryEntry>,
+    #[serde(rename = "playlists")]
+    sources: Vec<SourceSummary>,
     data_path: String,
     legacy_data_path: Option<String>,
     shortcut_error: Option<String>,
@@ -97,10 +101,10 @@ pub struct Snapshot {
 pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
     let repository = repository(&app)?;
     let settings = repository.load_settings()?;
-    let playlists = settings
-        .playlist_albums
+    let sources = settings
+        .sources
         .iter()
-        .map(|p| library_entry(&app, &repository, p))
+        .map(|p| source_summary(&app, &repository, p))
         .collect();
     let (desktop_settings, desktop_settings_error) =
         crate::desktop_preferences::DesktopPreferences::snapshot(&app)?;
@@ -109,7 +113,7 @@ pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
         gui_settings: repository.load_gui()?,
         desktop_settings,
         desktop_settings_error,
-        playlists,
+        sources,
         data_path: repository.root().display().to_string(),
         legacy_data_path: migration::legacy_candidate().map(|p| p.display().to_string()),
         shortcut_error: app
@@ -195,15 +199,15 @@ fn progress(
         },
     );
 }
-fn source_key(platform: &str, kind: &str, id: &str) -> String {
-    format!("{platform}/{kind}/{id}")
+fn source_key(platform: &str, source_kind: &str, source_id: &str) -> String {
+    format!("{platform}/{source_kind}/{source_id}")
 }
 
 /// Download first; only a current, uncancelled job may commit under the event operation lock.
 async fn refresh_source_job(
     app: &tauri::AppHandle,
     cache: &Arc<Cache>,
-    source: PlaylistAlbum,
+    source: SourceConfig,
     request_id: Option<String>,
     require_existing: bool,
     local_source: Option<discoas_core::platforms::local::LocalSource>,
@@ -211,27 +215,27 @@ async fn refresh_source_job(
     use crate::services::{library_jobs::LibraryJobs, request_errors};
     use std::time::Duration;
     let repository = repository(app)?;
-    let kind = TypeName::parse(&source.typename).map_err(|e| e.to_string())?;
+    let source_kind = SourceKind::parse(&source.source_kind).map_err(|e| e.to_string())?;
     let ((base, local_source), mut job) = app
         .state::<LibraryJobs>()
         .begin_with_snapshot(
             &cache.operation,
-            source_key(&source.name, &source.typename, &source.playlist_album_id),
+            source_key(&source.platform, &source.source_kind, &source.source_id),
             request_id,
             || {
                 let base =
-                    repository.source(&source.name, &source.playlist_album_id, &source.typename)?;
+                    repository.source(&source.platform, &source.source_id, &source.source_kind)?;
                 if require_existing && base.is_none() {
                     return Err("操作已取消".into());
                 }
-                let local = if source.name == discoas_core::platforms::names::LOCAL {
+                let local = if source.platform == discoas_core::platforms::names::LOCAL {
                     Some(match local_source {
                         Some(local) => local,
                         None => discoas_core::platforms::local::LocalSource::from_snapshot(
                             &repository.load_source(
-                                &source.name,
-                                &source.playlist_album_id,
-                                kind,
+                                &source.platform,
+                                &source.source_id,
+                                source_kind,
                             )?,
                         )
                         .map_err(|e| e.to_string())?,
@@ -244,7 +248,7 @@ async fn refresh_source_job(
         )
         .await?;
     progress(app, &job, "fetching", 0, None);
-    let fetcher = crate::platforms::fetcher_for(&source.name).map_err(|e| e.to_string())?;
+    let fetcher = crate::platforms::fetcher_for(&source.platform).map_err(|e| e.to_string())?;
     let progress_app = app.clone();
     let progress_request = job.request_id().to_string();
     // A retry restarts the platform fetch. Once any page has been read, a full
@@ -282,7 +286,7 @@ async fn refresh_source_job(
             tokio::time::timeout(Duration::from_secs(180), async {
                 for attempt in 0..2 {
                     match fetcher
-                        .fetch_with_progress(&source.playlist_album_id, kind, on_progress.clone())
+                        .fetch_with_progress(&source.source_id, source_kind, on_progress.clone())
                         .await
                     {
                         Ok(data) => return Ok(data),
@@ -324,14 +328,14 @@ async fn refresh_source_job(
     let _guard = job.run(async { Ok(cache.operation.lock().await) }).await?;
     job.begin_commit()?;
     progress(app, &job, "saving", count, Some(count));
-    let identity = SourceIdentity::new(&source.name, &source.playlist_album_id, &source.typename);
+    let identity = SourceIdentity::new(&source.platform, &source.source_id, &source.source_kind);
     let cover_root = paths::cover_pic_dir(app)
         .map_err(|e| e.to_string())?
         .join("library");
     let cover_key = crate::image_cache::library_key(
-        &source.name,
-        &source.typename,
-        &source.playlist_album_id,
+        &source.platform,
+        &source.source_kind,
+        &source.source_id,
     );
     let had_cover = cover.is_some();
     let require_existing = require_existing || base.is_some();
@@ -399,7 +403,7 @@ pub fn refresh_enabled_on_startup(app: tauri::AppHandle) {
             let repository = repository(&app)?;
             let Some(source) = repository
                 .load_settings()?
-                .playlist_albums
+                .sources
                 .into_iter()
                 .find(|p| p.enabled)
             else {
@@ -427,14 +431,14 @@ pub async fn import_playlist(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     platform: String,
-    typename: String,
-    source: String,
+    source_kind: String,
+    source_input: String,
     remark: String,
     request_id: Option<String>,
 ) -> Result<LibraryPatch, String> {
-    let kind = TypeName::parse(&typename)
+    let parsed_source_kind = SourceKind::parse(&source_kind)
         .map_err(|e| crate::services::request_errors::short_error(&e.to_string()))?;
-    let id = normalize_source(&platform, kind, &source)
+    let source_id = normalize_source(&platform, parsed_source_kind, &source_input)
         .map_err(|e| crate::services::request_errors::short_error(&e))?;
     if remark.chars().count() > 500 {
         return Err("错误：备注不能超过 500 字".into());
@@ -442,13 +446,13 @@ pub async fn import_playlist(
     refresh_source_job(
         &app,
         cache.inner(),
-        PlaylistAlbum {
-            name: platform.clone(),
-            playlist_album_id: id.clone(),
-            typename: typename.clone(),
-            playlist_album_name: String::new(),
-            playlist_album_remark: remark,
-            update_time: String::new(),
+        SourceConfig {
+            platform: platform.clone(),
+            source_id: source_id.clone(),
+            source_kind: source_kind.clone(),
+            title: String::new(),
+            remark,
+            updated_at: String::new(),
             enabled: false,
         },
         request_id,
@@ -457,7 +461,7 @@ pub async fn import_playlist(
     )
     .await
     .map_err(|e| crate::services::request_errors::short_error(&e))
-    .inspect(|_| { let _ = super::onboarding::imported(&app, &platform, &id, &typename); })
+    .inspect(|_| { let _ = super::onboarding::imported(&app, &platform, &source_id, &source_kind); })
 }
 
 pub async fn import_local_audio(
@@ -472,17 +476,17 @@ pub async fn import_local_audio(
     }
     let local =
         discoas_core::platforms::local::LocalSource::new(paths).map_err(|e| e.to_string())?;
-    let id = local.id();
+    let source_id = local.id();
     refresh_source_job(
         &app,
         cache.inner(),
-        PlaylistAlbum {
-            name: discoas_core::platforms::names::LOCAL.into(),
-            playlist_album_id: id.clone(),
-            typename: "playlist".into(),
-            playlist_album_name: String::new(),
-            playlist_album_remark: remark,
-            update_time: String::new(),
+        SourceConfig {
+            platform: discoas_core::platforms::names::LOCAL.into(),
+            source_id: source_id.clone(),
+            source_kind: "playlist".into(),
+            title: String::new(),
+            remark,
+            updated_at: String::new(),
             enabled: false,
         },
         request_id,
@@ -490,7 +494,7 @@ pub async fn import_local_audio(
         Some(local),
     )
     .await
-    .inspect(|_| { let _ = super::onboarding::imported(&app, discoas_core::platforms::names::LOCAL, &id, "playlist"); })
+    .inspect(|_| { let _ = super::onboarding::imported(&app, discoas_core::platforms::names::LOCAL, &source_id, "playlist"); })
 }
 
 pub fn cancel_library_operation(app: tauri::AppHandle, request_id: String) -> bool {
@@ -502,13 +506,13 @@ pub async fn edit_playlist_remark(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     platform: String,
-    id: String,
-    kind: String,
+    source_id: String,
+    source_kind: String,
     remark: String,
 ) -> Result<LibraryPatch, String> {
     let _guard = cache.operation.lock().await;
     let repository = repository(&app)?;
-    repository.edit_remark(&platform, &id, &kind, &remark)?;
+    repository.edit_remark(&platform, &source_id, &source_kind, &remark)?;
     publish_library_changed(&app, false);
     library_patch(&app, &repository, None)
 }
@@ -517,12 +521,12 @@ pub async fn enable_playlist(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     platform: String,
-    id: String,
-    kind: String,
+    source_id: String,
+    source_kind: String,
 ) -> Result<LibraryPatch, String> {
     let _guard = cache.operation.lock().await;
     let repository = repository(&app)?;
-    repository.enable_source(&platform, &id, &kind)?;
+    repository.enable_source(&platform, &source_id, &source_kind)?;
     changed(&app, cache.inner()).await;
     library_patch(&app, &repository, None)
 }
@@ -531,10 +535,10 @@ pub async fn remove_playlist(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,
     platform: String,
-    id: String,
-    kind: String,
+    source_id: String,
+    source_kind: String,
 ) -> Result<LibraryPatch, String> {
-    remove_playlists(app, cache, vec![SourceIdentity::new(&platform, &id, &kind)]).await
+    remove_playlists(app, cache, vec![SourceIdentity::new(&platform, &source_id, &source_kind)]).await
 }
 
 pub async fn remove_playlists(
@@ -548,7 +552,7 @@ pub async fn remove_playlists(
     repository.remove_sources(&sources)?;
     let jobs = app.state::<crate::services::library_jobs::LibraryJobs>();
     for source in &sources {
-        jobs.invalidate_source(&source_key(&source.platform, &source.kind, &source.id));
+        jobs.invalidate_source(&source_key(&source.platform, &source.source_kind, &source.source_id));
     }
     changed_with_invalidation(
         &app,

@@ -195,7 +195,7 @@ async fn cards(app: &tauri::AppHandle, music: &MusicSetting) -> Result<Vec<Arc<H
     for c in held.into_iter()
         .filter(|_| music.hand.enabled)
     {
-        let mut card = c.project(&music.mystery_song_cover);
+        let mut card = c.project(&music.mystery_cover);
         if let Some(old) = previous.get(&c.id).filter(|old| {
             old.stored == c
                 && old.card.song.album_pic_url == card.song.album_pic_url
@@ -403,7 +403,7 @@ async fn open(
             is_preview
                 && old.preview
                 && old.cards.iter().all(|card| {
-                    !card.song.mystery_mode || card.song.album_pic_url == music.mystery_song_cover
+                    !card.song.mystery_mode || card.song.album_pic_url == music.mystery_cover
                 })
         })
         .map(|old| old.cards.clone());
@@ -424,7 +424,7 @@ async fn open(
                     mystery_revealed: false,
                     discovery: false,
                     song: discoas_core::model::SongCardDto {
-                        name: format!("{} {}", "DiscoAS", i + 1),
+                        title: format!("{} {}", "DiscoAS", i + 1),
                         artist_names: vec!["Discover A Song!".into()],
                         ..Default::default()
                     },
@@ -439,7 +439,7 @@ async fn open(
             let songs = cache.current_batch.lock().await.clone().unwrap_or_else(|| {
                 (0..3)
                     .map(|i| discoas_core::model::SongCardDto {
-                        name: format!("DiscoAS {}", i + 1),
+                        title: format!("DiscoAS {}", i + 1),
                         song_id: format!("preview-{i}"),
                         artist_names: vec!["Discover A Song!".into()],
                         ..Default::default()

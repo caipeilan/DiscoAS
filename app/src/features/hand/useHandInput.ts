@@ -121,7 +121,7 @@ export function useHandInput(context: HandInputContext) {
       const settings = groupSettings(card, state.settings, state.discoverySettings);
       const x = held.pose.x + held.dx, y = held.pose.y + held.dy;
       const index = reorderIndex(held.groupPoses, settings.side, x, y) + held.groupOffset;
-      const intake = card.discovery ? handIntakeIndex(state.cards, held.restPoses, state.settings, state.discoverySettings, state.workArea, x, y, state.gui.font_size) : null;
+      const intake = card.discovery ? handIntakeIndex(state.cards, held.restPoses, state.settings, state.discoverySettings, state.workArea, x, y, state.gui.fontSize) : null;
       const playable = intake === null && canPlayDrag(settings.side, held.dx, held.dy, settings.scale);
       const changed = held.index !== index || held.playable !== playable || held.intake !== intake;
       held.index = index; held.intake = intake; held.playable = playable;

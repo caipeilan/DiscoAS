@@ -10,8 +10,8 @@ const model = await import(`data:text/javascript;base64,${Buffer.from(compile(".
 const hookSource = compile("../src/features/history/useHistory.ts");
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
-const row = (songId, name = `Song ${songId}`) => ({ platform: "Spotify", songId, playlistId: "source", typename: "playlist",
-  name, artistNames: ["Artist"], discoveredAt: 1000, selectedAt: null, coverUrl: "", coverKey: songId });
+const row = (songId, name = `Song ${songId}`) => ({ platform: "Spotify", songId, sourceId: "source", sourceKind: "playlist",
+  title: name, artistNames: ["Artist"], discoveredAt: 1000, selectedAt: null, coverUrl: "", coverKey: songId });
 
 async function controller(initial = [row("a")]) {
   const slots = [], events = new Map(), calls = [], reads = [], mutations = [], covers = [], decodes = [];

@@ -1,6 +1,6 @@
 //! Anonymous public metadata endpoints, following yt-dlp's Bilibili source readers.
 //! Favorites/collections/series contain videos (P1); single-video import expands all P.
-use super::{video, FetchProgress, FetchProgressCallback, PlaylistFetcher, TypeName};
+use super::{video, FetchProgress, FetchProgressCallback, PlaylistFetcher, SourceKind};
 use crate::error::AppResult;
 use once_cell::sync::Lazy;
 use reqwest::{Client, Url};
@@ -74,7 +74,7 @@ fn official_redirect(url: &Url) -> bool {
             )
         )
 }
-async fn resolve_short(kind: TypeName, id: &str) -> AppResult<String> {
+async fn resolve_short(kind: SourceKind, id: &str) -> AppResult<String> {
     let Some(code) = id.strip_prefix("b23_") else {
         return Ok(id.into());
     };
@@ -101,7 +101,7 @@ async fn resolve_short(kind: TypeName, id: &str) -> AppResult<String> {
 fn source_snapshot(
     stable_id: &str,
     id: &str,
-    kind: TypeName,
+    kind: SourceKind,
     name: &str,
     cover: &str,
     tracks: Vec<Value>,
@@ -114,7 +114,7 @@ fn source_snapshot(
     Ok(source)
 }
 
-pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
+pub fn normalize(kind: SourceKind, input: &str) -> AppResult<String> {
     super::validate_kind(super::names::BILIBILI, kind)?;
     if let Some(code) = input.strip_prefix("b23_") {
         return if valid_short_code(code) {
@@ -154,7 +154,7 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
                 .map(|(_, v)| v.into_owned())
         };
         match kind {
-            TypeName::Video => {
+            SourceKind::Video => {
                 let bvid = segments
                     .windows(2)
                     .find(|s| s[0] == "video")
@@ -166,11 +166,11 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
                     None => bvid.into(),
                 }
             }
-            TypeName::Favorites => query("fid")
+            SourceKind::Favorites => query("fid")
                 .or_else(|| query("media_id"))
                 .or_else(|| segments.last()?.strip_prefix("ml").map(str::to_owned))
                 .ok_or_else(|| video::error("链接中未找到收藏夹 ID"))?,
-            TypeName::Collection | TypeName::Series => {
+            SourceKind::Collection | SourceKind::Series => {
                 let uid = segments
                     .first()
                     .filter(|id| numeric(id))
@@ -191,8 +191,8 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
                     }
                 });
                 if link_kind.as_deref().is_some_and(|v| {
-                    (kind == TypeName::Series && v != "series")
-                        || (kind == TypeName::Collection && v == "series")
+                    (kind == SourceKind::Series && v != "series")
+                        || (kind == SourceKind::Collection && v == "series")
                 }) {
                     return Err(video::error("链接类型与所选合集或系列类型不一致"));
                 }
@@ -205,12 +205,12 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
     };
     super::storage::validate_id(&id)?;
     match kind {
-        TypeName::Video => {
+        SourceKind::Video => {
             let (bvid, page) = video_identity(&id)?;
             return Ok(page.map(|page| format!("{bvid}_p{page}")).unwrap_or(bvid));
         }
-        TypeName::Favorites if !numeric(&id) => return Err(video::error("收藏夹 ID 应为正整数")),
-        TypeName::Collection | TypeName::Series => {
+        SourceKind::Favorites if !numeric(&id) => return Err(video::error("收藏夹 ID 应为正整数")),
+        SourceKind::Collection | SourceKind::Series => {
             pair(&id)?;
         }
         _ => {}
@@ -244,13 +244,13 @@ async fn get(client: &Client, path: &str, query: &[(&str, String)]) -> AppResult
 /// independent, so callers can read several at once after page one fixes total.
 async fn fetch_page(
     client: &Client,
-    kind: TypeName,
+    kind: SourceKind,
     id: &str,
     page: usize,
     page_size: usize,
 ) -> AppResult<Value> {
     match kind {
-        TypeName::Favorites => {
+        SourceKind::Favorites => {
             get(
                 client,
                 "/x/v3/fav/resource/list",
@@ -263,7 +263,7 @@ async fn fetch_page(
             )
             .await
         }
-        TypeName::Collection => {
+        SourceKind::Collection => {
             let (uid, sid) = pair(id)?;
             get(
                 client,
@@ -277,7 +277,7 @@ async fn fetch_page(
             )
             .await
         }
-        TypeName::Series => {
+        SourceKind::Series => {
             let (uid, sid) = pair(id)?;
             get(
                 client,
@@ -369,13 +369,13 @@ fn video_tracks(data: &Value, requested_page: Option<u32>) -> AppResult<Vec<Valu
 
 #[async_trait::async_trait]
 impl PlaylistFetcher for BilibiliFetcher {
-    async fn fetch(&self, id: &str, kind: TypeName) -> AppResult<Value> {
+    async fn fetch(&self, id: &str, kind: SourceKind) -> AppResult<Value> {
         self.fetch_with_progress(id, kind, Arc::new(|_| {})).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         let stable_id = normalize(kind, id)?;
@@ -386,7 +386,7 @@ impl PlaylistFetcher for BilibiliFetcher {
             pages: 0,
         });
         let id = resolve_short(kind, &stable_id).await?;
-        if kind == TypeName::Video {
+        if kind == SourceKind::Video {
             let (bvid, p) = video_identity(&id)?;
             let data = get(&client, "/x/web-interface/view", &[("bvid", bvid)]).await?;
             let tracks = video_tracks(&data, p)?;
@@ -411,7 +411,7 @@ impl PlaylistFetcher for BilibiliFetcher {
         let mut unavailable = 0usize;
         let mut name = id.clone();
         let mut image;
-        let series_meta = if kind == TypeName::Series {
+        let series_meta = if kind == SourceKind::Series {
             let (_, sid) = pair(&id)?;
             Some(get(&client, "/x/series/series", &[("series_id", sid.into())]).await?)
         } else {
@@ -420,13 +420,13 @@ impl PlaylistFetcher for BilibiliFetcher {
         if let Some(meta) = &series_meta {
             name = meta["meta"]["name"].as_str().unwrap_or(&id).into();
         }
-        let page_size = if kind == TypeName::Favorites {
+        let page_size = if kind == SourceKind::Favorites {
             20
         } else {
             PAGE_SIZE
         };
         let first = fetch_page(&client, kind, &id, 1, page_size).await?;
-        let total = if kind == TypeName::Favorites {
+        let total = if kind == SourceKind::Favorites {
             first["info"]["media_count"].as_u64()
         } else {
             first["page"]["total"].as_u64()
@@ -439,7 +439,7 @@ impl PlaylistFetcher for BilibiliFetcher {
             return Err(video::error("来源为空或没有可访问的视频"));
         }
         {
-            let meta = if kind == TypeName::Favorites {
+            let meta = if kind == SourceKind::Favorites {
                 &first["info"]
             } else {
                 &first["meta"]
@@ -488,7 +488,7 @@ impl PlaylistFetcher for BilibiliFetcher {
                 next_page = end + 1;
             }
             let (page, data) = pending.pop_front().expect("pending page");
-            let page_total = if kind == TypeName::Favorites {
+            let page_total = if kind == SourceKind::Favorites {
                 data["info"]["media_count"].as_u64()
             } else {
                 data["page"]["total"].as_u64()
@@ -498,7 +498,7 @@ impl PlaylistFetcher for BilibiliFetcher {
             if page_total != total {
                 return Err(video::error("来源在导入期间发生变化，请重试"));
             }
-            let items = data[if kind == TypeName::Favorites {
+            let items = data[if kind == SourceKind::Favorites {
                 "medias"
             } else {
                 "archives"
@@ -529,18 +529,18 @@ impl PlaylistFetcher for BilibiliFetcher {
                 pages: page,
             });
             if fetched == total {
-                if kind == TypeName::Favorites {
+                if kind == SourceKind::Favorites {
                     final_has_more = data["has_more"].as_bool();
                 }
                 break;
             }
             if fetched > total
-                || (kind == TypeName::Favorites && data["has_more"].as_bool() == Some(false))
+                || (kind == SourceKind::Favorites && data["has_more"].as_bool() == Some(false))
             {
                 return Err(video::error("来源目录不完整，原缓存保留"));
             }
         }
-        if kind == TypeName::Favorites && final_has_more == Some(true) {
+        if kind == SourceKind::Favorites && final_has_more == Some(true) {
             return Err(video::error("来源分页数量不一致，原缓存保留"));
         }
         if image.is_empty() {
@@ -550,7 +550,7 @@ impl PlaylistFetcher for BilibiliFetcher {
                 .unwrap_or("")
                 .into();
         }
-        if matches!(kind, TypeName::Collection | TypeName::Series)
+        if matches!(kind, SourceKind::Collection | SourceKind::Series)
             && tracks
                 .iter()
                 .any(|t| t["artists"].as_array().is_some_and(|a| a.is_empty()))
@@ -590,17 +590,17 @@ mod tests {
     #[test]
     fn links_preserve_bv_pages_and_real_source_kinds() {
         assert_eq!(
-            normalize(TypeName::Video, "https://b23.tv/Abc123").unwrap(),
+            normalize(SourceKind::Video, "https://b23.tv/Abc123").unwrap(),
             "b23_Abc123"
         );
         assert_eq!(
-            normalize(TypeName::Video, "BV1xx411c7mD_p02").unwrap(),
+            normalize(SourceKind::Video, "BV1xx411c7mD_p02").unwrap(),
             "BV1xx411c7mD_p2"
         );
-        assert!(normalize(TypeName::Video, "https://b23.tv/Abc123/extra").is_err());
+        assert!(normalize(SourceKind::Video, "https://b23.tv/Abc123/extra").is_err());
         assert_eq!(
             normalize(
-                TypeName::Video,
+                SourceKind::Video,
                 "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
             )
             .unwrap(),
@@ -608,7 +608,7 @@ mod tests {
         );
         assert_eq!(
             normalize(
-                TypeName::Collection,
+                SourceKind::Collection,
                 "https://space.bilibili.com/2142762/lists/3662502?type=season"
             )
             .unwrap(),
@@ -616,7 +616,7 @@ mod tests {
         );
         assert_eq!(
             normalize(
-                TypeName::Series,
+                SourceKind::Series,
                 "https://space.bilibili.com/1958703906/channel/seriesdetail?sid=547718"
             )
             .unwrap(),
@@ -624,18 +624,18 @@ mod tests {
         );
         assert_eq!(
             normalize(
-                TypeName::Favorites,
+                SourceKind::Favorites,
                 "https://space.bilibili.com/84912/favlist?fid=1103407912"
             )
             .unwrap(),
             "1103407912"
         );
         assert!(normalize(
-            TypeName::Series,
+            SourceKind::Series,
             "https://space.bilibili.com/2142762/lists/3662502?type=season"
         )
         .is_err());
-        assert!(normalize(TypeName::Video, "https://evil.example/video/BV1xx411c7mD").is_err());
+        assert!(normalize(SourceKind::Video, "https://evil.example/video/BV1xx411c7mD").is_err());
         assert!(playback_url("BV1xx411c7mD_p0").is_err());
         assert_eq!(
             playback_url("BV1xx411c7mD_p2").unwrap(),
@@ -658,7 +658,7 @@ mod tests {
         let snapshot = source_snapshot(
             "b23_Abc123",
             "BV1xx411c7mD",
-            TypeName::Video,
+            SourceKind::Video,
             "Video",
             "",
             vec![json!({"id":"BV1xx411c7mD_p1"})],
@@ -693,7 +693,7 @@ mod tests {
     #[ignore = "只读公网元数据探针，不登录、不播放、不写用户数据"]
     async fn live_public_video_metadata() {
         let source = BilibiliFetcher
-            .fetch("BV1xx411c7mD", TypeName::Video)
+            .fetch("BV1xx411c7mD", SourceKind::Video)
             .await
             .unwrap();
         assert!(!source["tracks_info"].as_array().unwrap().is_empty());
@@ -709,7 +709,7 @@ mod tests {
     #[ignore = "只读公开短链接探针，不登录、不播放、不写用户数据"]
     async fn live_public_short_link_metadata() {
         let source = BilibiliFetcher
-            .fetch("b23_BV1GJ411x7h7", TypeName::Video)
+            .fetch("b23_BV1GJ411x7h7", SourceKind::Video)
             .await
             .unwrap();
         assert_eq!(source["playlist_album_id"], "b23_BV1GJ411x7h7");
@@ -720,9 +720,9 @@ mod tests {
     #[ignore = "只读公网分页探针，不登录、不播放、不写用户数据"]
     async fn live_public_collection_and_favorites() {
         for (id, kind) in [
-            ("2142762_3662502", TypeName::Collection),
-            ("976082846", TypeName::Favorites),
-            ("1958703906_547718", TypeName::Series),
+            ("2142762_3662502", SourceKind::Collection),
+            ("976082846", SourceKind::Favorites),
+            ("1958703906_547718", SourceKind::Series),
         ] {
             let source = BilibiliFetcher.fetch(id, kind).await.unwrap();
             assert!(!source["song_ids"].as_array().unwrap().is_empty());

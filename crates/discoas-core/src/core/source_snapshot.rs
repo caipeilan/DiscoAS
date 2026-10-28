@@ -1,5 +1,5 @@
 //! One shared, immutable snapshot of the active local source.
-use super::playlist::{Playlist, TypeName};
+use super::playlist::{Playlist, SourceKind};
 use crate::{storage::LibraryStore, AppResult};
 use std::{
     io::Read,
@@ -47,7 +47,7 @@ impl SourceSnapshots {
         store: &LibraryStore,
         platform: &str,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
     ) -> AppResult<Arc<SourceSnapshot>> {
         let path = store.playlist_path(platform, id, kind)?;
         let mut cached = self.0.lock().unwrap();
@@ -101,7 +101,7 @@ mod tests {
                 .save_playlist_json(
                     "Spotify",
                     id,
-                    TypeName::Playlist,
+                    SourceKind::Playlist,
                     &json!({"song_ids":["a"],"tracks_info":[{"id":"a","name":name}]}),
                 )
                 .unwrap();
@@ -121,7 +121,7 @@ mod tests {
         let hand = Cache::independent(&main);
         let load = |cache: &Cache, id: &str| {
             cache
-                .source_snapshot(&fixture.store(), "Spotify", id, TypeName::Playlist)
+                .source_snapshot(&fixture.store(), "Spotify", id, SourceKind::Playlist)
                 .unwrap()
         };
         let before = load(&main, "source");
@@ -129,7 +129,7 @@ mod tests {
         fixture.save("source", "New");
         let path = fixture
             .store()
-            .playlist_path("Spotify", "source", TypeName::Playlist)
+            .playlist_path("Spotify", "source", SourceKind::Playlist)
             .unwrap();
         let modified = std::fs::metadata(&path).unwrap().modified().unwrap()
             + std::time::Duration::from_secs(1);
@@ -146,8 +146,8 @@ mod tests {
         assert_ne!(before.fingerprint, after.fingerprint);
         assert!(Arc::ptr_eq(&after, &load(&main, "source")));
         fixture.save("other", "Other");
-        assert_eq!(load(&main, "other").playlist.playlist_id, "other");
-        assert_eq!(load(&main, "source").playlist.playlist_id, "source");
+        assert_eq!(load(&main, "other").playlist.source_id, "other");
+        assert_eq!(load(&main, "source").playlist.source_id, "source");
     }
 
     #[test]
@@ -156,11 +156,11 @@ mod tests {
         fixture.save("source", "Good");
         let cache = Cache::new();
         let load =
-            || cache.source_snapshot(&fixture.store(), "Spotify", "source", TypeName::Playlist);
+            || cache.source_snapshot(&fixture.store(), "Spotify", "source", SourceKind::Playlist);
         let original = load().unwrap();
         let path = fixture
             .store()
-            .playlist_path("Spotify", "source", TypeName::Playlist)
+            .playlist_path("Spotify", "source", SourceKind::Playlist)
             .unwrap();
         std::fs::remove_file(&path).unwrap();
         assert!(load().is_err());
@@ -179,7 +179,7 @@ mod tests {
         let hand = Cache::independent(&cache);
         let load = || {
             cache
-                .source_snapshot(&fixture.store(), "Spotify", "source", TypeName::Playlist)
+                .source_snapshot(&fixture.store(), "Spotify", "source", SourceKind::Playlist)
                 .unwrap()
         };
         let original = load();

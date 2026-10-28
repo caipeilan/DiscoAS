@@ -47,17 +47,17 @@ export function HandDragWindow() {
 
   if (!snapshot) return null;
   const { card, settings, discoverySettings, gui, pose } = snapshot;
-  const liquid = discoverySettings.liquid_strength ?? 100;
-  const liquidMode = discoverySettings.liquid_mode ?? "static";
+  const liquid = discoverySettings.liquidStrength ?? 100;
+  const liquidMode = discoverySettings.liquidMode ?? "static";
   const glassFilter = liquidMode === "blur" && liquid ? `blur(${.22 * liquid}px) saturate(${100 + .6 * liquid}%)` : "none";
   const group = groupSettings(card, settings, discoverySettings);
-  const cardHeight = handCardSize(gui.font_size).height;
+  const cardHeight = handCardSize(gui.fontSize).height;
   const style = {
     width: pose.width, height: pose.height,
     "--hand-x": "0px", "--hand-y": "0px", "--hand-base-scale": pose.width / 156,
     "--hand-card-height": `${cardHeight}px`, "--hand-card-scale": 1.12, "--hand-angle": "0deg",
     "--card-x": "0px", "--card-y": "0px", "--drag-angle": `${Math.max(-8, Math.min(8, intent.dx * .05))}deg`,
-    "--hand-glass-outline": `${discoverySettings.text_outline_width ?? 1}px`,
+    "--hand-glass-outline": `${discoverySettings.textOutlineWidth ?? 1}px`,
     "--hand-glass-filter": glassFilter,
     "--hand-glass-opacity": `${100 - .54 * liquid}%`, "--hand-glass-highlight": `${.7 * liquid}%`,
     zIndex: 1000,

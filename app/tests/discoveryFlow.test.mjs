@@ -56,7 +56,7 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
       }
     },
   };
-  const song = { songId: "track-1", platform: "Spotify", playlistId: "source-1", typename: "playlist", filename: "", mysteryMode: false, name: "Song" };
+  const song = { songId: "track-1", platform: "Spotify", sourceId: "source-1", sourceKind: "playlist", filename: "", mysteryMode: false, title: "Song" };
   let batch = 0;
   let state = { songs: [], batchEpoch: 0, remainingSongs: 100, replacementsRemaining: 1,
     exclusionEnabled: true, replacementEnabled: true, preview };
@@ -137,7 +137,7 @@ function controller({ deferredPlayback = false, deferredReplacement = false, def
     return `const {${names}} = globalThis.__discoveryTest${imports[module] ? `.${imports[module]}` : ""};`;
   });
   const page = { current: "discover" };
-  const props = { floating, page, reload: async () => { reloads++; }, notice: (...args) => notices.push(args), hand: { enabled:hand, keep_discovery_open:keepDiscoveryOpen } };
+  const props = { floating, page, reload: async () => { reloads++; }, notice: (...args) => notices.push(args), hand: { enabled:hand, keepDiscoveryOpen:keepDiscoveryOpen } };
   return { calls, ready, playback, replacement, closing, arrival, notices, preparedBatches,
     nextCovers: () => { const pending = deferred(); coverPreparations.push(pending); return pending; },
     emit: (event, payload) => events.get(event)?.(payload),
@@ -215,7 +215,7 @@ test("discovery history is acknowledged only after the cover-ready cards are com
   const displayed = render();
   assert.equal(displayed.songs.length, 1);
   const acknowledgements = harness.calls.filter((call) => call.name === "record_discovery_displayed");
-  assert.deepEqual(acknowledgements[0].args.args, [{ platform: "Spotify", songId: "track-1", playlistId: "source-1", typename: "playlist", filename: "" }]);
+  assert.deepEqual(acknowledgements[0].args.args, [{ platform: "Spotify", songId: "track-1", sourceId: "source-1", sourceKind: "playlist", filename: "" }]);
   render();
   assert.equal(harness.calls.filter((call) => call.name === "record_discovery_displayed").length, 1);
 });
@@ -300,7 +300,7 @@ test("a replacement preserves the visible batch until ready and changes only its
   assert.deepEqual(replaced.slotRevision, [1]);
   assert.equal(replaced.batchRevision, displayed.batchRevision);
   assert.deepEqual(harness.calls.find((call) => call.name === "replace_discovery_song").args,
-    { args: { platform: "Spotify", songId: "track-1", playlistId: "source-1", typename: "playlist", filename: "" }, batchEpoch: 1 });
+    { args: { platform: "Spotify", songId: "track-1", sourceId: "source-1", sourceKind: "playlist", filename: "" }, batchEpoch: 1 });
 });
 
 test("failed replacements retain cards and their remaining allowance", async () => {
@@ -383,12 +383,12 @@ test("status arriving during cover decoding is committed with the matching batch
   const before = render().songs[0], old = harness.currentState();
   const cover = harness.nextCovers();
   const delivery = harness.emit("discovery-state-changed", { ...old,
-    songs: [{ ...old.songs[0], name: "Repaired song", coverDataUri: "new-cover" }] });
+    songs: [{ ...old.songs[0], title: "Repaired song", coverDataUri: "new-cover" }] });
   const { songs: _songs, ...status } = old;
   await harness.emit("discovery-status-changed", { ...status, remainingSongs: 42 });
   assert.equal(render().songs[0], before);
   cover.resolve(); await delivery;
-  assert.equal(render().songs[0].name, "Repaired song");
+  assert.equal(render().songs[0].title, "Repaired song");
   assert.equal(render().status.remainingSongs, 42);
   await harness.emit("discovery-state-changed", { ...old,
     songs: render().songs, remainingSongs: 43 });
@@ -415,7 +415,7 @@ test("a decoding state event cannot overwrite the replacement that finished late
   const displayed = render();
   const lateCovers = harness.nextCovers();
   const old = harness.currentState();
-  const delivery = harness.emit("discovery-state-changed", { ...old, songs: [{ ...old.songs[0], name: "Old detail update" }] });
+  const delivery = harness.emit("discovery-state-changed", { ...old, songs: [{ ...old.songs[0], title: "Old detail update" }] });
   await displayed.replace(displayed.songs[0]);
   const replacement = render().songs[0];
   lateCovers.resolve();
@@ -433,9 +433,9 @@ test("a decoding state event cannot restore cards after playback released the ba
   const displayed = render();
   const lateCovers = harness.nextCovers();
   const old = harness.currentState();
-  const delivery = harness.emit("discovery-state-changed", { ...old, songs: [{ ...old.songs[0], name: "Old detail update" }] });
+  const delivery = harness.emit("discovery-state-changed", { ...old, songs: [{ ...old.songs[0], title: "Old detail update" }] });
   const playing = displayed.play(displayed.songs[0]);
-  await harness.emit("discovery-state-changed", { ...old, songs: [{ ...old.songs[0], name: "During playback" }] });
+  await harness.emit("discovery-state-changed", { ...old, songs: [{ ...old.songs[0], title: "During playback" }] });
   harness.playback.resolve();
   await playing;
   lateCovers.resolve();
@@ -483,7 +483,7 @@ test("preview exit retains draft size and transparency until hidden, then regula
   const render = await harness.mount();
   render();
   harness.ready.resolve();
-  const gui = { card_size: 1.2 };
+  const gui = { discoveryCardScale: 1.2 };
   await harness.emit("preview-appearance", gui);
   await harness.emit("discovery-state-changed", harness.previewState());
   assert.equal(render().status.preview, true);

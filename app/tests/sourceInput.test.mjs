@@ -14,7 +14,7 @@ test("share text extracts one usable link while preserving IDs and URL query fie
   assert.equal(extractSourceLink('Try this (https://www.youtube.com/watch?v=abc&list=PL1).'), 'https://www.youtube.com/watch?v=abc&list=PL1');
   assert.equal(extractSourceLink('Spotify spotify:album:example\n听听看'), 'spotify:album:example');
   assert.equal(extractSourceLink('  BV1xx411c7mD_p2  '), 'BV1xx411c7mD_p2');
-  assert.deepEqual(identifySource('https://i.y.qq.com/n2/m/share/details/album.html?albummid=abc'), { platform: 'QQMusic', kind: 'album' });
+  assert.deepEqual(identifySource('https://i.y.qq.com/n2/m/share/details/album.html?albummid=abc'), { platform: 'QQMusic', sourceKind: 'album' });
 });
 
 test("new platform controls expose only the source kinds the backend supports", () => {
@@ -28,41 +28,41 @@ test("new platform controls expose only the source kinds the backend supports", 
 test("YouTube watch and short links identify videos and public playlists", () => {
   for (const url of ["https://www.youtube.com/watch?v=dQw4w9WgXc", "https://youtu.be/dQw4w9WgXc?t=30",
     "https://music.youtube.com/watch?v=dQw4w9WgXc", "https://m.youtube.com/watch?v=dQw4w9WgXc"])
-    assert.deepEqual(identifySource(url), { platform: "YouTube", kind: "video" });
+    assert.deepEqual(identifySource(url), { platform: "YouTube", sourceKind: "video" });
   for (const url of ["https://www.youtube.com/playlist?list=PLexample", "https://www.youtube.com/watch?v=dQw4w9WgXc&list=PLexample"])
-    assert.deepEqual(identifySource(url), { platform: "YouTube", kind: "playlist" });
-  assert.deepEqual(identifySource("分享一个视频：https://youtu.be/dQw4w9WgXc。"), { platform: "YouTube", kind: "video" });
-  assert.deepEqual(identifySource("推荐歌单 https://www.youtube.com/playlist?list=PLexample\n复制链接观看"), { platform: "YouTube", kind: "playlist" });
+    assert.deepEqual(identifySource(url), { platform: "YouTube", sourceKind: "playlist" });
+  assert.deepEqual(identifySource("分享一个视频：https://youtu.be/dQw4w9WgXc。"), { platform: "YouTube", sourceKind: "video" });
+  assert.deepEqual(identifySource("推荐歌单 https://www.youtube.com/playlist?list=PLexample\n复制链接观看"), { platform: "YouTube", sourceKind: "playlist" });
 });
 
 test("Bilibili BV and numbered parts remain video source inputs", () => {
   for (const value of ["BV1xx411c7mD", "BV1xx411c7mD_p2", "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
     "https://b23.tv/example"])
-    assert.deepEqual(identifySource(value), { platform: "Bilibili", kind: "video" });
-  assert.deepEqual(identifySource("【分享视频】 https://www.bilibili.com/video/BV1xx411c7mD?p=2，欢迎观看"), { platform: "Bilibili", kind: "video" });
+    assert.deepEqual(identifySource(value), { platform: "Bilibili", sourceKind: "video" });
+  assert.deepEqual(identifySource("【分享视频】 https://www.bilibili.com/video/BV1xx411c7mD?p=2，欢迎观看"), { platform: "Bilibili", sourceKind: "video" });
 });
 
 test("Bilibili favorites, collections and series select separate import controls", () => {
   for (const url of ["https://space.bilibili.com/1/favlist?fid=123", "https://www.bilibili.com/medialist/detail/ml123",
     "https://www.bilibili.com/medialist/play/1?media_id=123"])
-    assert.deepEqual(identifySource(url), { platform: "Bilibili", kind: "favorites" });
+    assert.deepEqual(identifySource(url), { platform: "Bilibili", sourceKind: "favorites" });
   for (const url of ["https://space.bilibili.com/1/lists/123?type=season", "https://space.bilibili.com/1/channel/collectiondetail?sid=123",
     "https://space.bilibili.com/1/channel/detail?season_id=123"])
-    assert.deepEqual(identifySource(url), { platform: "Bilibili", kind: "collection" });
+    assert.deepEqual(identifySource(url), { platform: "Bilibili", sourceKind: "collection" });
   for (const url of ["https://space.bilibili.com/1/lists/123?type=series", "https://space.bilibili.com/1/channel/seriesdetail?sid=123",
     "https://space.bilibili.com/1/channel/detail?series_id=123"])
-    assert.deepEqual(identifySource(url), { platform: "Bilibili", kind: "series" });
+    assert.deepEqual(identifySource(url), { platform: "Bilibili", sourceKind: "series" });
 });
 
 test("existing music platform sharing links keep their album or playlist choice", () => {
-  assert.deepEqual(identifySource("https://music.163.com/#/playlist?id=123"), { platform: "NeteaseCloudMusic", kind: "playlist" });
-  assert.deepEqual(identifySource("https://music.163.com/#/album?id=123"), { platform: "NeteaseCloudMusic", kind: "album" });
-  assert.deepEqual(identifySource("https://y.qq.com/n/ryqq/albumDetail/abc"), { platform: "QQMusic", kind: "album" });
-  assert.deepEqual(identifySource("spotify:album:example"), { platform: "Spotify", kind: "album" });
-  assert.deepEqual(identifySource("https://open.spotify.com/playlist/example"), { platform: "Spotify", kind: "playlist" });
-  assert.deepEqual(identifySource("https://www.kugou.com/songlist/example"), { platform: "KugouMusic", kind: "playlist" });
-  assert.deepEqual(identifySource("https://music.apple.com/cn/playlist/测试术力口歌单/pl.u-V9D7v0NuB55rVjL"), { platform: "AppleMusic", kind: "playlist" });
-  assert.deepEqual(identifySource("https://music.apple.com/cn/album/未完成/255920420?i=255921025"), { platform: "AppleMusic", kind: "album" });
+  assert.deepEqual(identifySource("https://music.163.com/#/playlist?id=123"), { platform: "NeteaseCloudMusic", sourceKind: "playlist" });
+  assert.deepEqual(identifySource("https://music.163.com/#/album?id=123"), { platform: "NeteaseCloudMusic", sourceKind: "album" });
+  assert.deepEqual(identifySource("https://y.qq.com/n/ryqq/albumDetail/abc"), { platform: "QQMusic", sourceKind: "album" });
+  assert.deepEqual(identifySource("spotify:album:example"), { platform: "Spotify", sourceKind: "album" });
+  assert.deepEqual(identifySource("https://open.spotify.com/playlist/example"), { platform: "Spotify", sourceKind: "playlist" });
+  assert.deepEqual(identifySource("https://www.kugou.com/songlist/example"), { platform: "KugouMusic", sourceKind: "playlist" });
+  assert.deepEqual(identifySource("https://music.apple.com/cn/playlist/测试术力口歌单/pl.u-V9D7v0NuB55rVjL"), { platform: "AppleMusic", sourceKind: "playlist" });
+  assert.deepEqual(identifySource("https://music.apple.com/cn/album/未完成/255920420?i=255921025"), { platform: "AppleMusic", sourceKind: "album" });
 });
 
 test("source recognition does not mistake unrelated or lookalike hosts for supported sites", () => {
@@ -74,13 +74,13 @@ test("source recognition does not mistake unrelated or lookalike hosts for suppo
 });
 
 test("Kuwo and Qishui public sources select the matching platform and kind", () => {
-  for (const [source, platform, kind] of [
+  for (const [source, platform, sourceKind] of [
     ["分享 https://www.kuwo.cn/playlist_detail/3677150229", "KuwoMusic", "playlist"],
     ["https://m.kuwo.cn/newh5app/album_detail/435", "KuwoMusic", "album"],
     ["https://www.kuwo.cn/#/album_detail/435", "KuwoMusic", "album"],
     ["https://www.qishui.com/share/playlist?playlist_id=7624447086608777235", "QishuiMusic", "playlist"],
     ["https://music.douyin.com/qishui/share/album?album_id=7692011978622584882", "QishuiMusic", "album"],
-  ]) assert.deepEqual(identifySource(source), { platform, kind });
+  ]) assert.deepEqual(identifySource(source), { platform, sourceKind });
   for (const url of ["https://www.qishui.com.evil.invalid/share/playlist?playlist_id=1", "https://kuwo.cn.evil.invalid/album_detail/1", "https://www.douyin.com/video/123"])
     assert.equal(identifySource(url), null);
 });

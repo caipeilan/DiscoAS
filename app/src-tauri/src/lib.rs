@@ -246,7 +246,7 @@ pub fn run() {
                 || desktop_preferences::should_show_main(
                     &options,
                     background,
-                    !setting.playlist_albums.is_empty(),
+                    !setting.sources.is_empty(),
                 );
             app.state::<StartupShowMain>()
                 .0

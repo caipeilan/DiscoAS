@@ -113,11 +113,11 @@ export default function App() {
     call("show_discover").catch((e) => notice(errorText(e), true, { label: t("查看发现设置"), run: () => { setSettingsCategory("discovery"); setPage("settings"); } }));
   };
   const guideView = !app.startup && <Onboarding state={guide.state} surface="main" busy={!!busy}
-    alreadyEnabled={state.playlists.some(entry => entry.enabled && entry.platform === guide.state.targetPlatform && entry.kind === guide.state.targetKind && entry.id === guide.state.targetId)}
+    alreadyEnabled={state.sources.some(entry => entry.enabled && entry.platform === guide.state.targetPlatform && entry.sourceKind === guide.state.targetKind && entry.sourceId === guide.state.targetId)}
     advance={advanceGuide} back={() => { void backGuide().catch(reportGuideError); }} />;
   const body = (
     <div className="app-shell">
-      <Sidebar page={page} playlistCount={state.playlists.length} navigate={navigate} version={state.version}
+      <Sidebar page={page} playlistCount={state.sources.length} navigate={navigate} version={state.version}
         settingsCategory={settingsCategory} selectSettingsCategory={setSettingsCategory} />
       <main
         ref={content}
@@ -139,7 +139,7 @@ export default function App() {
             openImport={library.openImport} confirmRemove={library.confirmRemove}
             migrate={settings.migrate} enablePlaylist={async entry => {
               const success = await library.enablePlaylist(entry);
-              if (success && guideStep === 8 && entry.platform === guide.state.targetPlatform && entry.id === guide.state.targetId && entry.kind === guide.state.targetKind) await guide.advance(8, 9).catch(reportGuideError);
+              if (success && guideStep === 8 && entry.platform === guide.state.targetPlatform && entry.sourceId === guide.state.targetId && entry.sourceKind === guide.state.targetKind) await guide.advance(8, 9).catch(reportGuideError);
             }}
             updatePlaylist={library.updatePlaylist} importSample={library.importSample}
             discover={() => { openDiscover(); }}
@@ -163,11 +163,11 @@ export default function App() {
         <ImportDialog busy={busy === "import"} initialPaths={library.droppedPaths} close={library.closeImport} submit={library.importPlaylist}
           progress={library.progress} cancelling={library.cancelling} cancel={library.cancelOperation} guide={guideStep === 7 ? guideView : undefined} />
       </Presence>
-      <Presence show={creatingHand} modal><CreateHandDialog platform={state.playlists.find(source => source.enabled)?.platform ?? ""} close={() => setCreatingHand(false)} /></Presence>
+      <Presence show={creatingHand} modal><CreateHandDialog platform={state.sources.find(source => source.enabled)?.platform ?? ""} close={() => setCreatingHand(false)} /></Presence>
       <Presence show={!!library.remove} modal>{library.remove && (
         <RemoveDialog remove={library.remove} busy={busy} close={library.closeRemove} confirm={library.removePlaylist} />
       )}</Presence>
-      <Presence show={!!library.editing} modal>{library.editing && <RemarkDialog key={`${library.editing.platform}-${library.editing.kind}-${library.editing.id}`} entry={library.editing} busy={busy === "remark"} close={library.closeRemark} save={library.saveRemark} />}</Presence>
+      <Presence show={!!library.editing} modal>{library.editing && <RemarkDialog key={`${library.editing.platform}-${library.editing.sourceKind}-${library.editing.sourceId}`} entry={library.editing} busy={busy === "remark"} close={library.closeRemark} save={library.saveRemark} />}</Presence>
       {!library.importing && guideView}
     </div>
   );

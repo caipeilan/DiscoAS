@@ -1,7 +1,7 @@
 //! Public Apple Music playlist/album snapshots. The Windows web player is
 //! controlled by the browser bridge; this module never reads account data.
 use super::{
-    public_music as music, video, FetchProgress, FetchProgressCallback, PlaylistFetcher, TypeName,
+    public_music as music, video, FetchProgress, FetchProgressCallback, PlaylistFetcher, SourceKind,
 };
 use crate::error::AppResult;
 use once_cell::sync::Lazy;
@@ -26,8 +26,8 @@ static PLAYLIST_ID: Lazy<Regex> =
 
 /// Apple Music links carry a storefront. Keep it in the source identity but
 /// replace the playlist dot so the shared on-disk ID validator can accept it.
-pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
-    if !matches!(kind, TypeName::Playlist | TypeName::Album) {
+pub fn normalize(kind: SourceKind, input: &str) -> AppResult<String> {
+    if !matches!(kind, SourceKind::Playlist | SourceKind::Album) {
         return Err(music::error("Apple Music 只支持歌单与专辑"));
     }
     let input = input.trim();
@@ -66,7 +66,7 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
     Ok(format!("{storefront}_{}", raw.replace('.', "_")))
 }
 
-fn parse_canonical(kind: TypeName, id: &str) -> AppResult<(String, String)> {
+fn parse_canonical(kind: SourceKind, id: &str) -> AppResult<(String, String)> {
     if id.len() > 128 {
         return Err(music::error("Apple Music 来源编号无效"));
     }
@@ -96,10 +96,10 @@ fn is_song_id(value: &str) -> bool {
         && value.bytes().any(|byte| byte != b'0')
 }
 
-fn validate_raw(kind: TypeName, raw: &str) -> AppResult<()> {
+fn validate_raw(kind: SourceKind, raw: &str) -> AppResult<()> {
     let valid = match kind {
-        TypeName::Playlist => PLAYLIST_ID.is_match(raw),
-        TypeName::Album => is_song_id(raw),
+        SourceKind::Playlist => PLAYLIST_ID.is_match(raw),
+        SourceKind::Album => is_song_id(raw),
         _ => false,
     };
     if valid {
@@ -136,7 +136,7 @@ fn section<'a>(sections: &'a [Value], item_kind: &str) -> Option<&'a Value> {
         .find(|section| section["itemKind"].as_str() == Some(item_kind))
 }
 
-fn parse_page(html: &str, kind: TypeName, canonical_id: &str, raw_id: &str) -> AppResult<Value> {
+fn parse_page(html: &str, kind: SourceKind, canonical_id: &str, raw_id: &str) -> AppResult<Value> {
     let capture = SERIALIZED
         .captures(html)
         .ok_or_else(|| music::error("Apple Music 页面数据不可用"))?;
@@ -247,7 +247,7 @@ impl AppleMusicFetcher {
     async fn read(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         let canonical_id = normalize(kind, id)?;
@@ -309,14 +309,14 @@ pub fn playback_url(song_id: &str) -> AppResult<String> {
 
 #[async_trait::async_trait]
 impl PlaylistFetcher for AppleMusicFetcher {
-    async fn fetch(&self, id: &str, kind: TypeName) -> AppResult<Value> {
+    async fn fetch(&self, id: &str, kind: SourceKind) -> AppResult<Value> {
         self.read(id, kind, Arc::new(|_| {})).await
     }
 
     async fn fetch_with_progress(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         self.read(id, kind, progress).await
@@ -380,7 +380,7 @@ mod tests {
     fn normalizes_storefront_and_keeps_user_playlist_identity() {
         assert_eq!(
             normalize(
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "https://music.apple.com/cn/playlist/x/pl.u-V9D7v0NuB55rVjL"
             )
             .unwrap(),
@@ -388,27 +388,27 @@ mod tests {
         );
         assert_eq!(
             normalize(
-                TypeName::Album,
+                SourceKind::Album,
                 "https://music.apple.com/cn/album/x/255920420?i=255921025"
             )
             .unwrap(),
             "cn_255920420"
         );
         assert_eq!(
-            normalize(TypeName::Playlist, "cn_pl_f4d106fed2bd41149aaacabb233eb5eb").unwrap(),
+            normalize(SourceKind::Playlist, "cn_pl_f4d106fed2bd41149aaacabb233eb5eb").unwrap(),
             "cn_pl_f4d106fed2bd41149aaacabb233eb5eb"
         );
         assert!(normalize(
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "https://music.apple.com/cn/album/x/255920420"
         )
         .is_err());
         assert!(normalize(
-            TypeName::Album,
+            SourceKind::Album,
             "https://music.apple.com.evil.invalid/cn/album/x/255920420"
         )
         .is_err());
-        assert!(normalize(TypeName::Playlist, "https://music.apple.com/cn/playlist/x/1").is_err());
+        assert!(normalize(SourceKind::Playlist, "https://music.apple.com/cn/playlist/x/1").is_err());
     }
 
     #[test]
@@ -416,7 +416,7 @@ mod tests {
         let page = sample_page(2, "pl.u-V9D7v0NuB55rVjL");
         let snapshot = parse_page(
             &page,
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "cn_pl_u-V9D7v0NuB55rVjL",
             "pl.u-V9D7v0NuB55rVjL",
         )
@@ -444,7 +444,7 @@ mod tests {
         let page = sample_page(3, "pl.u-V9D7v0NuB55rVjL");
         assert!(parse_page(
             &page,
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "cn_pl_u-V9D7v0NuB55rVjL",
             "pl.u-V9D7v0NuB55rVjL"
         )
@@ -452,12 +452,12 @@ mod tests {
         let page = sample_page(2, "pl.u-other");
         assert!(parse_page(
             &page,
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "cn_pl_u-V9D7v0NuB55rVjL",
             "pl.u-V9D7v0NuB55rVjL"
         )
         .is_err());
-        assert!(parse_page("<html></html>", TypeName::Playlist, "cn_pl_x", "pl.u-x").is_err());
+        assert!(parse_page("<html></html>", SourceKind::Playlist, "cn_pl_x", "pl.u-x").is_err());
     }
 
     #[test]
@@ -472,8 +472,8 @@ mod tests {
     #[ignore = "Read-only public Apple Music metadata probe"]
     async fn live_public_playlist_and_album() {
         for (id, kind) in [
-            ("cn_pl_f4d106fed2bd41149aaacabb233eb5eb", TypeName::Playlist),
-            ("cn_255920420", TypeName::Album),
+            ("cn_pl_f4d106fed2bd41149aaacabb233eb5eb", SourceKind::Playlist),
+            ("cn_255920420", SourceKind::Album),
         ] {
             let data = AppleMusicFetcher.fetch(id, kind).await.unwrap();
             let ids = data["song_ids"].as_array().unwrap();
@@ -487,7 +487,7 @@ mod tests {
     async fn detail_loader_reads_snapshot_and_keeps_real_metadata() {
         let snapshot = parse_page(
             &sample_page(2, "pl.u-V9D7v0NuB55rVjL"),
-            TypeName::Playlist,
+            SourceKind::Playlist,
             "cn_pl_u-V9D7v0NuB55rVjL",
             "pl.u-V9D7v0NuB55rVjL",
         )

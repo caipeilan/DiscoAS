@@ -83,11 +83,11 @@ export function Settings({
     () => !sameGuiPreferences(guiDraft, state.guiSettings),
     [guiDraft, state.guiSettings],
   );
-  const enabledSource = state.playlists.find((entry) => entry.enabled);
+  const enabledSource = state.sources.find((entry) => entry.enabled);
   const total =
-    draft.number_of_discovered_songs +
-    (draft.have_mystery_song ? draft.num_of_mystery_song : 0);
-  const invalidCount = draft.number_of_discovered_songs < 1 || total > 15;
+    draft.normalSongCount +
+    (draft.mysterySongsEnabled ? draft.mysterySongCount : 0);
+  const invalidCount = draft.normalSongCount < 1 || total > 15;
   return (
     <>
       <header className="page-header settings-topbar">
@@ -115,7 +115,7 @@ export function Settings({
         <AppearanceSettings gui={guiDraft} setGui={setGuiDraft} />
         </>)}
         {panel("rendering", <>
-        <RenderingSettings value={desktopDraft.rendering_mode} onChange={rendering_mode => setDesktopDraft(current => ({ ...current, rendering_mode }))} />
+        <RenderingSettings value={desktopDraft.renderingMode} onChange={renderingMode => setDesktopDraft(current => ({ ...current, renderingMode }))} />
         </>)}
         {panel("discovery", <>
         <section className="settings-section">
@@ -126,10 +126,10 @@ export function Settings({
           >
             <NumberField
               label={t("普通歌曲数量")}
-              value={draft.number_of_discovered_songs}
+              value={draft.normalSongCount}
               min={1}
               max={15}
-              onChange={(v) => set("number_of_discovered_songs", v)}
+              onChange={(v) => set("normalSongCount", v)}
             />
           </SettingRow>
           <SettingRow
@@ -138,20 +138,20 @@ export function Settings({
           >
             <Toggle
               label={t("包含神秘歌曲")}
-              value={draft.have_mystery_song}
-              onChange={(v) => set("have_mystery_song", v)}
+              value={draft.mysterySongsEnabled}
+              onChange={(v) => set("mysterySongsEnabled", v)}
             />
           </SettingRow>
-          <Reveal open={draft.have_mystery_song}>
+          <Reveal open={draft.mysterySongsEnabled}>
             <SettingRow
               title={t("神秘歌曲数量")}
             >
               <NumberField
                 label={t("神秘歌曲数量")}
-                value={draft.num_of_mystery_song}
+                value={draft.mysterySongCount}
                 min={0}
                 max={14}
-                onChange={(v) => set("num_of_mystery_song", v)}
+                onChange={(v) => set("mysterySongCount", v)}
               />
             </SettingRow>
           </Reveal>
@@ -166,8 +166,8 @@ export function Settings({
           >
             <Toggle
               label={t("取消后换一批")}
-              value={draft.refreshing_after_cancel}
-              onChange={(v) => set("refreshing_after_cancel", v)}
+              value={draft.refreshOnCancel}
+              onChange={(v) => set("refreshOnCancel", v)}
             />
           </SettingRow>
           <SettingRow
@@ -176,38 +176,38 @@ export function Settings({
           >
             <NumberField
               label={t("预加载批数")}
-              value={draft.cache_batches}
+              value={draft.preloadBatchCount}
               min={0}
               max={5}
-              onChange={(v) => set("cache_batches", v)}
+              onChange={(v) => set("preloadBatchCount", v)}
               suffix={t("批")}
             />
           </SettingRow>
           <SettingRow title={t("预加载批次间去重")}>
-            <Toggle label={t("预加载批次间去重")} value={draft.preload_deduplication}
-              onChange={(value) => set("preload_deduplication", value)} />
+            <Toggle label={t("预加载批次间去重")} value={draft.deduplicatePreloadedBatches}
+              onChange={(value) => set("deduplicatePreloadedBatches", value)} />
           </SettingRow>
           <SettingRow title={t("每次发现替换数")}>
-            <NumberField label={t("每次发现替换数")} value={draft.replacement_limit} min={0} max={100}
-              suffix={t("次")} onChange={(value) => set("replacement_limit", value)} />
+            <NumberField label={t("每次发现替换数")} value={draft.replacementLimit} min={0} max={100}
+              suffix={t("次")} onChange={(value) => set("replacementLimit", value)} />
           </SettingRow>
           <SettingRow title={t("收牌后保留发现界面")} description={t("手牌模式下，收牌后继续显示其余发现歌曲。") }>
-            <Toggle label={t("收牌后保留发现界面")} value={draft.hand.keep_discovery_open}
-              onChange={(value) => set("hand", { ...draft.hand, keep_discovery_open: value })} />
+            <Toggle label={t("收牌后保留发现界面")} value={draft.hand.keepDiscoveryOpen}
+              onChange={(value) => set("hand", { ...draft.hand, keepDiscoveryOpen: value })} />
           </SettingRow>
         </section>
         </>)}
         {panel("discoveryAppearance", <DiscoveryAppearanceSettings gui={guiDraft} setGui={setGuiDraft}
-          monitor={desktopDraft.overlay_monitor}
-          onMonitorChange={(overlay_monitor) => setDesktopDraft(current => ({ ...current, overlay_monitor }))} />)}
+          monitor={desktopDraft.overlayMonitor}
+          onMonitorChange={(overlayMonitor) => setDesktopDraft(current => ({ ...current, overlayMonitor }))} />)}
         {panel("exclusion", <>
         <section className="settings-section">
           <h2>{t("排除偏好")}</h2>
           <SettingRow title={t("近期歌曲排除")} description={t("按平台与歌曲排除，切换同平台歌单后仍生效，排除数量超上限后最早被记录的歌曲会被释放")}>
             <Select
               label={t("近期歌曲排除")}
-              value={draft.history_exclusion}
-              onChange={(value) => set("history_exclusion", value as Preferences["history_exclusion"])}
+              value={draft.recentExclusionMode}
+              onChange={(value) => set("recentExclusionMode", value as Preferences["recentExclusionMode"])}
               options={[
                 { value: "off", label: t("不排除") },
                 { value: "selected", label: t("排除已选择歌曲") },
@@ -216,23 +216,23 @@ export function Settings({
             />
           </SettingRow>
           <SettingRow title={t("排除上限")} description={t("最高10000首，仅排除实际展示的歌曲，不排除平台自动播放的曲目")}>
-            <NumberField label={t("排除上限")} value={draft.history_limit} min={0} max={10000} onChange={(value) => set("history_limit", value)} />
+            <NumberField label={t("排除上限")} value={draft.recentExclusionLimit} min={0} max={10000} onChange={(value) => set("recentExclusionLimit", value)} />
           </SettingRow>
         </section>
         </>)}
         {panel("weighting", <>
-        <WeightingSettings mode={draft.weighting_mode} traditional={draft.discovery_weighting} ranked={draft.ranked_weighting}
+        <WeightingSettings mode={draft.weightingMode} traditional={draft.discoveryWeighting} ranked={draft.rankedWeighting}
           onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
-          songCount={enabledSource?.songCount || 0} sourceIdentity={enabledSource ? JSON.stringify([enabledSource.platform, enabledSource.kind, enabledSource.id]) : ""}
+          songCount={enabledSource?.songCount || 0} sourceIdentity={enabledSource ? JSON.stringify([enabledSource.platform, enabledSource.sourceKind, enabledSource.sourceId]) : ""}
           drawCount={total} />
         </>)}
         {panel("cover", <section className="settings-section"><h2>{t("神秘歌曲封面")}</h2>
           <SettingRow title={t("神秘歌曲封面")} description={t("留空使用默认问号")}>
             <div className="cover-setting">
               <input
-                value={draft.mystery_song_cover}
+                value={draft.mysteryCover}
                 aria-label={t("神秘歌曲封面")}
-                onChange={(e) => set("mystery_song_cover", e.target.value)}
+                onChange={(e) => set("mysteryCover", e.target.value)}
                 placeholder={t("图片链接或本地图片路径")}
               />
             <button
@@ -246,14 +246,14 @@ export function Settings({
           </SettingRow>
         </section>)}
         {panel("hand", <>
-        <HandSettings settings={draft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("hand_discovery", value)} />
+        <HandSettings settings={draft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("handDiscovery", value)} />
         </>)}
         {panel("window", <>
         <section className="settings-section">
           <h2>{t("窗口与播放")}</h2>
-          <SettingRow title={t("切歌时暂停当前播放")}><Toggle label={t("切歌时暂停当前播放")} value={desktopDraft.pause_before_playback}
-            onChange={pause_before_playback => setDesktopDraft(current => ({ ...current, pause_before_playback }))} /></SettingRow>
-          <Reveal open={desktopDraft.client_window_mode === "temporary"}>
+          <SettingRow title={t("切歌时暂停当前播放")}><Toggle label={t("切歌时暂停当前播放")} value={desktopDraft.pauseBeforePlayback}
+            onChange={pauseBeforePlayback => setDesktopDraft(current => ({ ...current, pauseBeforePlayback }))} /></SettingRow>
+          <Reveal open={desktopDraft.clientWindowMode === "temporary"}>
             <SettingRow
               className="client-wait-row"
               title={t("临时隐藏时长")}
@@ -262,19 +262,19 @@ export function Settings({
               <NumberField
                 decimal
                 label={t("临时隐藏时长")}
-                value={desktopDraft.minimize_delay_seconds}
+                value={desktopDraft.temporaryHideSeconds}
                 min={0}
                 max={30}
                 suffix={t("秒")}
-                onChange={(value) => setDesktopDraft((current) => ({ ...current, minimize_delay_seconds: value }))}
+                onChange={(value) => setDesktopDraft((current) => ({ ...current, temporaryHideSeconds: value }))}
               />
             </SettingRow>
           </Reveal>
           <ClientDesktopSettings
-            mode={desktopDraft.client_window_mode}
-            onChange={(client_window_mode) => setDesktopDraft((current) => ({ ...current, client_window_mode }))}
-            separateDesktop={desktopDraft.client_separate_desktop}
-            onSeparateDesktopChange={(client_separate_desktop) => setDesktopDraft((current) => ({ ...current, client_separate_desktop }))}
+            mode={desktopDraft.clientWindowMode}
+            onChange={(clientWindowMode) => setDesktopDraft((current) => ({ ...current, clientWindowMode }))}
+            separateDesktop={desktopDraft.clientSeparateDesktop}
+            onSeparateDesktopChange={(clientSeparateDesktop) => setDesktopDraft((current) => ({ ...current, clientSeparateDesktop }))}
           />
         </section>
         </>)}
@@ -292,8 +292,8 @@ export function Settings({
             description={t("在其他应用中也能唤出发现窗口，留空可关闭。")}
           >
             <ShortcutRecorder
-              value={draft.shortcut_key}
-              onChange={(value) => set("shortcut_key", value)}
+              value={draft.discoveryShortcut}
+              onChange={(value) => set("discoveryShortcut", value)}
             />
           </SettingRow>
           {state.shortcutError && (
@@ -302,8 +302,8 @@ export function Settings({
             </p>
           )}
         </section>
-        <HandPlayShortcuts value={draft.hand} discoveryEnabled={draft.hand_discovery.enabled} onChange={(value) => set("hand", value)} />
-        <KeyboardSettings value={draft.discovery_keybindings} globalShortcut={draft.shortcut_key} onChange={(value) => set("discovery_keybindings", value)} disabled={!!busy} />
+        <HandPlayShortcuts value={draft.hand} discoveryEnabled={draft.handDiscovery.enabled} onChange={(value) => set("hand", value)} />
+        <KeyboardSettings value={draft.discoveryKeybindings} globalShortcut={draft.discoveryShortcut} onChange={(value) => set("discoveryKeybindings", value)} disabled={!!busy} />
         </>)}
         {panel("startup", <>
         <section className="settings-section">
@@ -313,9 +313,9 @@ export function Settings({
           >
             <Toggle
               label={t("开机自启动")}
-              value={desktopDraft.launch_at_login}
+              value={desktopDraft.launchAtLogin}
               onChange={(value) =>
-                setDesktopDraft((s) => ({ ...s, launch_at_login: value }))
+                setDesktopDraft((s) => ({ ...s, launchAtLogin: value }))
               }
             />
           </SettingRow>
@@ -324,9 +324,9 @@ export function Settings({
           >
             <Toggle
               label={t("仅托盘启动")}
-              value={desktopDraft.start_hidden}
+              value={desktopDraft.startHidden}
               onChange={(value) =>
-                setDesktopDraft((s) => ({ ...s, start_hidden: value }))
+                setDesktopDraft((s) => ({ ...s, startHidden: value }))
               }
             />
           </SettingRow>
@@ -335,9 +335,9 @@ export function Settings({
           >
             <Toggle
               label={t("启动更新歌单")}
-              value={desktopDraft.update_on_startup}
+              value={desktopDraft.updateOnStartup}
               onChange={(value) =>
-                setDesktopDraft((s) => ({ ...s, update_on_startup: value }))
+                setDesktopDraft((s) => ({ ...s, updateOnStartup: value }))
               }
             />
           </SettingRow>

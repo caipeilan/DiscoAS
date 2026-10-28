@@ -5,7 +5,7 @@ import { errorText, t } from "../../i18n";
 import { createClientDesktop, getClientDesktopStatus, showLocalClient, type ClientDesktopStatus } from "../../services/desktop";
 import type { DesktopPreferences } from "../../types";
 
-type ClientWindowMode = DesktopPreferences["client_window_mode"];
+type ClientWindowMode = DesktopPreferences["clientWindowMode"];
 type BusyAction = "" | "show" | "create" | "detect";
 
 export function ClientDesktopSettings({

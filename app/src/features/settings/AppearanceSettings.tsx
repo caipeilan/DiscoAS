@@ -35,22 +35,22 @@ export function AppearanceSettings({
         title={t("外观")}
       >
         <div className="segmented theme-picker">
-          <button type="button" className={gui.follow_system_theme ? "selected" : ""}
-            aria-pressed={gui.follow_system_theme}
-            onClick={() => set("follow_system_theme", true)}>{t("跟随系统")}</button>
+          <button type="button" className={gui.followSystemTheme ? "selected" : ""}
+            aria-pressed={gui.followSystemTheme}
+            onClick={() => set("followSystemTheme", true)}>{t("跟随系统")}</button>
           <button
             type="button"
-            className={!gui.follow_system_theme && !gui.night_mode ? "selected" : ""}
-            aria-pressed={!gui.follow_system_theme && !gui.night_mode}
-            onClick={() => setGui((previous) => ({ ...previous, follow_system_theme: false, night_mode: false }))}
+            className={!gui.followSystemTheme && !gui.nightMode ? "selected" : ""}
+            aria-pressed={!gui.followSystemTheme && !gui.nightMode}
+            onClick={() => setGui((previous) => ({ ...previous, followSystemTheme: false, nightMode: false }))}
           >
             {t("日间")}
           </button>
           <button
             type="button"
-            className={!gui.follow_system_theme && gui.night_mode ? "selected" : ""}
-            aria-pressed={!gui.follow_system_theme && gui.night_mode}
-            onClick={() => setGui((previous) => ({ ...previous, follow_system_theme: false, night_mode: true }))}
+            className={!gui.followSystemTheme && gui.nightMode ? "selected" : ""}
+            aria-pressed={!gui.followSystemTheme && gui.nightMode}
+            onClick={() => setGui((previous) => ({ ...previous, followSystemTheme: false, nightMode: true }))}
           >
             {t("夜间")}
           </button>
@@ -62,8 +62,8 @@ export function AppearanceSettings({
       >
         <FontPicker
           label={t("字体")}
-          value={gui.font_family}
-          onChange={(value) => set("font_family", value)}
+          value={gui.fontFamily}
+          onChange={(value) => set("fontFamily", value)}
         />
       </SettingRow>
       <SettingRow
@@ -73,10 +73,10 @@ export function AppearanceSettings({
         <NumberField
           label={t("字号")}
           decimal
-          value={gui.font_size}
+          value={gui.fontSize}
           min={10}
           max={24}
-          onChange={(v) => set("font_size", v)}
+          onChange={(v) => set("fontSize", v)}
           suffix="px"
         />
       </SettingRow>
@@ -85,8 +85,8 @@ export function AppearanceSettings({
       >
         <ScaleField
           label={t("主界面大小")}
-          value={gui.setting_size}
-          onChange={(v) => set("setting_size", v)}
+          value={gui.mainWindowScale}
+          onChange={(v) => set("mainWindowScale", v)}
         />
       </SettingRow>
       <div className="appearance-actions">
@@ -96,11 +96,11 @@ export function AppearanceSettings({
           onClick={() =>
             setGui(previous => ({
               ...previous,
-              follow_system_theme: defaultGuiSettings.follow_system_theme,
-              night_mode: defaultGuiSettings.night_mode,
-              font_family: defaultGuiSettings.font_family,
-              font_size: defaultGuiSettings.font_size,
-              setting_size: defaultGuiSettings.setting_size,
+              followSystemTheme: defaultGuiSettings.followSystemTheme,
+              nightMode: defaultGuiSettings.nightMode,
+              fontFamily: defaultGuiSettings.fontFamily,
+              fontSize: defaultGuiSettings.fontSize,
+              mainWindowScale: defaultGuiSettings.mainWindowScale,
             }))
           }
         >

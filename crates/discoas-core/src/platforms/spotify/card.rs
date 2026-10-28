@@ -11,9 +11,9 @@ pub const DEFAULT_MYSTERY_PIC: &str =
 /// - 无 playlist_id：`spotify:track:{id}`
 ///
 /// 注意 `:` 在 context 里被 URL 编码为 `%3A`。
-pub fn scheme_url(song_id: &str, playlist_id: &str) -> String {
-    if !playlist_id.is_empty() {
-        format!("spotify:track:{song_id}?context=spotify%3Aplaylist%3A{playlist_id}&play=true")
+pub fn scheme_url(song_id: &str, source_id: &str) -> String {
+    if !source_id.is_empty() {
+        format!("spotify:track:{song_id}?context=spotify%3Aplaylist%3A{source_id}&play=true")
     } else {
         format!("spotify:track:{song_id}")
     }

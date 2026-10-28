@@ -119,7 +119,7 @@ fn normalize(value: &str) -> String {
 }
 
 fn matches_metadata(expected: &SongCardDto, actual: &MediaSnapshot) -> bool {
-    let title = normalize(&expected.name);
+    let title = normalize(&expected.title);
     let artist = normalize(&actual.artist);
     !title.is_empty()
         && title == normalize(&actual.title)
@@ -230,9 +230,9 @@ impl PlaybackService {
             None
         };
         let expected = card
-            .filter(|c| !c.mystery_mode && !c.name.is_empty())
+            .filter(|c| !c.mystery_mode && !c.title.is_empty())
             .map(|card| SongCardDto {
-                name: card.name.clone(),
+                title: card.title.clone(),
                 artist_names: card.artist_names.clone(),
                 ..Default::default()
             });
@@ -1051,7 +1051,7 @@ mod tests {
     #[test]
     fn metadata_requires_title_and_artist_and_is_only_approximate() {
         let card = SongCardDto {
-            name: "A Song".into(),
+            title: "A Song".into(),
             artist_names: vec!["Artist".into()],
             ..Default::default()
         };

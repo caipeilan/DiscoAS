@@ -10,7 +10,7 @@ const dockSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/h
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { floatingDockRect, defaultDockPoint, settleDockPoint } = await import(`data:text/javascript;base64,${Buffer.from(dockSource).toString("base64")}`);
-const settings = { side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
+const settings = { side: "bottom", scale: 1, edgeOffsetPx: 12, positionPercent: 50, overlapPercent: 45, tiltDegrees: 12 };
 const area = { left: 200, top: 100, width: 1280, height: 680 };
 
 test("content-sized docks preserve the Logo anchor on both sides of the middle", () => {
@@ -48,8 +48,8 @@ test("side hands mirror tilt and lift inward; drag requires the outward play dir
 });
 test("negative edge distances move cards partly off screen without changing their size or along-edge placement", () => {
   for (const side of ["bottom", "left", "right"]) {
-    const inside = handLayout(4, { ...settings, side, edge_distance: 0 }, area);
-    const outside = handLayout(4, { ...settings, side, edge_distance: -120 }, area);
+    const inside = handLayout(4, { ...settings, side, edgeOffsetPx: 0 }, area);
+    const outside = handLayout(4, { ...settings, side, edgeOffsetPx: -120 }, area);
     outside.forEach((p, i) => {
       assert.equal(p.width, inside[i].width);
       assert.equal(side === "bottom" ? p.x : p.y, side === "bottom" ? inside[i].x : inside[i].y);
@@ -62,7 +62,7 @@ test("negative edge distances move cards partly off screen without changing thei
 test("hovered cards fit at their enlarged size while the resting hand keeps its negative offset", () => {
   const bounds = { left: -920, top: -200, width: 800, height: 550 };
   for (const side of ["bottom", "left", "right"]) for (const position of [0, 100]) for (const scale of [1, 3]) for (const font of [14, 24]) {
-    const prefs = { ...settings, side, position, scale, tilt: 45, edge_distance: -120 };
+    const prefs = { ...settings, side, positionPercent: position, scale, tiltDegrees: 45, edgeOffsetPx: -120 };
     const resting = handLayout(4, prefs, bounds, -1, font);
     for (let index = 0; index < resting.length; index++) {
       const p = handLayout(4, prefs, bounds, index, font)[index];
@@ -101,16 +101,16 @@ test("the floating dock keeps its Logo center when toggled, including partially 
   assert.deepEqual(settleDockPoint({ x: -2, y: 300 }, 44, [bounds]), { x: -8, y: 300 });
 });
 test("narrow and negative-origin work areas fit dense hands and extreme relative positions", () => {
-  for (const side of ["bottom", "left", "right"]) for (const position of [0,100]) for (const tilt of [0,12,45]) {
+  for (const side of ["bottom", "left", "right"]) for (const position of [0,100]) for (const tiltDegrees of [0,12,45]) {
     const bounds = { left: -920, top: -200, width: 800, height: 550 };
-    const poses = handLayout(100, { ...settings, side, position, tilt, scale: 3 }, bounds, 50);
+    const poses = handLayout(100, { ...settings, side, positionPercent: position, tiltDegrees, scale: 3 }, bounds, 50);
     assert.ok(poses.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)));
     assert.ok(poses.every((p) => {
       const angle = Math.abs(p.angle) * Math.PI / 180;
       const dx = (p.width*Math.cos(angle)+p.height*Math.sin(angle))*p.scale/2;
       const dy = (p.height*Math.cos(angle)+p.width*Math.sin(angle))*p.scale/2;
       return p.x-dx >= bounds.left && p.x+dx <= bounds.left+bounds.width && p.y-dy >= bounds.top && p.y+dy <= bounds.top+bounds.height;
-    }), `${side}, position ${position}, tilt ${tilt}`);
+    }), `${side}, position ${position}, tilt ${tiltDegrees}`);
   }
 });
 test("dragging across hand slots shifts neighbors immediately and leaves the saved order unchanged until release", () => {

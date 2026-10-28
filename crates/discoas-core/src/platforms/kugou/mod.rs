@@ -6,7 +6,7 @@ mod api;
 pub mod card;
 pub mod get_json;
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 use crate::platforms::{SongDetail, SongDetailLoader};
 use async_trait::async_trait;
@@ -17,16 +17,16 @@ pub struct KugouFetcher;
 
 #[async_trait]
 impl crate::platforms::PlaylistFetcher for KugouFetcher {
-    async fn fetch(&self, id: &str, typename: TypeName) -> AppResult<serde_json::Value> {
-        get_json::fetch_playlist(id, typename).await
+    async fn fetch(&self, id: &str, source_kind: SourceKind) -> AppResult<serde_json::Value> {
+        get_json::fetch_playlist(id, source_kind).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        typename: TypeName,
+        source_kind: SourceKind,
         progress: crate::platforms::FetchProgressCallback,
     ) -> AppResult<serde_json::Value> {
-        api::fetch_playlist_with_progress(id, typename, progress).await
+        api::fetch_playlist_with_progress(id, source_kind, progress).await
     }
 }
 
@@ -66,7 +66,7 @@ pub async fn detail_from_info(
     mystery_pic_url: &str,
 ) -> AppResult<SongDetail> {
     let metadata = metadata_from_info(song_info)?;
-    let name = metadata.name;
+    let name = metadata.title;
     let artist_names = metadata.artist_names;
     let real_window_name = format!("{} - {}", artist_names.join("、"), name);
 
@@ -123,7 +123,7 @@ fn metadata_from_info(song_info: &Value) -> AppResult<crate::model::CanonicalSon
     } else {
         (vec!["???".to_string()], filename.to_string())
     };
-    Ok(crate::model::CanonicalSongMetadata { name, artist_names })
+    Ok(crate::model::CanonicalSongMetadata { title: name, artist_names })
 }
 
 #[cfg(test)]

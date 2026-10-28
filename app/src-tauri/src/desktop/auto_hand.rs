@@ -22,7 +22,8 @@ pub struct AutoHandState {
     pub token: u64,
     pub busy: bool,
     pub configured: bool,
-    pub enabled: bool,
+    #[serde(rename = "enabled")]
+    pub active: bool,
     pub revision: u64,
 }
 fn state(runtime: &Runtime) -> AutoHandState {
@@ -30,7 +31,7 @@ fn state(runtime: &Runtime) -> AutoHandState {
         token: runtime.policy.generation(),
         busy: runtime.policy.busy() || runtime.pausing.is_some(),
         configured: runtime.configured,
-        enabled: runtime.configured && !runtime.temporarily_paused,
+        active: runtime.configured && !runtime.temporarily_paused,
         revision: runtime.revision,
     }
 }
@@ -455,11 +456,11 @@ impl AutoHandService {
     pub fn configure(&self, settings: &MusicSetting) {
         let hand = &settings.hand;
         let source = settings
-            .playlist_albums
+            .sources
             .iter()
             .find(|s| s.enabled)
-            .map(|s| s.name.clone());
-        let saved_enabled = AUTO_PLAY_AVAILABLE && hand.enabled && hand.auto_play;
+            .map(|s| s.platform.clone());
+        let saved_enabled = AUTO_PLAY_AVAILABLE && hand.enabled && hand.auto_play_enabled;
         let enabled = saved_enabled && source.as_deref().is_none_or(supports_platform);
         // The saved detection field is read only for old-data compatibility.
         // Current observers choose one primary source from the platform's
@@ -507,7 +508,7 @@ impl AutoHandService {
         let mut runtime = self.runtime.lock().unwrap();
         runtime.dispatching = false;
         let metadata = card.map(|c| c.playback_metadata.clone()).unwrap_or_default();
-        let title = card.map(|c| track_title(if metadata.title.is_empty() { &c.name } else { &metadata.title })).unwrap_or_default();
+        let title = card.map(|c| track_title(if metadata.title.is_empty() { &c.title } else { &metadata.title })).unwrap_or_default();
         let title_digest = md5::compute(&title);
         let token = runtime
             .policy
@@ -652,7 +653,15 @@ fn publish_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use discoas_core::{platforms::names, settings::music_setting::PlaylistAlbum};
+
+    #[test]
+    fn temporary_active_state_preserves_the_existing_event_field() {
+        let snapshot = AutoHandState { token: 2, busy: false, configured: true, active: false, revision: 3 };
+        let wire = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(wire["enabled"], false);
+        assert!(wire.get("active").is_none());
+    }
+    use discoas_core::{platforms::names, settings::music_setting::SourceConfig};
     use std::{
         sync::{mpsc, Arc},
         time::{Duration, Instant},
@@ -686,8 +695,8 @@ mod tests {
         PlaySongArgs {
             platform: names::NETEASE.into(),
             song_id: "song".into(),
-            playlist_id: "playlist".into(),
-            typename: "playlist".into(),
+            source_id: "playlist".into(),
+            source_kind: "playlist".into(),
             filename: String::new(),
         }
     }
@@ -744,22 +753,22 @@ mod tests {
         let service = Arc::new(AutoHandService::default());
         let mut settings = MusicSetting::default();
         settings.hand.enabled = true;
-        settings.hand.auto_play = true;
-        settings.playlist_albums.push(PlaylistAlbum {
-            name: names::NETEASE.into(),
+        settings.hand.auto_play_enabled = true;
+        settings.sources.push(SourceConfig {
+            platform: names::NETEASE.into(),
             enabled: true,
-            playlist_album_id: "test".into(),
-            typename: "playlist".into(),
-            playlist_album_name: String::new(),
-            playlist_album_remark: String::new(),
-            update_time: String::new(),
+            source_id: "test".into(),
+            source_kind: "playlist".into(),
+            title: String::new(),
+            remark: String::new(),
+            updated_at: String::new(),
         });
         service.configure(&settings);
         let args = PlaySongArgs {
             platform: names::NETEASE.into(),
             song_id: "song".into(),
-            playlist_id: "playlist".into(),
-            typename: "playlist".into(),
+            source_id: "playlist".into(),
+            source_kind: "playlist".into(),
             filename: String::new(),
         };
         // Simulate an in-flight initial pause holding the handoff. `begin`
@@ -797,22 +806,22 @@ mod tests {
         let service = AutoHandService::default();
         let mut settings = MusicSetting::default();
         settings.hand.enabled = true;
-        settings.hand.auto_play = true;
-        settings.playlist_albums.push(PlaylistAlbum {
-            name: names::NETEASE.into(),
+        settings.hand.auto_play_enabled = true;
+        settings.sources.push(SourceConfig {
+            platform: names::NETEASE.into(),
             enabled: true,
-            playlist_album_id: "test".into(),
-            typename: "playlist".into(),
-            playlist_album_name: String::new(),
-            playlist_album_remark: String::new(),
-            update_time: String::new(),
+            source_id: "test".into(),
+            source_kind: "playlist".into(),
+            title: String::new(),
+            remark: String::new(),
+            updated_at: String::new(),
         });
         service.configure(&settings);
         let args = PlaySongArgs {
             platform: names::NETEASE.into(),
             song_id: "song".into(),
-            playlist_id: "playlist".into(),
-            typename: "playlist".into(),
+            source_id: "playlist".into(),
+            source_kind: "playlist".into(),
             filename: String::new(),
         };
         let token = service.begin(&args, None, None).unwrap();
@@ -826,15 +835,15 @@ mod tests {
         let service = AutoHandService::default();
         let mut settings = MusicSetting::default();
         settings.hand.enabled = true;
-        settings.hand.auto_play = true;
-        settings.playlist_albums.push(PlaylistAlbum {
-            name: names::SPOTIFY.into(),
+        settings.hand.auto_play_enabled = true;
+        settings.sources.push(SourceConfig {
+            platform: names::SPOTIFY.into(),
             enabled: true,
-            playlist_album_id: "test".into(),
-            typename: "playlist".into(),
-            playlist_album_name: String::new(),
-            playlist_album_remark: String::new(),
-            update_time: String::new(),
+            source_id: "test".into(),
+            source_kind: "playlist".into(),
+            title: String::new(),
+            remark: String::new(),
+            updated_at: String::new(),
         });
         for platform in [
             names::SPOTIFY,
@@ -847,7 +856,7 @@ mod tests {
             names::BILIBILI,
             names::LOCAL,
         ] {
-            settings.playlist_albums[0].name = platform.into();
+            settings.sources[0].platform = platform.into();
             for mode in [
                 AutoDetectionMode::System,
                 AutoDetectionMode::Window,
@@ -867,28 +876,28 @@ mod tests {
         let service = AutoHandService::default();
         let mut settings = MusicSetting::default();
         settings.hand.enabled = true;
-        settings.hand.auto_play = true;
-        settings.playlist_albums.push(PlaylistAlbum {
-            name: names::NETEASE.into(), enabled: true, playlist_album_id: "test".into(),
-            typename: "playlist".into(), playlist_album_name: String::new(),
-            playlist_album_remark: String::new(), update_time: String::new(),
+        settings.hand.auto_play_enabled = true;
+        settings.sources.push(SourceConfig {
+            platform: names::NETEASE.into(), enabled: true, source_id: "test".into(),
+            source_kind: "playlist".into(), title: String::new(),
+            remark: String::new(), updated_at: String::new(),
         });
         service.configure(&settings);
         service.runtime.lock().unwrap().temporarily_paused = true;
         settings.replacement_limit += 1;
         service.configure(&settings);
-        assert!(!service.state().enabled);
-        settings.playlist_albums[0].name = names::APPLE_MUSIC.into();
+        assert!(!service.state().active);
+        settings.sources[0].platform = names::APPLE_MUSIC.into();
         service.configure(&settings);
         assert!(service.runtime.lock().unwrap().temporarily_paused);
-        settings.playlist_albums[0].name = names::NETEASE.into();
+        settings.sources[0].platform = names::NETEASE.into();
         service.configure(&settings);
-        assert!(!service.state().enabled);
-        settings.hand.auto_play = false;
+        assert!(!service.state().active);
+        settings.hand.auto_play_enabled = false;
         service.configure(&settings);
-        settings.hand.auto_play = true;
+        settings.hand.auto_play_enabled = true;
         service.configure(&settings);
-        assert!(service.state().enabled);
+        assert!(service.state().active);
     }
 
 }

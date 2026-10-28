@@ -171,10 +171,10 @@ impl BrowserPlaybackService {
 fn apple_music_queue(app: &tauri::AppHandle, args: &PlaySongArgs) -> Result<Vec<String>, String> {
     let root =
         crate::paths::user_data_dir(app).map_err(|_| "错误：无法读取 Apple Music 歌单缓存")?;
-    let kind = discoas_core::core::playlist::TypeName::parse(&args.typename)
+    let kind = discoas_core::core::playlist::SourceKind::parse(&args.source_kind)
         .map_err(|_| "错误：Apple Music 来源类型无效")?;
     let source = discoas_core::storage::LibraryStore::new(root)
-        .load_json(&args.platform, &args.playlist_id, kind)
+        .load_json(&args.platform, &args.source_id, kind)
         .map_err(|_| "错误：Apple Music 歌单缓存缺失，请更新此歌单")?;
     let mut ids: Vec<String> = source["song_ids"]
         .as_array()

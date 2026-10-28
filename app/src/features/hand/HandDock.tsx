@@ -199,9 +199,9 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
       </button>}
       {preview ? <button className="hand-clear" aria-label={t("退出预览")} data-hand-close onClick={toggle}><Icon name="close" size={16} /></button>
         : null}
-      {!preview && handEnabled && auto.state.configured && <button type="button" className="hand-show-client hand-auto-toggle" aria-pressed={!!auto.state.enabled}
-        title={t(auto.state.enabled ? "自动打出已开启，点击临时关闭" : "自动打出已临时关闭，点击恢复")}
-        aria-label={t(auto.state.enabled ? "自动打出已开启，点击临时关闭" : "自动打出已临时关闭，点击恢复")}
+      {!preview && handEnabled && auto.state.configured && <button type="button" className="hand-show-client hand-auto-toggle" aria-pressed={!!auto.state.active}
+        title={t(auto.state.active ? "自动打出已开启，点击临时关闭" : "自动打出已临时关闭，点击恢复")}
+        aria-label={t(auto.state.active ? "自动打出已开启，点击临时关闭" : "自动打出已临时关闭，点击恢复")}
         disabled={auto.pending} onClick={() => { setActionError(""); void auto.toggle().catch(error => setActionError(errorText(error))); }}>AUTO</button>}
       {!preview && handEnabled && createCards && <button type="button" className="hand-show-client" disabled={busy || auto.state.busy}
         onClick={() => { setActionError(""); void call("open_create_hand").catch(error => setActionError(errorText(error))); }}>{t("创建手牌")}</button>}

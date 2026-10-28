@@ -48,7 +48,7 @@ export function useKeyboardSelection({ songs, keybindings, grid, active, batchRe
   const [, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((revision) => revision + 1), []);
   const batch = preserveSlots
-    ? JSON.stringify([batchRevision, songs.length, songs[0]?.platform, songs[0]?.typename, songs[0]?.playlistId])
+    ? JSON.stringify([batchRevision, songs.length, songs[0]?.platform, songs[0]?.sourceKind, songs[0]?.sourceId])
     : discoveryBatchKey(songs, batchRevision);
   selection.current.synchronize(batch, songs.length, active);
   const current = useRef({ songs, keybindings, active, batch, play, replace, preview });

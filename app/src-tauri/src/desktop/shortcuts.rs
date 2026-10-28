@@ -48,7 +48,7 @@ impl Bindings {
 }
 fn update_bindings(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<(), String> {
     let mut actions = std::collections::HashMap::new();
-    for (key, action) in std::iter::once((&settings.shortcut_key, ShortcutAction::Discovery))
+    for (key, action) in std::iter::once((&settings.discovery_shortcut, ShortcutAction::Discovery))
         .chain(
             (settings.hand.enabled || settings.hand_discovery.enabled)
                 .then_some((&settings.hand.shortcut, ShortcutAction::ToggleHand)),
@@ -74,7 +74,7 @@ fn update_bindings(app: &tauri::AppHandle, settings: &MusicSetting) -> Result<()
     Ok(())
 }
 fn global_keys(settings: &MusicSetting) -> Vec<&str> {
-    let mut keys = vec![settings.shortcut_key.as_str()];
+    let mut keys = vec![settings.discovery_shortcut.as_str()];
     if settings.hand.enabled || settings.hand_discovery.enabled {
         keys.push(&settings.hand.shortcut);
         keys.extend(settings.hand.play_shortcuts.iter().map(String::as_str));

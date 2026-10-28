@@ -1,11 +1,11 @@
 //! Legacy import is preflighted completely before atomic destination writes.
 use super::{covers::image_extension, preferences::validate_preferences, source::normalize_source};
 use crate::{
-    core::playlist::TypeName,
+    core::playlist::SourceKind,
     platforms,
     settings::{
         gui_setting::GuiSetting,
-        music_setting::{MusicSetting, PlaylistAlbum},
+        music_setting::{MusicSetting, SourceConfig},
     },
 };
 use serde_json::Value;
@@ -35,7 +35,7 @@ struct LegacyCover {
 pub struct LegacyImportPlan {
     settings: MusicSetting,
     gui_settings: Option<GuiSetting>,
-    playlists: Vec<(PlaylistAlbum, TypeName, Value)>,
+    playlists: Vec<(SourceConfig, SourceKind, Value)>,
     cover: Option<LegacyCover>,
 }
 
@@ -47,12 +47,12 @@ impl LegacyImportPlan {
         destination: &super::library::LibraryRepository,
     ) -> Result<bool, String> {
         for (entry, kind, raw) in &self.playlists {
-            destination.save_source(&entry.name, &entry.playlist_album_id, *kind, raw)?;
+            destination.save_source(&entry.platform, &entry.source_id, *kind, raw)?;
         }
         if let Some(cover) = self.cover {
             let path = destination.root().join("pic").join(cover.filename);
             platforms::storage::atomic_write(&path, &cover.bytes).map_err(|e| e.to_string())?;
-            self.settings.mystery_song_cover = path.display().to_string();
+            self.settings.mystery_cover = path.display().to_string();
         }
         destination.save_settings(&self.settings)?;
         let gui_changed = self.gui_settings.is_some();
@@ -123,14 +123,14 @@ fn read_legacy_cover(root: &Path, reference: &str) -> Result<Option<LegacyCover>
 }
 
 fn validate_legacy_cache(
-    entry: &PlaylistAlbum,
-    kind: TypeName,
+    entry: &SourceConfig,
+    kind: SourceKind,
     mut raw: Value,
 ) -> Result<Value, String> {
     if !raw.is_object() {
         return Err(format!(
             "旧歌单 {} 的 JSON 结构无效",
-            entry.playlist_album_id
+            entry.source_id
         ));
     }
     if let Some(saved_id) = raw.get("playlist_album_id") {
@@ -139,7 +139,7 @@ fn validate_legacy_cache(
             .map(str::to_string)
             .or_else(|| saved_id.as_u64().map(|id| id.to_string()))
             .ok_or("旧歌单缓存的 ID 格式无效")?;
-        if saved_id != entry.playlist_album_id {
+        if saved_id != entry.source_id {
             return Err("旧歌单缓存的 ID 与设置不一致".into());
         }
     }
@@ -160,7 +160,7 @@ fn validate_legacy_cache(
     let songs = raw["song_ids"]
         .as_array()
         .filter(|songs| !songs.is_empty())
-        .ok_or_else(|| format!("旧歌单 {} 没有有效歌曲列表", entry.playlist_album_id))?;
+        .ok_or_else(|| format!("旧歌单 {} 没有有效歌曲列表", entry.source_id))?;
     for song in songs {
         let id = song
             .as_str()
@@ -170,21 +170,21 @@ fn validate_legacy_cache(
         platforms::storage::validate_id(&id).map_err(|_| "旧歌单包含无效歌曲标识")?;
     }
     // Older Kugou caches omitted the common type field; fill only missing metadata.
-    raw["playlist_album_id"] = Value::String(entry.playlist_album_id.clone());
+    raw["playlist_album_id"] = Value::String(entry.source_id.clone());
     raw["playlist_album_type"] = Value::String(kind.as_str().into());
     if raw["playlist_album_name"]
         .as_str()
         .is_none_or(str::is_empty)
     {
-        raw["playlist_album_name"] = Value::String(if entry.playlist_album_name.is_empty() {
-            entry.playlist_album_id.clone()
+        raw["playlist_album_name"] = Value::String(if entry.title.is_empty() {
+            entry.source_id.clone()
         } else {
-            entry.playlist_album_name.clone()
+            entry.title.clone()
         });
     }
     // Validate the exact schema subsequently read by Playlist::load, including covers/timestamps.
     serde_json::from_value::<crate::core::playlist::PlaylistJson>(raw.clone())
-        .map_err(|e| format!("旧歌单 {} 的缓存字段无效：{e}", entry.playlist_album_id))?;
+        .map_err(|e| format!("旧歌单 {} 的缓存字段无效：{e}", entry.source_id))?;
     Ok(raw)
 }
 
@@ -221,57 +221,57 @@ pub fn prepare_legacy_import(
     let gui_settings = prepare_legacy_gui(root, current_gui)?;
     // The incoming shortcut is intentionally not migrated; all migrated preference values are validated.
     let mut checked_preferences = incoming.clone();
-    checked_preferences.shortcut_key.clear();
+    checked_preferences.discovery_shortcut.clear();
     validate_preferences(&checked_preferences)?;
-    let migrate_preferences = current.playlist_albums.is_empty();
+    let migrate_preferences = current.sources.is_empty();
     let mut settings = if migrate_preferences {
         incoming.clone()
     } else {
         current.clone()
     };
     if migrate_preferences {
-        settings.playlist_albums.clear();
+        settings.sources.clear();
     }
-    settings.shortcut_key = current.shortcut_key.clone();
+    settings.discovery_shortcut = current.discovery_shortcut.clone();
     let mut playlists = Vec::new();
-    for mut entry in incoming.playlist_albums {
-        let kind = TypeName::parse(&entry.typename).map_err(|e| e.to_string())?;
-        platforms::fetcher_for(&entry.name).map_err(|e| e.to_string())?;
-        platforms::storage::validate_id(&entry.playlist_album_id).map_err(|e| e.to_string())?;
-        normalize_source(&entry.name, kind, &entry.playlist_album_id)?;
-        if settings.playlist_albums.iter().any(|existing| {
-            existing.name == entry.name
-                && existing.typename == entry.typename
-                && existing.playlist_album_id == entry.playlist_album_id
+    for mut entry in incoming.sources {
+        let kind = SourceKind::parse(&entry.source_kind).map_err(|e| e.to_string())?;
+        platforms::fetcher_for(&entry.platform).map_err(|e| e.to_string())?;
+        platforms::storage::validate_id(&entry.source_id).map_err(|e| e.to_string())?;
+        normalize_source(&entry.platform, kind, &entry.source_id)?;
+        if settings.sources.iter().any(|existing| {
+            existing.platform == entry.platform
+                && existing.source_kind == entry.source_kind
+                && existing.source_id == entry.source_id
         }) {
             continue;
         }
         let file = root
-            .join(&entry.name)
+            .join(&entry.platform)
             .join(kind.as_str())
-            .join(format!("{}.json", entry.playlist_album_id));
+            .join(format!("{}.json", entry.source_id));
         let bytes = std::fs::read(file)
-            .map_err(|e| format!("旧歌单 {} 无法读取：{e}", entry.playlist_album_id))?;
+            .map_err(|e| format!("旧歌单 {} 无法读取：{e}", entry.source_id))?;
         let raw = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("旧歌单 {} 的 JSON 无效：{e}", entry.playlist_album_id))?;
+            .map_err(|e| format!("旧歌单 {} 的 JSON 无效：{e}", entry.source_id))?;
         let raw = validate_legacy_cache(&entry, kind, raw)?;
         if !migrate_preferences {
             entry.enabled = false;
         }
-        settings.playlist_albums.push(entry.clone());
+        settings.sources.push(entry.clone());
         playlists.push((entry, kind, raw));
     }
     if playlists.is_empty() && gui_settings.is_none() {
         return Err("没有新的歌单或外观设置可迁移，已有设置不会被覆盖".into());
     }
     let cover = if migrate_preferences {
-        read_legacy_cover(root, &settings.mystery_song_cover)?
+        read_legacy_cover(root, &settings.mystery_cover)?
     } else {
         None
     };
     // Keep even an invalid current shortcut so the settings screen can repair it later.
     let mut checked_settings = settings.clone();
-    checked_settings.shortcut_key.clear();
+    checked_settings.discovery_shortcut.clear();
     validate_preferences(&checked_settings)?;
     settings.normalize_enabled_exclusivity();
     Ok(LegacyImportPlan {
@@ -283,17 +283,17 @@ pub fn prepare_legacy_import(
 }
 
 fn normalize_legacy_counts(settings: &mut MusicSetting) -> Result<(), String> {
-    if !(1..=999).contains(&settings.number_of_discovered_songs)
-        || settings.num_of_mystery_song > 50
-        || settings.cache_batches > 10
+    if !(1..=999).contains(&settings.normal_song_count)
+        || settings.mystery_song_count > 50
+        || settings.preload_batch_count > 10
     {
         return Err("旧版每次发现数量超出原版允许范围".into());
     }
-    settings.number_of_discovered_songs = settings.number_of_discovered_songs.min(15);
-    settings.num_of_mystery_song = settings
-        .num_of_mystery_song
-        .min(15 - settings.number_of_discovered_songs);
-    settings.cache_batches = settings.cache_batches.min(5);
+    settings.normal_song_count = settings.normal_song_count.min(15);
+    settings.mystery_song_count = settings
+        .mystery_song_count
+        .min(15 - settings.normal_song_count);
+    settings.preload_batch_count = settings.preload_batch_count.min(5);
     Ok(())
 }
 
@@ -331,14 +331,14 @@ mod tests {
         }
     }
 
-    fn legacy_entry(id: &str) -> PlaylistAlbum {
-        PlaylistAlbum {
-            name: "NeteaseCloudMusic".into(),
-            playlist_album_id: id.into(),
-            typename: "playlist".into(),
-            playlist_album_name: format!("Playlist {id}"),
-            playlist_album_remark: String::new(),
-            update_time: String::new(),
+    fn legacy_entry(id: &str) -> SourceConfig {
+        SourceConfig {
+            platform: "NeteaseCloudMusic".into(),
+            source_id: id.into(),
+            source_kind: "playlist".into(),
+            title: format!("Playlist {id}"),
+            remark: String::new(),
+            updated_at: String::new(),
             enabled: true,
         }
     }
@@ -355,20 +355,20 @@ mod tests {
     #[test]
     fn valid_original_counts_migrate_with_new_limits_instead_of_blocking_the_library() {
         let mut s = MusicSetting::default();
-        s.number_of_discovered_songs = 999;
-        s.num_of_mystery_song = 50;
-        s.cache_batches = 10;
+        s.normal_song_count = 999;
+        s.mystery_song_count = 50;
+        s.preload_batch_count = 10;
         normalize_legacy_counts(&mut s).unwrap();
         assert_eq!(
             (
-                s.number_of_discovered_songs,
-                s.num_of_mystery_song,
-                s.cache_batches
+                s.normal_song_count,
+                s.mystery_song_count,
+                s.preload_batch_count
             ),
             (15, 0, 5)
         );
         assert!(validate_preferences(&s).is_ok());
-        s.number_of_discovered_songs = 1000;
+        s.normal_song_count = 1000;
         assert!(normalize_legacy_counts(&mut s).is_err());
     }
 
@@ -386,9 +386,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(gui.night_mode);
-        assert_eq!(gui.card_size, 3.0);
-        assert_eq!(gui.cancel_button_size, 2.75);
-        assert_eq!(gui.setting_size, 0.5);
+        assert_eq!(gui.discovery_card_scale, 3.0);
+        assert_eq!(gui.cancel_button_scale, 2.75);
+        assert_eq!(gui.main_window_scale, 0.5);
         assert_eq!(gui.language, "en_US");
         assert_eq!(gui.card.background, "#112233");
         assert_eq!(gui.cancel_button_night_mode.background, "#400601");
@@ -415,7 +415,7 @@ mod tests {
     fn legacy_gui_is_prevalidated_and_can_migrate_after_songs_were_already_copied() {
         let root = TestLegacyRoot::new();
         let mut settings = MusicSetting::default();
-        settings.playlist_albums.push(legacy_entry("123"));
+        settings.sources.push(legacy_entry("123"));
         write_legacy_settings(&root, &settings);
         let source = br#"{"night_mode":true,"card_size":3.0}"#;
         root.write("user_data/settings/gui_setting.json", source);
@@ -449,7 +449,7 @@ mod tests {
         .is_err());
         assert!(!data_root.exists());
         let mut incoming = MusicSetting::default();
-        incoming.playlist_albums = vec![legacy_entry("123"), legacy_entry("456")];
+        incoming.sources = vec![legacy_entry("123"), legacy_entry("456")];
         write_legacy_settings(&root, &incoming);
         let first_bytes = serde_json::to_vec(&legacy_cache("123")).unwrap();
         root.write(
@@ -498,8 +498,8 @@ mod tests {
     fn legacy_preflight_validates_preferences_before_any_destination_write() {
         let root = TestLegacyRoot::new();
         let mut incoming = MusicSetting::default();
-        incoming.number_of_discovered_songs = 1000;
-        incoming.playlist_albums.push(legacy_entry("123"));
+        incoming.normal_song_count = 1000;
+        incoming.sources.push(legacy_entry("123"));
         write_legacy_settings(&root, &incoming);
         root.write(
             "user_data/NeteaseCloudMusic/playlist/123.json",
@@ -516,7 +516,7 @@ mod tests {
         let entry = legacy_entry("123");
         let mut invalid_cover = legacy_cache("123");
         invalid_cover["coverUrl"] = serde_json::json!(123);
-        assert!(validate_legacy_cache(&entry, TypeName::Playlist, invalid_cover).is_err());
+        assert!(validate_legacy_cache(&entry, SourceKind::Playlist, invalid_cover).is_err());
     }
 
     #[test]
@@ -552,9 +552,9 @@ mod tests {
     fn legacy_relative_cover_is_captured_for_owned_pic_copy_and_existing_items_are_skipped() {
         let root = TestLegacyRoot::new();
         let mut incoming = MusicSetting::default();
-        incoming.mystery_song_cover = "src/question.png".into();
-        incoming.shortcut_key = "legacy-invalid-unused-key".into();
-        incoming.playlist_albums = vec![legacy_entry("123")];
+        incoming.mystery_cover = "src/question.png".into();
+        incoming.discovery_shortcut = "legacy-invalid-unused-key".into();
+        incoming.sources = vec![legacy_entry("123")];
         write_legacy_settings(&root, &incoming);
         root.write(
             "user_data/NeteaseCloudMusic/playlist/123.json",
@@ -569,7 +569,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plan.playlists.len(), 1);
-        assert_eq!(plan.settings.shortcut_key, "Alt+D");
+        assert_eq!(plan.settings.discovery_shortcut, "Alt+D");
         let cover = plan.cover.unwrap();
         assert_eq!(cover.bytes, image);
         assert_eq!(
@@ -583,9 +583,9 @@ mod tests {
         );
         assert_eq!(plan.playlists[0].2["playlist_album_type"], "playlist");
         let mut current = MusicSetting::default();
-        current.playlist_albums.push(legacy_entry("123"));
-        current.number_of_discovered_songs = 5;
-        incoming.playlist_albums.push(legacy_entry("456"));
+        current.sources.push(legacy_entry("123"));
+        current.normal_song_count = 5;
+        incoming.sources.push(legacy_entry("456"));
         write_legacy_settings(&root, &incoming);
         root.write(
             "user_data/NeteaseCloudMusic/playlist/456.json",
@@ -595,8 +595,8 @@ mod tests {
             prepare_legacy_import(&root.0.join("user_data"), &current, &GuiSetting::default())
                 .unwrap();
         assert_eq!(merged.playlists.len(), 1);
-        assert_eq!(merged.settings.number_of_discovered_songs, 5);
-        assert!(!merged.settings.playlist_albums[1].enabled);
+        assert_eq!(merged.settings.normal_song_count, 5);
+        assert!(!merged.settings.sources[1].enabled);
         assert!(merged.cover.is_none());
     }
 
@@ -605,8 +605,8 @@ mod tests {
         let fixture = TestLegacyRoot::new();
         let source = fixture.0.join("user_data");
         let mut incoming = MusicSetting::default();
-        incoming.playlist_albums.push(legacy_entry("123"));
-        incoming.mystery_song_cover = "src/question.png".into();
+        incoming.sources.push(legacy_entry("123"));
+        incoming.mystery_cover = "src/question.png".into();
         write_legacy_settings(&fixture, &incoming);
         let image = b"\x89PNG\r\n\x1a\nfixture-image";
         fixture.write("src/question.png", image);
@@ -631,17 +631,17 @@ mod tests {
         assert!(!destination_root.exists());
         assert!(plan.commit(&destination).unwrap());
         let saved = destination.load_settings().unwrap();
-        assert_eq!(saved.playlist_albums.len(), 1);
-        assert!(saved.playlist_albums[0].enabled);
+        assert_eq!(saved.sources.len(), 1);
+        assert!(saved.sources[0].enabled);
         assert_eq!(
             destination
-                .cache_summary(&saved.playlist_albums[0])
+                .cache_summary(&saved.sources[0])
                 .unwrap()
                 .0,
             2
         );
-        assert_eq!(std::fs::read(&saved.mystery_song_cover).unwrap(), image);
-        assert!(Path::new(&saved.mystery_song_cover).starts_with(destination_root.join("pic")));
+        assert_eq!(std::fs::read(&saved.mystery_cover).unwrap(), image);
+        assert!(Path::new(&saved.mystery_cover).starts_with(destination_root.join("pic")));
         assert!(destination.load_gui().unwrap().night_mode);
         assert_eq!(
             std::fs::read(source.join("settings/music_setting.json")).unwrap(),

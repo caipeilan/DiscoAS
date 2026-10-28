@@ -9,20 +9,20 @@ const compiled = ts.transpileModule(fs.readFileSync(new URL("../src/features/his
 const { cacheHistoryCovers, filterHistory, historySearchText, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
   await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const record = (values = {}) => ({
-  platform: "NeteaseCloudMusic", songId: "100", playlistId: "1", typename: "playlist", name: "中文歌曲",
+  platform: "NeteaseCloudMusic", songId: "100", sourceId: "1", sourceKind: "playlist", title: "中文歌曲",
   artistNames: ["测试歌手", "Alice"], discoveredAt: 1000, selectedAt: null, coverKey: "cover-v1", coverUrl: "https://example.com/cover.jpg",
   ...values,
 });
 
 test("history searches Unicode names, artists, localized platforms and song IDs without changing the source array", () => {
-  const rows = [record(), record({ platform: "Spotify", songId: "Ab-C", name: "Second", artistNames: ["Bob"] })];
+  const rows = [record(), record({ platform: "Spotify", songId: "Ab-C", title: "Second", artistNames: ["Bob"] })];
   const labels = { NeteaseCloudMusic: "网易云音乐" };
   for (const query of ["中文", "测试", "  ALICE  网易云 ", "100", "neteasecloud"]) {
     assert.deepEqual(filterHistory(rows, query, "all", labels), [rows[0]], query);
   }
   assert.deepEqual(filterHistory(rows, "ab-c", "all", labels), [rows[1]]);
   assert.deepEqual(filterHistory(rows, "alice second", "all", labels), []);
-  assert.deepEqual(rows.map((entry) => entry.name), ["中文歌曲", "Second"]);
+  assert.deepEqual(rows.map((entry) => entry.title), ["中文歌曲", "Second"]);
 });
 
 test("discovered and selected filters honor separately edited status, including records with both statuses removed", () => {
@@ -61,7 +61,7 @@ test("cover identities invalidate changed artwork while metadata repair recogniz
   assert.notEqual(historyCoverKey(row), historyCoverKey({ ...row, coverKey: "cover-v2" }));
   assert.notEqual(historyCoverKey({ ...row, coverKey: "" }), historyCoverKey({ ...row, coverKey: "", coverUrl: "other" }));
   assert.equal(needsHistoryMetadata(row), false);
-  for (const value of [{ name: "?" }, { name: "神秘歌曲" }, { artistNames: ["？？"] }, { name: "" }]) {
+  for (const value of [{ title: "?" }, { title: "神秘歌曲" }, { artistNames: ["？？"] }, { title: "" }]) {
     assert.equal(needsHistoryMetadata({ ...row, ...value }), true);
   }
 });
@@ -207,13 +207,13 @@ test("history navigation cancels late loading and page cover results from the di
 
 test("clear is a confirmed operation and late metadata repair or cover results cannot restore records", async () => {
   const controller = await historyController(); controller.render();
-  const old = record({ name: "?" });
+  const old = record({ title: "?" });
   controller.load.resolve([old]); await tick(); controller.render();
   assert.equal(controller.render().repairing, true);
   controller.render().setConfirming({ kind: "clear" });
   assert.equal(controller.clearCount(), 0);
   await controller.render().confirmMutation();
-  controller.repair.resolve([record({ name: "Repaired old song" })]);
+  controller.repair.resolve([record({ title: "Repaired old song" })]);
   controller.covers[0].resolve([{ ...historyIdentity(old), coverDataUri: "old-cover" }]);
   await tick();
   const view = controller.render();

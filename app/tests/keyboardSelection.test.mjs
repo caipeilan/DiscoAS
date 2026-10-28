@@ -25,9 +25,9 @@ test("the first direction focuses the first song and grid boundaries never wrap"
 });
 
 test("source changes, batch changes and inactive views clear selection", () => {
-  const song = { platform: "Spotify", typename: "playlist", playlistId: "one", songId: "same" };
+  const song = { platform: "Spotify", sourceKind: "playlist", sourceId: "one", songId: "same" };
   const first = discoveryBatchKey([song], 1);
-  const second = discoveryBatchKey([{ ...song, playlistId: "two" }], 1);
+  const second = discoveryBatchKey([{ ...song, sourceId: "two" }], 1);
   const selection = new CardSelection();
   selection.synchronize(first, 1, true);
   assert.equal(selection.selected(first), -1);
@@ -86,7 +86,7 @@ async function keyboardHarness({ reducedMotion = false } = {}) {
   const focus = [];
   const scroll = [];
   let scrollTop = 0;
-  const songs = Array.from({ length: 7 }, (_, i) => ({ platform: "Spotify", typename: "playlist", playlistId: "source", songId: `track-${i}` }));
+  const songs = Array.from({ length: 7 }, (_, i) => ({ platform: "Spotify", sourceKind: "playlist", sourceId: "source", songId: `track-${i}` }));
   const cards = songs.map((_, i) => Object.assign(new FakeElement(false, true), { offsetTop: 0, focus: () => focus.push(i),
     getBoundingClientRect: () => ({ top: Math.floor(i / 3) * 280 + 20 - scrollTop, bottom: Math.floor(i / 3) * 280 + 280 - scrollTop, left: i % 3 * 245, right: i % 3 * 245 + 200 }),
     scrollIntoView: (options) => {
@@ -270,7 +270,7 @@ test("slot-preserving replacement keeps keyboard selection attached to the repla
   harness.update({ preserveSlots: true });
   harness.render();
   harness.stroke("KeyS"); harness.stroke("KeyD");
-  const songs = Array.from({ length: 7 }, (_, i) => ({ platform: "Spotify", typename: "playlist", playlistId: "source", songId: i === 1 ? "replacement" : `track-${i}` }));
+  const songs = Array.from({ length: 7 }, (_, i) => ({ platform: "Spotify", sourceKind: "playlist", sourceId: "source", songId: i === 1 ? "replacement" : `track-${i}` }));
   harness.update({ songs }); harness.render();
   assert.equal(harness.render().selectedIndex, 1);
   harness.stroke("Enter");

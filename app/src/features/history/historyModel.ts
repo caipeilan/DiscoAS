@@ -8,7 +8,7 @@ export const historyKey = (entry: Pick<HistoryEntry, "platform" | "songId">) => 
 export const historyIdentity = (entry: Pick<HistoryEntry, "platform" | "songId">) => ({ platform: entry.platform, songId: entry.songId });
 
 export function historySearchText(entry: HistoryEntry, labels: Record<string, string> = {}) {
-  return [entry.name, ...entry.artistNames, entry.songId, entry.platform, labels[entry.platform] || ""].join(" ").toLocaleLowerCase();
+  return [entry.title, ...entry.artistNames, entry.songId, entry.platform, labels[entry.platform] || ""].join(" ").toLocaleLowerCase();
 }
 
 export function filterHistory(entries: HistoryEntry[], query: string, filter: HistoryFilter, labels: Record<string, string> = {}, searchIndex?: ReadonlyMap<HistoryEntry, string>) {
@@ -29,7 +29,7 @@ export function historyPage(entries: HistoryEntry[], page: number) {
 }
 
 export function needsHistoryMetadata(entry: HistoryEntry) {
-  return !entry.name || /^[?？]+$/.test(entry.name) || entry.name === "神秘歌曲"
+  return !entry.title || /^[?？]+$/.test(entry.title) || entry.title === "神秘歌曲"
     || entry.artistNames.some((name) => /^[?？]+$/.test(name));
 }
 

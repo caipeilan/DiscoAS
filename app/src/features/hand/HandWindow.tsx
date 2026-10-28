@@ -24,8 +24,8 @@ export function HandWindow() {
     retiringById, entering, finishCardTransition, layoutTransition, arrivalReady } = useHandController();
   useAppearance(snapshot.gui);
   const layoutPending = !!layoutTransition?.pending;
-  const liquid = snapshot.discoverySettings?.liquid_strength ?? 100;
-  const liquidMode = snapshot.discoverySettings?.liquid_mode ?? "static";
+  const liquid = snapshot.discoverySettings?.liquidStrength ?? 100;
+  const liquidMode = snapshot.discoverySettings?.liquidMode ?? "static";
   const glassFilter = liquidMode === "blur" && liquid ? `blur(${.22 * liquid}px) saturate(${100 + .6 * liquid}%)` : "none";
   const boundaryA = restPoses[layoutDiscoveryCount-1], boundaryB = restPoses[layoutDiscoveryCount];
   const vertical = snapshot.settings.side !== "bottom";
@@ -35,7 +35,7 @@ export function HandWindow() {
   } : null;
   return <div ref={stage} tabIndex={-1} inert={layoutPending} className={`hand-stage hand-${phase}`} data-side={snapshot.settings.side} data-preview={snapshot.preview || undefined}
     data-hidden={hidden || undefined} data-expanded={snapshot.expanded} data-input-mode={inputMode} data-liquid-mode={liquidMode}
-    style={{ "--hand-card-height": `${cardSize.height}px`, "--hand-glass-outline": `${snapshot.discoverySettings?.text_outline_width ?? 1}px`, width: surface?.width, height: surface?.height,
+    style={{ "--hand-card-height": `${cardSize.height}px`, "--hand-glass-outline": `${snapshot.discoverySettings?.textOutlineWidth ?? 1}px`, width: surface?.width, height: surface?.height,
       "--hand-glass-filter": glassFilter,
       "--hand-glass-opacity": `${100 - .54 * liquid}%`, "--hand-glass-highlight": `${.7 * liquid}%`,
       transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties}
@@ -44,7 +44,7 @@ export function HandWindow() {
     onAnimationEnd={(event) => { if (isHandRegionAnimation(event)) scheduleRegions.current(); }}>
     {(!desktop || snapshot.preview) && <HandDock element={toolbarElement} point={dockPosition} areas={dockAreas} expanded={snapshot.expanded} preview={snapshot.preview}
       diameter={diameter} count={ordinaryCount} capacity={snapshot.settings.capacity} busy={!!busy} confirm={clearConfirm}
-      handEnabled={snapshot.settings.enabled || snapshot.preview && !snapshot.discoverySettings?.enabled} createCards={snapshot.settings.create_cards} discovery={snapshot.discovery} refresh={refreshDiscovery}
+      handEnabled={snapshot.settings.enabled || snapshot.preview && !snapshot.discoverySettings?.enabled} createCards={snapshot.settings.createCards} discovery={snapshot.discovery} refresh={refreshDiscovery}
       toCanvas={toCanvas} dragging={setDockMoving}
       beginDrag={() => Promise.resolve()}
       move={moveDock} toggle={toggleDock} clear={clearDock} />}
@@ -83,13 +83,13 @@ export function HandWindow() {
         "--refill-x": settings.side === "left" ? "-42px" : settings.side === "right" ? "42px" : "0px", "--refill-y": settings.side === "bottom" ? "42px" : "0px",
       } as CSSProperties;
       return <div key={card.id} data-hand-id={card.id} data-auto-locked={autoLocked || undefined} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${surfaceWaiting ? " hand-surface-waiting" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && busy === card.id && !card.discovery ? " hand-pending" : ""}`}
-        role="button" tabIndex={-1} data-auto-next={autoNext || undefined} aria-label={`${card.song.mysteryMode ? t("神秘歌曲") : card.song.name}${autoNext ? ` · ${t("下一张自动打出")}` : ""}`} title={autoNext ? t("下一张自动打出") : undefined} aria-disabled={snapshot.preview || !!busy || autoLocked}
+        role="button" tabIndex={-1} data-auto-next={autoNext || undefined} aria-label={`${card.song.mysteryMode ? t("神秘歌曲") : card.song.title}${autoNext ? ` · ${t("下一张自动打出")}` : ""}`} title={autoNext ? t("下一张自动打出") : undefined} aria-disabled={snapshot.preview || !!busy || autoLocked}
         style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); finishCardTransition(card.id); } }} onPointerDown={(e) => onCardPointerDown(card, e)} onPointerMove={(e) => onCardPointerMove(card, e)} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => lostPointerCapture(card.id)}>
         <div className="hand-flip"><div className="hand-card-face">
           <HandCardContent card={card} />
           {!snapshot.preview && !card.placeholder && (!card.discovery || snapshot.discovery?.replacementEnabled) && <button className="hand-discard" aria-label={card.discovery ? t("替换这张迷你发现卡") : t("弃掉此牌")} disabled={!!busy || !!card.discovery && !snapshot.discovery?.replacementsRemaining}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void operation("discard_hand_card", card); }}><Icon name={card.discovery ? "refresh" : "close"} size={14} /></button>}
-          {!card.placeholder && shortcutIndex >= 0 && shortcutIndex < 9 && <span className="hand-card-shortcut">{snapshot.settings.play_shortcuts[shortcutIndex]}</span>}
+          {!card.placeholder && shortcutIndex >= 0 && shortcutIndex < 9 && <span className="hand-card-shortcut">{snapshot.settings.playShortcuts[shortcutIndex]}</span>}
           {(playing || collecting) && <div className="hand-release-label"><Icon name={collecting ? "hand" : "play"} size={10} />{t(collecting ? "松开以加入手牌" : "松开以播放")}</div>}
         </div>{card.discovery ? <div className="hand-card-back hand-discovery-back"><div className="hand-card-face"><img src={appLogo} draggable={false} alt="DiscoAS" /></div></div> : card.mysteryRevealed && snapshot.arrival?.id === card.id && <div className="hand-card-back"><div className="hand-card-face"><div className="hand-art"><Cover url="" data={snapshot.arrival.mysteryCover} prepared mystery label={t("神秘歌曲")} /></div><strong>???</strong><span>???</span></div></div>}</div>
         <HandAutoPlayLock locked={autoLocked} />

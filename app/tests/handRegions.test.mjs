@@ -106,7 +106,7 @@ test("a fast drag starts the native drag surface and drops without painting the 
   const element = { style: { setProperty: (name, value) => values.set(name, value), removeProperty: name => values.delete(name) },
     dataset: {}, querySelector: () => null, focus() {}, getAnimations: () => [], setPointerCapture() {}, hasPointerCapture: () => false };
   const card = { id: "one" };
-  const snapshot = { generation: 1, expanded: true, preview: false, cards: [card], settings: { side: "bottom", scale: 1 }, workArea: { left: 0, top: 0, width: 1000, height: 700 }, gui: { font_size: 14 } };
+  const snapshot = { generation: 1, expanded: true, preview: false, cards: [card], settings: { side: "bottom", scale: 1 }, workArea: { left: 0, top: 0, width: 1000, height: 700 }, gui: { fontSize: 14 } };
   const context = { snapshot, current: { current: snapshot }, mounted: { current: true }, dockMoving: false, stage: { current: null }, busyRef: { current: "" },
     selectedRef: { current: null }, hoverRef: { current: null }, inputRef: { current: "pointer" }, pointer: { current: null }, toolbarBounds: { current: null },
     posesRef: { current: [pose] }, restPosesRef: { current: [pose] }, dragRef: { current: null }, dragFrame: { current: 0 }, dragDrawing: { current: null },
@@ -148,13 +148,13 @@ test("pointer bursts use one calculation per frame and drop with the latest coor
       globalThis.requestAnimationFrame = callback => { frames.set(++sequence, callback); return sequence; };
       globalThis.cancelAnimationFrame = id => frames.delete(id);
       const cards = Array.from({ length: count }, (_, i) => ({ id: `card-${i}`, discovery: discovery && i === 0 }));
-      const settings = { enabled: true, side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
-      const discoverySettings = { ...settings, enabled: discovery, merged: false, side: "left", liquid_strength: 45, liquid_mode: "static", text_outline_width: 1 };
+      const settings = { enabled: true, side: "bottom", scale: 1, edgeOffsetPx: 12, positionPercent: 50, overlapPercent: 45, tiltDegrees: 12 };
+      const discoverySettings = { ...settings, enabled: discovery, merged: false, side: "left", liquidStrength: 45, liquidMode: "static", textOutlineWidth: 1 };
       const workArea = { left: 0, top: 0, width: 1400, height: 900 };
       const poses = layout.groupedHandLayout(cards, settings, discoverySettings, workArea, -1, 14);
       const card = cards[discovery ? 0 : 1], pose = poses[discovery ? 0 : 1];
       const element = { style: { setProperty() {}, removeProperty() {} }, dataset: {}, querySelector: () => null, focus() {}, getAnimations: () => [], setPointerCapture() {}, hasPointerCapture: () => false };
-      const snapshot = { generation: 1, expanded: true, preview: false, cards, settings, discoverySettings, workArea, gui: { font_size: 14 } };
+      const snapshot = { generation: 1, expanded: true, preview: false, cards, settings, discoverySettings, workArea, gui: { fontSize: 14 } };
       const context = { snapshot, current: { current: snapshot }, mounted: { current: true }, dockMoving: false, stage: { current: null }, busyRef: { current: "" },
         selectedRef: { current: null }, hoverRef: { current: null }, inputRef: { current: "pointer" }, pointer: { current: null }, toolbarBounds: { current: null },
         posesRef: { current: poses }, restPosesRef: { current: poses }, dragRef: { current: null }, dragFrame: { current: 0 }, dragDrawing: { current: null },

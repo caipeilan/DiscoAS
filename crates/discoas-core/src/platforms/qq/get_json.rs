@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 
 const ENDPOINT: &str = "https://u.y.qq.com/cgi-bin/musicu.fcg";
@@ -213,7 +213,7 @@ impl Pages {
 
 fn list_json(
     id: &str,
-    typename: TypeName,
+    source_kind: SourceKind,
     name: &str,
     cover: &str,
     ids: Vec<String>,
@@ -227,7 +227,7 @@ fn list_json(
         .as_secs();
     Ok(json!({
         "playlist_album_id": id, "playlist_album_name": name,
-        "playlist_album_type": typename.as_str(), "song_ids": ids,
+        "playlist_album_type": source_kind.as_str(), "song_ids": ids,
         "coverUrl": cover, "cover_url": cover, "saved_at": saved_at,
     }))
 }
@@ -286,7 +286,7 @@ async fn fetch_songlist_modern(
             .and_then(Value::as_array)
             .ok_or_else(|| AppError::Platform("QQ 音乐歌单缺少歌曲数组".into()))?;
         if pages.append(songs, total(&data, "total_song_num")?, has_more(&data)?)? {
-            return list_json(id, TypeName::Playlist, &name, &cover, pages.ids);
+            return list_json(id, SourceKind::Playlist, &name, &cover, pages.ids);
         }
     }
     Err(AppError::Platform(
@@ -335,7 +335,7 @@ fn parse_legacy_songlist(data: &Value, id: &str) -> AppResult<Value> {
         .or_else(|| info.get("picurl"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    list_json(id, TypeName::Playlist, name, cover, pages.ids)
+    list_json(id, SourceKind::Playlist, name, cover, pages.ids)
 }
 
 async fn fetch_songlist_legacy(id: &str) -> AppResult<Value> {
@@ -469,7 +469,7 @@ async fn fetch_album(
             .and_then(Value::as_array)
             .ok_or_else(|| AppError::Platform("QQ 音乐专辑缺少歌曲数组".into()))?;
         if pages.append(songs, total(&data, "totalNum")?, None)? {
-            return list_json(id, TypeName::Album, name, &cover, pages.ids);
+            return list_json(id, SourceKind::Album, name, &cover, pages.ids);
         }
     }
     Err(AppError::Platform(
@@ -478,13 +478,13 @@ async fn fetch_album(
 }
 
 /// 无 AppHandle 的匿名读取入口；只有确认完整后才能调用保存。
-pub async fn fetch_playlist(id: &str, typename: TypeName) -> AppResult<Value> {
-    fetch_playlist_inner(id, typename, None).await
+pub async fn fetch_playlist(id: &str, source_kind: SourceKind) -> AppResult<Value> {
+    fetch_playlist_inner(id, source_kind, None).await
 }
 
 pub async fn fetch_playlist_with_progress(
     id: &str,
-    typename: TypeName,
+    source_kind: SourceKind,
     progress: crate::platforms::FetchProgressCallback,
 ) -> AppResult<Value> {
     progress(crate::platforms::FetchProgress {
@@ -492,18 +492,18 @@ pub async fn fetch_playlist_with_progress(
         total: None,
         pages: 0,
     });
-    fetch_playlist_inner(id, typename, Some(progress)).await
+    fetch_playlist_inner(id, source_kind, Some(progress)).await
 }
 
 async fn fetch_playlist_inner(
     id: &str,
-    typename: TypeName,
+    source_kind: SourceKind,
     progress: Option<crate::platforms::FetchProgressCallback>,
 ) -> AppResult<Value> {
-    crate::platforms::validate_kind(crate::platforms::names::QQ, typename)?;
-    match typename {
-        TypeName::Playlist => fetch_songlist(id, progress).await,
-        TypeName::Album => fetch_album(id, progress).await,
+    crate::platforms::validate_kind(crate::platforms::names::QQ, source_kind)?;
+    match source_kind {
+        SourceKind::Playlist => fetch_songlist(id, progress).await,
+        SourceKind::Album => fetch_album(id, progress).await,
         _ => Err(AppError::Platform("QQ 音乐只支持歌单或专辑".into())),
     }
 }
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn saved_playlist_and_album_can_be_read_for_discovery() {
-        for kind in [TypeName::Playlist, TypeName::Album] {
+        for kind in [SourceKind::Playlist, SourceKind::Album] {
             let saved = list_json(
                 "9595891286",
                 kind,
@@ -592,7 +592,7 @@ mod tests {
             .unwrap();
             let cached: crate::core::playlist::PlaylistJson =
                 serde_json::from_value(saved).unwrap();
-            assert_eq!(cached.playlist_album_type, kind.as_str());
+            assert_eq!(cached.source_kind, kind.as_str());
             assert_eq!(cached.song_ids, ["3352212988", "2"]);
             assert_eq!(cached.cover_url, "https://example.com/cover");
         }
@@ -601,11 +601,11 @@ mod tests {
     #[tokio::test]
     #[ignore = "只读公网接口探针，日常测试不访问平台"]
     async fn live_public_samples_are_complete() {
-        let playlist = fetch_playlist("9595891286", TypeName::Playlist)
+        let playlist = fetch_playlist("9595891286", SourceKind::Playlist)
             .await
             .unwrap();
         assert!(playlist["song_ids"].as_array().unwrap().len() > 1000);
-        let album = fetch_playlist("4085389", TypeName::Album).await.unwrap();
+        let album = fetch_playlist("4085389", SourceKind::Album).await.unwrap();
         assert!(!album["song_ids"].as_array().unwrap().is_empty());
         assert!(fetch_song_detail("127570997").await.unwrap().is_some());
     }

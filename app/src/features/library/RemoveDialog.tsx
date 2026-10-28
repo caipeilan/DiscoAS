@@ -1,11 +1,11 @@
-import type { LibraryEntry } from "../../types";
+import type { SourceSummary } from "../../types";
 import { t } from "../../i18n";
 import { PlatformTag } from "../../components/PlatformTag";
 import { sourceKey } from "./libraryModel";
-import { sourceKind } from "../../i18n";
+import { sourceKindLabel } from "../../i18n";
 
 export function RemoveDialog({ remove, busy, close, confirm }: {
-  remove: LibraryEntry[];
+  remove: SourceSummary[];
   busy: string;
   close: () => void;
   confirm: () => Promise<void>;
@@ -27,7 +27,7 @@ export function RemoveDialog({ remove, busy, close, confirm }: {
         <ul className="remove-source-list">
           {remove.map((entry) => <li key={sourceKey(entry)}>
             <strong>{entry.title}</strong>
-            <span className="row-meta"><PlatformTag id={entry.platform} /><span>{sourceKind(entry.kind)}</span></span>
+            <span className="row-meta"><PlatformTag id={entry.platform} /><span>{sourceKindLabel(entry.sourceKind)}</span></span>
           </li>)}
         </ul>
         <p>{t("删除后不再用于发现。本地缓存会保留，可以重新添加。")}</p>

@@ -16,8 +16,8 @@ export function calculateDiscoveryWeighting(songBasis: number, drawCount: number
   if (!Number.isSafeInteger(songBasis) || songBasis < 1 || !Number.isInteger(drawCount) || drawCount < 1 || drawCount > 15) return null;
   const cycle = Math.min(10000, Math.ceil(songBasis / Math.min(songBasis, drawCount)));
   return {
-    enabled, base_weight: 100, discovered_penalty: 25, selected_penalty: 50,
-    recovery_batches: Math.max(1, Math.ceil(cycle / 4)), boost_after_batches: cycle,
-    boost_per_batch: Number((100 / cycle).toFixed(4)), max_weight: 300,
+    enabled, baseWeight: 100, discoveredPenalty: 25, selectedPenalty: 50,
+    recoveryBatches: Math.max(1, Math.ceil(cycle / 4)), boostAfterBatches: cycle,
+    boostPerBatch: Number((100 / cycle).toFixed(4)), maxWeight: 300,
   };
 }

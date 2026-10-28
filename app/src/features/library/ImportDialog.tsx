@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Icon } from "../../Icon";
 import { platforms } from "../../types";
 import { platformInfo } from "../../platforms";
-import { t, errorText, sourceKind } from "../../i18n";
+import { t, errorText, sourceKindLabel } from "../../i18n";
 import type { LibraryProgress } from "../../types";
 import { OperationProgress } from "./OperationProgress";
 import { extractSourceLink, identifySource, sourceKinds } from "./sourceInput";
@@ -33,27 +33,27 @@ export function ImportDialog({
   const [platform, setPlatform] = useState("NeteaseCloudMusic");
   const [paths, setPaths] = useState<string[]>(initialPaths);
   const [picking, setPicking] = useState(false);
-  useEffect(() => { if (initialPaths.length) { setPaths(initialPaths); setPlatform("LocalMusic"); setType("playlist"); } }, [initialPaths]);
-  const [typename, setType] = useState("playlist");
-  const [source, setSource] = useState("");
+  useEffect(() => { if (initialPaths.length) { setPaths(initialPaths); setPlatform("LocalMusic"); setSourceKind("playlist"); } }, [initialPaths]);
+  const [sourceKind, setSourceKind] = useState("playlist");
+  const [sourceInput, setSourceInput] = useState("");
   const [remark, setRemark] = useState("");
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-  const onSource = (value: string) => {
+  const onSourceInput = (value: string) => {
     const extracted = extractSourceLink(value);
-    setSource(extracted);
+    setSourceInput(extracted);
     setError("");
     const identified = identifySource(extracted);
     if (identified) {
       setPlatform(identified.platform);
-      setType(identified.kind);
+      setSourceKind(identified.sourceKind);
     }
   };
-  const recognized = identifySource(source);
-  const automaticallyDetected = recognized?.platform === platform && recognized.kind === typename;
+  const recognized = identifySource(sourceInput);
+  const automaticallyDetected = recognized?.platform === platform && recognized.sourceKind === sourceKind;
   return (
     <div className="modal-backdrop" onClick={() => !busy && close()}>
       <form
@@ -67,7 +67,7 @@ export function ImportDialog({
           e.preventDefault();
           setError("");
           try {
-            await submit(platform === "LocalMusic" ? { platform, paths, remark } : { platform, typename, source, remark });
+            await submit(platform === "LocalMusic" ? { platform, paths, remark } : { platform, sourceKind, sourceInput, remark });
           } catch (error) {
             setError(errorText(error));
           }
@@ -92,19 +92,19 @@ export function ImportDialog({
         <Reveal open={platform !== "LocalMusic"}>
         <label className="field-label import-link-field">
           {t("分享链接或 ID")}
-          <input ref={inputRef} required value={source} onChange={(e) => onSource(e.target.value)}
+          <input ref={inputRef} required value={sourceInput} onChange={(e) => onSourceInput(e.target.value)}
             placeholder={t("粘贴分享链接，自动识别平台")}
             aria-describedby="import-link-hint" disabled={busy} autoComplete="off" />
         </label>
         <p className="import-recognition" id="import-link-hint" role="status">
-          {automaticallyDetected ? <><Icon name="check" size={15} />{t("已识别：{p0} · {p1}", { p0: t(platformInfo(platform).label), p1: sourceKind(typename) })}</> : t("也可输入 ID，再选择对应平台与类型。")}
+          {automaticallyDetected ? <><Icon name="check" size={15} />{t("已识别：{p0} · {p1}", { p0: t(platformInfo(platform).label), p1: sourceKindLabel(sourceKind) })}</> : t("也可输入 ID，再选择对应平台与类型。")}
         </p>
         </Reveal></fieldset>
         <fieldset className="import-platform-field" disabled={busy}>
           <legend className="field-label">{t("音乐平台")}</legend>
           <div className="import-platforms">{platforms.map(p => <button type="button" key={p.id}
             aria-pressed={platform === p.id} className={platform === p.id ? "selected" : ""}
-            onClick={() => { setPlatform(p.id); setError(""); if (!sourceKinds(p.id).includes(typename)) setType(sourceKinds(p.id)[0]); }}>
+            onClick={() => { setPlatform(p.id); setError(""); if (!sourceKinds(p.id).includes(sourceKind)) setSourceKind(sourceKinds(p.id)[0]); }}>
             <PlatformIcon id={p.id} /><span>{t(p.label)}</span>{platform === p.id && <Icon name="check" size={13} className="platform-check" />}
           </button>)}</div>
         </fieldset>
@@ -119,11 +119,11 @@ export function ImportDialog({
           {sourceKinds(platform).map((kind) => <button key={kind}
             type="button"
             disabled={busy}
-            aria-pressed={typename === kind}
-            className={typename === kind ? "selected" : ""}
-            onClick={() => setType(kind)}
+            aria-pressed={sourceKind === kind}
+            className={sourceKind === kind ? "selected" : ""}
+            onClick={() => setSourceKind(kind)}
           >
-            {sourceKind(kind)}
+            {sourceKindLabel(kind)}
           </button>)}
         </div>
         </Reveal></fieldset>
@@ -173,7 +173,7 @@ export function ImportDialog({
           </button>
           <button
             className="button primary"
-            disabled={busy || picking || (platform === "LocalMusic" ? !paths.length : !source.trim())}
+            disabled={busy || picking || (platform === "LocalMusic" ? !paths.length : !sourceInput.trim())}
             type="submit"
           >
             <Icon

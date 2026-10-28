@@ -1,6 +1,6 @@
 //! Public playlist page metadata and continuation pages, following yt-dlp's tab reader.
 //! Does not request media URLs, use OAuth, or require an API key.
-use super::{video, FetchProgress, FetchProgressCallback, PlaylistFetcher, TypeName};
+use super::{video, FetchProgress, FetchProgressCallback, PlaylistFetcher, SourceKind};
 use crate::error::AppResult;
 use reqwest::Url;
 use serde_json::{json, Value};
@@ -20,7 +20,7 @@ pub fn playback_url(id: &str) -> AppResult<String> {
     }
     Ok(format!("https://www.youtube.com/watch?v={id}"))
 }
-pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
+pub fn normalize(kind: SourceKind, input: &str) -> AppResult<String> {
     super::validate_kind(super::names::YOUTUBE, kind)?;
     let id = if input.starts_with("http") {
         let url = Url::parse(input).map_err(|_| video::error("分享链接格式无效"))?;
@@ -39,12 +39,12 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
             return Err(video::error("请使用 YouTube 官方分享链接"));
         }
         match kind {
-            TypeName::Playlist => url
+            SourceKind::Playlist => url
                 .query_pairs()
                 .find(|(k, _)| k == "list")
                 .map(|(_, v)| v.into_owned())
                 .ok_or_else(|| video::error("链接中未找到 YouTube 播放列表 ID"))?,
-            TypeName::Video => {
+            SourceKind::Video => {
                 if url.host_str() == Some("youtu.be") {
                     url.path().trim_matches('/').to_owned()
                 } else {
@@ -68,10 +68,10 @@ pub fn normalize(kind: TypeName, input: &str) -> AppResult<String> {
         input.into()
     };
     super::storage::validate_id(&id)?;
-    if kind == TypeName::Video && !valid_video_id(&id) {
+    if kind == SourceKind::Video && !valid_video_id(&id) {
         return Err(video::error("YouTube 视频 ID 应为 11 位字符"));
     }
-    if kind == TypeName::Playlist
+    if kind == SourceKind::Playlist
         && (!(12..=128).contains(&id.len())
             || !["PL", "UU", "LL", "OLAK5uy_", "FL", "RD"]
                 .iter()
@@ -312,13 +312,13 @@ fn config(html: &str) -> Value {
 
 #[async_trait::async_trait]
 impl PlaylistFetcher for YoutubeFetcher {
-    async fn fetch(&self, id: &str, kind: TypeName) -> AppResult<Value> {
+    async fn fetch(&self, id: &str, kind: SourceKind) -> AppResult<Value> {
         self.fetch_with_progress(id, kind, Arc::new(|_| {})).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        kind: TypeName,
+        kind: SourceKind,
         progress: FetchProgressCallback,
     ) -> AppResult<Value> {
         let id = normalize(kind, id)?;
@@ -328,7 +328,7 @@ impl PlaylistFetcher for YoutubeFetcher {
             total: None,
             pages: 0,
         });
-        if kind == TypeName::Video {
+        if kind == SourceKind::Video {
             let response = client
                 .get("https://www.youtube.com/oembed")
                 .query(&[("url", playback_url(&id)?), ("format", "json".into())])
@@ -469,18 +469,18 @@ mod tests {
             "https://youtu.be/dQw4w9WgXcQ?t=1",
             "https://www.youtube.com/shorts/dQw4w9WgXcQ",
         ] {
-            assert_eq!(normalize(TypeName::Video, link).unwrap(), "dQw4w9WgXcQ");
+            assert_eq!(normalize(SourceKind::Video, link).unwrap(), "dQw4w9WgXcQ");
         }
         assert_eq!(
             normalize(
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "https://music.youtube.com/playlist?list=PLt5yu3-wZAlSLRHmI1qNm0wjyVNWw1pCU"
             )
             .unwrap(),
             "PLt5yu3-wZAlSLRHmI1qNm0wjyVNWw1pCU"
         );
         assert!(normalize(
-            TypeName::Video,
+            SourceKind::Video,
             "https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ"
         )
         .is_err());
@@ -537,7 +537,7 @@ mod tests {
     #[ignore = "只读公网元数据探针，不登录、不播放、不写用户数据"]
     async fn live_public_video_metadata() {
         let source = YoutubeFetcher
-            .fetch("dQw4w9WgXcQ", TypeName::Video)
+            .fetch("dQw4w9WgXcQ", SourceKind::Video)
             .await
             .unwrap();
         assert_eq!(source["song_ids"], json!(["dQw4w9WgXcQ"]));
@@ -551,7 +551,7 @@ mod tests {
     #[ignore = "只读公网播放列表探针，不登录、不播放、不写用户数据"]
     async fn live_public_playlist_metadata() {
         let source = YoutubeFetcher
-            .fetch("PLt5yu3-wZAlSLRHmI1qNm0wjyVNWw1pCU", TypeName::Playlist)
+            .fetch("PLt5yu3-wZAlSLRHmI1qNm0wjyVNWw1pCU", SourceKind::Playlist)
             .await
             .unwrap();
         assert!(!source["song_ids"].as_array().unwrap().is_empty());
@@ -568,7 +568,7 @@ mod tests {
         let result = YoutubeFetcher
             .fetch_with_progress(
                 "PLYwq8WOe86_xGmR7FrcJq8Sb7VW8K3Tt2",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 Arc::new(move |p| recorded.lock().unwrap().push(p)),
             )
             .await;

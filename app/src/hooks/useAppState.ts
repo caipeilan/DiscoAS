@@ -21,7 +21,7 @@ export function useAppState(floating: boolean, notice: Notice) {
   const savedDesktop = useRef(emptyState.desktopSettings);
   const savedGui = useRef(emptyState.guiSettings);
   const savedSettings = useRef(emptyState.settings);
-  const savedLibrary = useRef(emptyState.playlists);
+  const savedLibrary = useRef(emptyState.sources);
   const snapshotVersion = useRef(0);
   const applySnapshot = useCallback((next: AppState) => {
     ++snapshotVersion.current;
@@ -31,7 +31,7 @@ export function useAppState(floating: boolean, notice: Notice) {
     setDraft((current) =>
       samePreferences(current, previous)
         ? next.settings
-        : { ...current, playlist_albums: next.settings.playlist_albums },
+        : { ...current, sources: next.settings.sources },
     );
     savedSettings.current = next.settings;
     setGuiDraft((current) =>
@@ -44,13 +44,13 @@ export function useAppState(floating: boolean, notice: Notice) {
         : current,
     );
     savedDesktop.current = next.desktopSettings;
-    savedLibrary.current = next.playlists;
+    savedLibrary.current = next.sources;
     setState(next);
   }, []);
   const applyPatch = useCallback((patch: PreferencePatch) => {
     if (patch.settings) {
       const previous = savedSettings.current, next = patch.settings;
-      setDraft((draft) => samePreferences(draft, previous) ? next : { ...draft, playlist_albums: next.playlist_albums });
+      setDraft((draft) => samePreferences(draft, previous) ? next : { ...draft, sources: next.sources });
       savedSettings.current = next;
     }
     if (patch.guiSettings) {
@@ -72,16 +72,16 @@ export function useAppState(floating: boolean, notice: Notice) {
   const [startup, setStartup] = useState(desktop);
   const applyLibraryPatch = useCallback(async (patch: LibraryPatch) => {
     const version = ++snapshotVersion.current;
-    const playlists = mergeLibraryEntries(savedLibrary.current, patch);
+    const sources = mergeLibraryEntries(savedLibrary.current, patch);
     applyPatch({ settings: patch.settings });
     // A source added before the first snapshot cannot be reconstructed from labels alone.
-    if (!playlists) {
+    if (!sources) {
       const snapshot = await call<AppState>("get_app_state");
       if (snapshotVersion.current === version) applySnapshot(snapshot);
       return;
     }
-    savedLibrary.current = playlists;
-    setState(current => ({ ...current, playlists, startupRefreshError: patch.startupRefreshError }));
+    savedLibrary.current = sources;
+    setState(current => ({ ...current, sources, startupRefreshError: patch.startupRefreshError }));
   }, [applyPatch, applySnapshot]);
   const [busy, setBusy] = useState("");
   useEffect(() => {

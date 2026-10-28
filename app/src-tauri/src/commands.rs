@@ -83,8 +83,8 @@ pub async fn play_song(
             songs.iter().find(|song| {
                 song.song_id == args.song_id
                     && song.platform == args.platform
-                    && song.playlist_id == args.playlist_id
-                    && song.typename == args.typename
+                    && song.source_id == args.source_id
+                    && song.source_kind == args.source_kind
             })
         })
         .cloned();

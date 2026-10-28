@@ -1,31 +1,31 @@
-export interface PlaylistSetting {
-  name: string;
-  playlist_album_id: string;
-  typename: string;
-  playlist_album_name: string;
-  playlist_album_remark: string;
-  update_time: string;
+export interface SourceConfig {
+  platform: string;
+  sourceId: string;
+  sourceKind: string;
+  title: string;
+  remark: string;
+  updatedAt: string;
   enabled: boolean;
 }
 export interface Preferences {
-  number_of_discovered_songs: number;
-  have_mystery_song: boolean;
-  num_of_mystery_song: number;
-  mystery_song_cover: string;
-  cache_batches: number;
-  preload_deduplication: boolean;
-  discovery_weighting: DiscoveryWeighting;
-  weighting_mode: DiscoveryWeightingMode;
-  ranked_weighting: RankedWeighting;
-  replacement_limit: number;
-  refreshing_after_cancel: boolean;
-  shortcut_key: string;
-  history_exclusion: "off" | "selected" | "discovered";
-  history_limit: number;
-  discovery_keybindings: DiscoveryKeybindings;
+  normalSongCount: number;
+  mysterySongsEnabled: boolean;
+  mysterySongCount: number;
+  mysteryCover: string;
+  preloadBatchCount: number;
+  deduplicatePreloadedBatches: boolean;
+  discoveryWeighting: DiscoveryWeighting;
+  weightingMode: DiscoveryWeightingMode;
+  rankedWeighting: RankedWeighting;
+  replacementLimit: number;
+  refreshOnCancel: boolean;
+  discoveryShortcut: string;
+  recentExclusionMode: "off" | "selected" | "discovered";
+  recentExclusionLimit: number;
+  discoveryKeybindings: DiscoveryKeybindings;
   hand: HandSettings;
-  hand_discovery: HandDiscoverySettings;
-  playlist_albums: PlaylistSetting[];
+  handDiscovery: HandDiscoverySettings;
+  sources: SourceConfig[];
 }
 export interface DiscoveryKeybindings {
   up: string;
@@ -36,22 +36,22 @@ export interface DiscoveryKeybindings {
   replace: string;
 }
 export interface HandSettings {
-  enabled: boolean; reveal_mystery: boolean; resident: boolean; keep_discovery_open: boolean;
-  auto_play: boolean; create_cards: boolean; auto_play_position: "first" | "last";
-  auto_play_detection: "system" | "window" | "mixed";
-  shortcut: string; play_shortcuts: string[]; side: "left" | "right" | "bottom"; capacity: number;
-  scale: number; edge_distance: number; position: number; overlap: number; tilt: number;
+  enabled: boolean; revealMystery: boolean; resident: boolean; keepDiscoveryOpen: boolean;
+  autoPlayEnabled: boolean; createCards: boolean; autoPlayPosition: "first" | "last";
+  autoPlayDetection: "system" | "window" | "mixed";
+  shortcut: string; playShortcuts: string[]; side: "left" | "right" | "bottom"; capacity: number;
+  scale: number; edgeOffsetPx: number; positionPercent: number; overlapPercent: number; tiltDegrees: number;
 }
 export const defaultHandSettings: HandSettings = {
-  enabled: false, reveal_mystery: false, resident: false, keep_discovery_open: false,
-  auto_play: false, create_cards: false, auto_play_position: "first",
-  auto_play_detection: "mixed",
-  shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12,
-  play_shortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
+  enabled: false, revealMystery: false, resident: false, keepDiscoveryOpen: false,
+  autoPlayEnabled: false, createCards: false, autoPlayPosition: "first",
+  autoPlayDetection: "mixed",
+  shortcut: "Alt+H", side: "bottom", capacity: 10, scale: 1, edgeOffsetPx: 12, positionPercent: 50, overlapPercent: 45, tiltDegrees: 12,
+  playShortcuts: Array.from({ length: 9 }, (_, i) => `Alt+${i + 1}`),
 };
 export type LiquidMode = "static" | "blur";
-export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edge_distance" | "position" | "overlap" | "tilt"> { enabled: boolean; merged: boolean; text_outline_width: number; liquid_strength: number; liquid_mode: LiquidMode }
-export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, text_outline_width: 1, liquid_strength: 100, liquid_mode: "static", side: "bottom", scale: 1, edge_distance: 12, position: 50, overlap: 45, tilt: 12 };
+export interface HandDiscoverySettings extends Pick<HandSettings, "side" | "scale" | "edgeOffsetPx" | "positionPercent" | "overlapPercent" | "tiltDegrees"> { enabled: boolean; merged: boolean; textOutlineWidth: number; liquidStrength: number; liquidMode: LiquidMode }
+export const defaultHandDiscoverySettings: HandDiscoverySettings = { enabled: false, merged: true, textOutlineWidth: 1, liquidStrength: 100, liquidMode: "static", side: "bottom", scale: 1, edgeOffsetPx: 12, positionPercent: 50, overlapPercent: 45, tiltDegrees: 12 };
 export interface HandCard { id: string; song: Song; collectedAt: number; mysteryRevealed: boolean; discovery?: boolean; placeholder?: boolean }
 export interface CollectedHandCard { id: string; discovery: DiscoveryState }
 export interface HandRect { left: number; top: number; width: number; height: number }
@@ -80,34 +80,34 @@ export interface HandSnapshot {
 export interface HandVisibility { generation: number; expanded: boolean; focus: boolean; surface?: HandSurface }
 export interface DiscoveryWeighting {
   enabled: boolean;
-  base_weight: number;
-  discovered_penalty: number;
-  selected_penalty: number;
-  recovery_batches: number;
-  boost_after_batches: number;
-  boost_per_batch: number;
-  max_weight: number;
+  baseWeight: number;
+  discoveredPenalty: number;
+  selectedPenalty: number;
+  recoveryBatches: number;
+  boostAfterBatches: number;
+  boostPerBatch: number;
+  maxWeight: number;
 }
 export type DiscoveryWeightingMode = "none" | "traditional" | "ranked" | "rotation";
 export interface RankedWeighting {
-  soft_band: number;
-  time_cooling: boolean;
-  time_cooling_strength: number;
-  time_cooling_batches: number;
+  softBand: number;
+  timeCooling: boolean;
+  timeCoolingStrength: number;
+  timeCoolingBatches: number;
   revival: boolean;
-  revival_gain: number;
-  revival_wait: number;
-  revival_span: number;
+  revivalGain: number;
+  revivalWait: number;
+  revivalSpan: number;
 }
 export const defaultRankedWeighting: RankedWeighting = {
-  soft_band: 20,
-  time_cooling: false,
-  time_cooling_strength: 0.85,
-  time_cooling_batches: 50,
+  softBand: 20,
+  timeCooling: false,
+  timeCoolingStrength: 0.85,
+  timeCoolingBatches: 50,
   revival: false,
-  revival_gain: 0.5,
-  revival_wait: 200,
-  revival_span: 200,
+  revivalGain: 0.5,
+  revivalWait: 200,
+  revivalSpan: 200,
 };
 export interface DiscoveryState {
   songs: Song[];
@@ -133,10 +133,10 @@ export interface PreviewKey {
 }
 export type HandKey = Omit<PreviewKey, "action"> & { action: PreviewKey["action"] | "discard" };
 export interface PreviewCloseRect { left: number; top: number; width: number; height: number }
-export interface LibraryEntry {
+export interface SourceSummary {
   platform: string;
-  id: string;
-  kind: string;
+  sourceId: string;
+  sourceKind: string;
   title: string;
   remark: string;
   enabled: boolean;
@@ -153,7 +153,7 @@ export interface AppState {
   guiSettings: GuiSettings;
   desktopSettings: DesktopPreferences;
   desktopSettingsError: string | null;
-  playlists: LibraryEntry[];
+  sources: SourceSummary[];
   dataPath: string;
   legacyDataPath: string | null;
   shortcutError: string | null;
@@ -161,23 +161,23 @@ export interface AppState {
 }
 export interface LibraryPatch {
   settings: Preferences;
-  updatedPlaylists: LibraryEntry[];
+  updatedSources: SourceSummary[];
   startupRefreshError: string | null;
 }
 export interface DesktopPreferences {
-  launch_at_login: boolean;
-  start_hidden: boolean;
-  update_on_startup: boolean;
-  pause_before_playback: boolean;
-  overlay_monitor: string;
-  minimize_after_playback: boolean;
-  minimize_delay_seconds: number;
-  client_window_mode: "off" | "temporary" | "persistent";
-  client_separate_desktop: boolean;
-  spotify_playback_mode: "scheme" | "pause_then_scheme" | "extension";
-  spotify_defaults_version: number;
-  browser_playback_mode: "extension" | "direct";
-  rendering_mode: "auto" | "integrated" | "discrete" | "cpu";
+  launchAtLogin: boolean;
+  startHidden: boolean;
+  updateOnStartup: boolean;
+  pauseBeforePlayback: boolean;
+  overlayMonitor: string;
+  minimizeAfterPlayback: boolean;
+  temporaryHideSeconds: number;
+  clientWindowMode: "off" | "temporary" | "persistent";
+  clientSeparateDesktop: boolean;
+  spotifyPlaybackMode: "scheme" | "pause_then_scheme" | "extension";
+  spotifyDefaultsVersion: number;
+  browserPlaybackMode: "extension" | "direct";
+  renderingMode: "auto" | "integrated" | "discrete" | "cpu";
 }
 export interface LibraryProgress {
   requestId: string;
@@ -189,9 +189,9 @@ export interface LibraryProgress {
 export interface HistoryEntry {
   songId: string;
   platform: string;
-  playlistId: string;
-  typename: string;
-  name: string;
+  sourceId: string;
+  sourceKind: string;
+  title: string;
   artistNames: string[];
   discoveredAt: number | null;
   selectedAt: number | null;
@@ -218,9 +218,9 @@ export interface BrowserBridgeStatus {
 }
 export interface ColorGroup {
   background: string;
-  background_hover: string;
+  backgroundHover: string;
   border: string;
-  font_color: string;
+  fontColor: string;
 }
 export interface SystemFont {
   family: string;
@@ -228,84 +228,84 @@ export interface SystemFont {
   aliases: string[];
 }
 export interface GuiSettings {
-  night_mode: boolean;
-  follow_system_theme: boolean;
-  card_size: number;
-  cancel_button_size: number;
-  replacement_button_size: number;
-  discovery_bar_size: number;
-  setting_size: number;
-  font_family: string;
-  font_size: number;
+  nightMode: boolean;
+  followSystemTheme: boolean;
+  discoveryCardScale: number;
+  cancelButtonScale: number;
+  replacementButtonScale: number;
+  discoveryBarScale: number;
+  mainWindowScale: number;
+  fontFamily: string;
+  fontSize: number;
   language: string;
-  user_configured: boolean;
+  userConfigured: boolean;
   card: ColorGroup;
-  cancel_button: ColorGroup;
+  cancelButton: ColorGroup;
   setting: ColorGroup;
-  card_night_mode: ColorGroup;
-  cancel_button_night_mode: ColorGroup;
-  setting_night_mode: ColorGroup;
+  cardNightMode: ColorGroup;
+  cancelButtonNightMode: ColorGroup;
+  settingNightMode: ColorGroup;
 }
 export const defaultGuiSettings: GuiSettings = {
-  night_mode: false,
-  follow_system_theme: true,
-  card_size: 1,
-  cancel_button_size: 1,
-  replacement_button_size: 1,
-  discovery_bar_size: 1,
-  setting_size: 1,
-  font_family: "",
-  font_size: 14,
+  nightMode: false,
+  followSystemTheme: true,
+  discoveryCardScale: 1,
+  cancelButtonScale: 1,
+  replacementButtonScale: 1,
+  discoveryBarScale: 1,
+  mainWindowScale: 1,
+  fontFamily: "",
+  fontSize: 14,
   language: "zh_CN",
-  user_configured: false,
+  userConfigured: false,
   card: {
     background: "#FFFFFF",
-    background_hover: "#F8F9FA",
+    backgroundHover: "#F8F9FA",
     border: "#0A84FF",
-    font_color: "#24262A",
+    fontColor: "#24262A",
   },
-  cancel_button: {
+  cancelButton: {
     background: "#FFFFFF",
-    background_hover: "#FFF1F0",
+    backgroundHover: "#FFF1F0",
     border: "#FFD1CC",
-    font_color: "#D70015",
+    fontColor: "#D70015",
   },
   setting: {
     background: "#FFFFFF",
-    background_hover: "#F2F7FF",
+    backgroundHover: "#F2F7FF",
     border: "#B3D4FF",
-    font_color: "#000000",
+    fontColor: "#000000",
   },
-  card_night_mode: {
+  cardNightMode: {
     background: "#292B2F",
-    background_hover: "#303237",
+    backgroundHover: "#303237",
     border: "#5ACFF0",
-    font_color: "#F0F1F3",
+    fontColor: "#F0F1F3",
   },
-  cancel_button_night_mode: {
+  cancelButtonNightMode: {
     background: "#292B2F",
-    background_hover: "#3A1512",
+    backgroundHover: "#3A1512",
     border: "#6E2A24",
-    font_color: "#FF453A",
+    fontColor: "#FF453A",
   },
-  setting_night_mode: {
+  settingNightMode: {
     background: "#292B2F",
-    background_hover: "#102A43",
+    backgroundHover: "#102A43",
     border: "#1D4E89",
-    font_color: "#FFFFFF",
+    fontColor: "#FFFFFF",
   },
 };
 export interface Song {
   songId: string;
-  name: string;
+  title: string;
   artistNames: string[];
   albumPicUrl: string;
   coverDataUri: string | null;
   coverError: string | null;
   mysteryMode: boolean;
   platform: string;
-  playlistId: string;
-  typename: string;
+  sourceId: string;
+  sourceKind: string;
   filename: string;
   detailError: string | null;
 }
@@ -344,44 +344,44 @@ export const platforms = [
 export const emptyState: AppState = {
   version: "",
   desktopSettings: {
-    launch_at_login: false,
-    start_hidden: false,
-    update_on_startup: true,
-    pause_before_playback: false,
-    overlay_monitor: "current",
-    minimize_after_playback: true,
-    minimize_delay_seconds: 4,
-    client_window_mode: "off",
-    client_separate_desktop: false,
-    spotify_playback_mode: "extension",
-    spotify_defaults_version: 1,
-    browser_playback_mode: "extension",
-    rendering_mode: "auto",
+    launchAtLogin: false,
+    startHidden: false,
+    updateOnStartup: true,
+    pauseBeforePlayback: false,
+    overlayMonitor: "current",
+    minimizeAfterPlayback: true,
+    temporaryHideSeconds: 4,
+    clientWindowMode: "off",
+    clientSeparateDesktop: false,
+    spotifyPlaybackMode: "extension",
+    spotifyDefaultsVersion: 1,
+    browserPlaybackMode: "extension",
+    renderingMode: "auto",
   },
   guiSettings: defaultGuiSettings,
   settings: {
-    number_of_discovered_songs: 3,
-    have_mystery_song: true,
-    num_of_mystery_song: 1,
-    mystery_song_cover: "",
-    cache_batches: 2,
-    preload_deduplication: false,
-    discovery_weighting: { enabled: false, base_weight: 100, discovered_penalty: 20,
-      selected_penalty: 40, recovery_batches: 5, boost_after_batches: 10,
-      boost_per_batch: 5, max_weight: 500 },
-    weighting_mode: "none",
-    ranked_weighting: defaultRankedWeighting,
-    replacement_limit: 1,
-    refreshing_after_cancel: false,
-    shortcut_key: "Alt+D",
-    history_exclusion: "off",
-    history_limit: 200,
-    discovery_keybindings: { up: "W", left: "A", down: "S", right: "D", select: "Enter", replace: "R" },
+    normalSongCount: 3,
+    mysterySongsEnabled: true,
+    mysterySongCount: 1,
+    mysteryCover: "",
+    preloadBatchCount: 2,
+    deduplicatePreloadedBatches: false,
+    discoveryWeighting: { enabled: false, baseWeight: 100, discoveredPenalty: 20,
+      selectedPenalty: 40, recoveryBatches: 5, boostAfterBatches: 10,
+      boostPerBatch: 5, maxWeight: 500 },
+    weightingMode: "none",
+    rankedWeighting: defaultRankedWeighting,
+    replacementLimit: 1,
+    refreshOnCancel: false,
+    discoveryShortcut: "Alt+D",
+    recentExclusionMode: "off",
+    recentExclusionLimit: 200,
+    discoveryKeybindings: { up: "W", left: "A", down: "S", right: "D", select: "Enter", replace: "R" },
     hand: defaultHandSettings,
-    hand_discovery: defaultHandDiscoverySettings,
-    playlist_albums: [],
+    handDiscovery: defaultHandDiscoverySettings,
+    sources: [],
   },
-  playlists: [],
+  sources: [],
   dataPath: "",
   legacyDataPath: null,
   shortcutError: null,

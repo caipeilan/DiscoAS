@@ -6,7 +6,7 @@ pub mod get_json;
 
 pub use get_json::fetch_playlist;
 
-use crate::core::playlist::TypeName;
+use crate::core::playlist::SourceKind;
 use crate::error::{AppError, AppResult};
 use crate::platforms::{SongDetail, SongDetailLoader};
 use async_trait::async_trait;
@@ -16,16 +16,16 @@ pub struct SpotifyFetcher;
 
 #[async_trait]
 impl crate::platforms::PlaylistFetcher for SpotifyFetcher {
-    async fn fetch(&self, id: &str, typename: TypeName) -> AppResult<serde_json::Value> {
-        get_json::fetch_playlist(id, typename).await
+    async fn fetch(&self, id: &str, source_kind: SourceKind) -> AppResult<serde_json::Value> {
+        get_json::fetch_playlist(id, source_kind).await
     }
     async fn fetch_with_progress(
         &self,
         id: &str,
-        typename: TypeName,
+        source_kind: SourceKind,
         progress: crate::platforms::FetchProgressCallback,
     ) -> AppResult<serde_json::Value> {
-        api::fetch_playlist_with_progress(id, typename, progress).await
+        api::fetch_playlist_with_progress(id, source_kind, progress).await
     }
 }
 

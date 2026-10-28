@@ -1,7 +1,7 @@
 //! Single-track input stays bound to the enabled source's platform.
 use super::{build_window_name, detail_loader_for, names, SongDetail};
 use crate::{
-    core::playlist::TypeName,
+    core::playlist::SourceKind,
     error::{network_error, AppError, AppResult},
     model::{PlaybackMetadata, SongCardDto},
 };
@@ -263,10 +263,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(card.song_id, hash);
-        assert_eq!(card.name, "同名歌曲 (Live)");
+        assert_eq!(card.title, "同名歌曲 (Live)");
         assert_eq!(card.filename, "歌手 - 同名歌曲 (Live)");
         assert_eq!(card.artist_names, ["歌手"]);
-        assert_eq!(card.playlist_id, "list");
+        assert_eq!(card.source_id, "list");
     }
 }
 
@@ -337,8 +337,8 @@ pub async fn resolve_track(
     platform: &str,
     input: &str,
     raw: &Value,
-    playlist_id: &str,
-    typename: &str,
+    source_id: &str,
+    source_kind: &str,
 ) -> AppResult<SongCardDto> {
     let local_path = if platform == names::LOCAL {
         Url::parse(input)
@@ -441,7 +441,7 @@ pub async fn resolve_track(
         Err(_) if platform == names::KUWO => super::kuwo::fetch_track_detail(&id).await?,
         Err(_) if matches!(platform, names::YOUTUBE | names::BILIBILI) => {
             let single = super::fetcher_for(platform)?
-                .fetch(&id, TypeName::Video)
+                .fetch(&id, SourceKind::Video)
                 .await?;
             loader.load_song_detail(&single, &id, false, "").await?
         }
@@ -478,12 +478,12 @@ pub async fn resolve_track(
     };
     Ok(SongCardDto {
         song_id: id,
-        name: detail.name,
+        title: detail.name,
         artist_names: detail.artist_names,
         album_pic_url: detail.album_pic_url,
         platform: platform.into(),
-        playlist_id: playlist_id.into(),
-        typename: typename.into(),
+        source_id: source_id.into(),
+        source_kind: source_kind.into(),
         filename,
         playback_metadata: detail.playback_metadata,
         ..Default::default()

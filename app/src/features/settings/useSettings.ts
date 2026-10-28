@@ -80,7 +80,7 @@ export function useSettings(app: AppStateController, notice: Notice, reportSaveE
   const chooseMysteryCover = async () => {
     try {
       const path = await call<string | null>("choose_mystery_cover");
-      if (path) setDraft((previous) => ({ ...previous, mystery_song_cover: path }));
+      if (path) setDraft((previous) => ({ ...previous, mysteryCover: path }));
     } catch (e) {
       notice(errorText(e), true);
     }

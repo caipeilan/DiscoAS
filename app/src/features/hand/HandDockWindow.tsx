@@ -27,8 +27,8 @@ export function HandDockWindow() {
   const movingRef = useRef(false), accepted = useRef(0);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointOf = (next: HandDockSnapshot) => next.dockPoint ?? current.current?.dockPoint ?? defaultDockPoint(
-    handLayout(next.count, next.settings, next.workArea, -1, next.gui.font_size),
-    next.settings.enabled ? next.settings.side : next.discoverySettings?.side ?? next.settings.side, next.workArea, 44 * next.gui.font_size / 14);
+    handLayout(next.count, next.settings, next.workArea, -1, next.gui.fontSize),
+    next.settings.enabled ? next.settings.side : next.discoverySettings?.side ?? next.settings.side, next.workArea, 44 * next.gui.fontSize / 14);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +75,7 @@ export function HandDockWindow() {
       if (!cancelled) { currentSurface.current = value; setSurface(value); }
     }).catch((e) => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; };
-  }, [snapshot?.generation, snapshot?.gui.font_size, snapshot?.dockPoint?.x, snapshot?.dockPoint?.y, hidden, moving, expandedWidth]);
+  }, [snapshot?.generation, snapshot?.gui.fontSize, snapshot?.dockPoint?.x, snapshot?.dockPoint?.y, hidden, moving, expandedWidth]);
 
   useLayoutEffect(() => {
     if (!snapshot || !surface || hidden || moving) return;
@@ -124,9 +124,9 @@ export function HandDockWindow() {
   return <div ref={stage} className="hand-stage hand-dock-stage" data-hidden={hidden || undefined}
     style={{ width: 1, height: 1, transform: surface ? `scale(${surface.scale}) translate(${-surface.left}px, ${-surface.top}px)` : undefined } as CSSProperties}>
     <HandDock element={dock} point={point} areas={snapshot.workAreas.length ? snapshot.workAreas : [snapshot.workArea]}
-      expanded={snapshot.expanded} preview={false} diameter={44 * snapshot.gui.font_size / 14}
+      expanded={snapshot.expanded} preview={false} diameter={44 * snapshot.gui.fontSize / 14}
       count={snapshot.count} capacity={snapshot.settings.capacity} busy={busy} confirm={confirm} message={error}
-      handEnabled={snapshot.settings.enabled} createCards={snapshot.settings.create_cards} discovery={snapshot.discovery} refresh={() => { setError(""); void requestHandDiscoveryRefresh().catch(e => setError(errorText(e))); }}
+      handEnabled={snapshot.settings.enabled} createCards={snapshot.settings.createCards} discovery={snapshot.discovery} refresh={() => { setError(""); void requestHandDiscoveryRefresh().catch(e => setError(errorText(e))); }}
       onWidthChange={setExpandedWidth}
       toCanvas={(x, y) => ({ x: (currentSurface.current?.left ?? 0) + x / (currentSurface.current?.scale ?? 1),
         y: (currentSurface.current?.top ?? 0) + y / (currentSurface.current?.scale ?? 1) })}

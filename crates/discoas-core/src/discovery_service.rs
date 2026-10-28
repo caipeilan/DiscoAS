@@ -4,7 +4,7 @@ use crate::{
     core::{
         cache::Cache,
         discover::{load_snapshot_batch, load_snapshot_card, select_batch_weighted},
-        playlist::TypeName,
+        playlist::SourceKind,
         source_snapshot::SourceSnapshot,
     },
     hand::{HandStore, StoredHandCard},
@@ -18,7 +18,7 @@ use crate::{
         HistoryMutationDto, PlaySongArgs, SongCardDto,
     },
     settings::music_setting::{
-        DiscoveryWeightingMode, HistoryExclusion, MusicSetting, PlaylistAlbum, MAX_HISTORY_LIMIT,
+        DiscoveryWeightingMode, HistoryExclusion, MusicSetting, SourceConfig, MAX_HISTORY_LIMIT,
     },
     storage::LibraryStore,
 };
@@ -54,7 +54,7 @@ pub struct PreparedReplacement {
 }
 
 struct SamplingInputs {
-    source: PlaylistAlbum,
+    source: SourceConfig,
     snapshot: Arc<SourceSnapshot>,
     excluded: HashSet<String>,
     weights: HashMap<String, f64>,
@@ -82,10 +82,10 @@ impl SamplingInputs {
 /// Ranked mode ranks by recent activity; `Off` keeps the hard window empty and
 /// starts the soft band at the newest song.
 fn ranked_scope(setting: &MusicSetting) -> (HistoryExclusion, u32) {
-    if setting.history_exclusion == HistoryExclusion::Off {
+    if setting.recent_exclusion_mode == HistoryExclusion::Off {
         (HistoryExclusion::Discovered, 0)
     } else {
-        (setting.history_exclusion, setting.history_limit)
+        (setting.recent_exclusion_mode, setting.recent_exclusion_limit)
     }
 }
 
@@ -124,7 +124,7 @@ impl DiscoveryService {
                 return Err("错误：手牌中发现未开启".into());
             }
             setting.hand.keep_discovery_open = true;
-            setting.refreshing_after_cancel = true;
+            setting.refresh_on_cancel = true;
         }
         Ok(setting)
     }
@@ -138,7 +138,7 @@ impl DiscoveryService {
         let (mode, limit) = if ranked {
             ranked_scope(setting)
         } else {
-            (setting.history_exclusion, setting.history_limit)
+            (setting.recent_exclusion_mode, setting.recent_exclusion_limit)
         };
         let mut ids = if mode == HistoryExclusion::Off || limit == 0 {
             HashSet::new()
@@ -226,16 +226,16 @@ impl DiscoveryService {
     fn source_snapshot(
         &self,
         setting: &MusicSetting,
-    ) -> Result<(PlaylistAlbum, Arc<SourceSnapshot>), String> {
+    ) -> Result<(SourceConfig, Arc<SourceSnapshot>), String> {
         let source = setting
-            .playlist_albums
+            .sources
             .iter()
             .find(|source| source.enabled)
             .ok_or("请先导入并启用一个歌单或专辑")?;
-        let kind = TypeName::parse(&source.typename).map_err(|error| error.to_string())?;
+        let kind = SourceKind::parse(&source.source_kind).map_err(|error| error.to_string())?;
         let snapshot = self
             .cache
-            .source_snapshot(&self.store, &source.name, &source.playlist_album_id, kind)
+            .source_snapshot(&self.store, &source.platform, &source.source_id, kind)
             .map_err(|_| "本地歌单缓存不可用，请到歌单页更新此歌单".to_string())?;
         Ok((source.clone(), snapshot))
     }
@@ -243,8 +243,8 @@ impl DiscoveryService {
     fn sampling_inputs(&self, setting: &MusicSetting) -> Result<SamplingInputs, String> {
         let (source, snapshot) = self.source_snapshot(setting)?;
         let mode = setting.weighting_mode();
-        let history = if (setting.history_exclusion != HistoryExclusion::Off
-            && setting.history_limit > 0)
+        let history = if (setting.recent_exclusion_mode != HistoryExclusion::Off
+            && setting.recent_exclusion_limit > 0)
             || mode != DiscoveryWeightingMode::None
         {
             self.history.load().map_err(|error| error.to_string())?
@@ -255,39 +255,39 @@ impl DiscoveryService {
         let (rank_mode, limit) = if ranked {
             ranked_scope(setting)
         } else {
-            (setting.history_exclusion, setting.history_limit)
+            (setting.recent_exclusion_mode, setting.recent_exclusion_limit)
         };
         let (mut excluded, weights) = match mode {
             DiscoveryWeightingMode::Rotation => (
-                history.excluded_song_ids(&source.name, rank_mode, limit),
-                history.weighting.rotation_weights(&source.name, &snapshot.playlist.song_ids,
-                    (setting.number_of_discovered_songs + if setting.have_mystery_song { setting.num_of_mystery_song } else { 0 }) as usize),
+                history.excluded_song_ids(&source.platform, rank_mode, limit),
+                history.weighting.rotation_weights(&source.platform, &snapshot.playlist.song_ids,
+                    (setting.normal_song_count + if setting.mystery_songs_enabled { setting.mystery_song_count } else { 0 }) as usize),
             ),
             DiscoveryWeightingMode::Ranked => history.ranked_weights(
-                &source.name,
+                &source.platform,
                 rank_mode,
                 limit,
                 &setting.ranked_weighting,
                 &snapshot.playlist.song_ids,
             ),
             DiscoveryWeightingMode::Traditional => (
-                history.excluded_song_ids(&source.name, rank_mode, limit),
+                history.excluded_song_ids(&source.platform, rank_mode, limit),
                 history
                     .weighting
                     .weights(
-                        &source.name,
+                        &source.platform,
                         &snapshot.playlist.song_ids,
                         &setting.discovery_weighting,
                     )
                     .map_err(|error| error.to_string())?,
             ),
             DiscoveryWeightingMode::None => (
-                history.excluded_song_ids(&source.name, rank_mode, limit),
+                history.excluded_song_ids(&source.platform, rank_mode, limit),
                 HashMap::new(),
             ),
         };
         if setting.hand.enabled {
-            excluded.extend(HandStore::new(self.store.root()).held_ids(&source.name)?);
+            excluded.extend(HandStore::new(self.store.root()).held_ids(&source.platform)?);
         }
         Ok(SamplingInputs {
             source,
@@ -540,13 +540,13 @@ impl DiscoveryService {
                 dedup_plan = None;
                 dedup_excluded = None;
             }
-            if setting.cache_batches == 0
-                || setting.playlist_albums.iter().all(|source| !source.enabled)
-                || self.cache.batch_count().await >= setting.cache_batches.min(5) as usize
+            if setting.preload_batch_count == 0
+                || setting.sources.iter().all(|source| !source.enabled)
+                || self.cache.batch_count().await >= setting.preload_batch_count.min(5) as usize
             {
                 return Ok(());
             }
-            let excluded: &HashSet<String> = if setting.preload_deduplication {
+            let excluded: &HashSet<String> = if setting.deduplicate_preloaded_batches {
                 if dedup_plan.is_none() {
                     let eligible: HashSet<_> = inputs
                         .snapshot
@@ -556,11 +556,11 @@ impl DiscoveryService {
                         .filter(|id| !id.is_empty() && !inputs.excluded.contains(*id))
                         .cloned()
                         .collect();
-                    let target = (setting.number_of_discovered_songs.clamp(1, 15)
-                        + if setting.have_mystery_song {
+                    let target = (setting.normal_song_count.clamp(1, 15)
+                        + if setting.mystery_songs_enabled {
                             setting
-                                .num_of_mystery_song
-                                .min(15 - setting.number_of_discovered_songs.clamp(1, 15))
+                                .mystery_song_count
+                                .min(15 - setting.normal_song_count.clamp(1, 15))
                         } else {
                             0
                         }) as usize;
@@ -568,7 +568,7 @@ impl DiscoveryService {
                 }
                 let (eligible, target) = dedup_plan.as_ref().expect("dedup plan");
                 let target = *target;
-                let reserved = self.cache.reserved_song_ids(&inputs.source.name).await;
+                let reserved = self.cache.reserved_song_ids(&inputs.source.platform).await;
                 if eligible.is_empty()
                     || eligible.difference(&reserved).count() < target.min(eligible.len())
                 {
@@ -603,7 +603,7 @@ impl DiscoveryService {
                         .push_if_current_with_dedup(
                             generation,
                             batch,
-                            setting.preload_deduplication,
+                            setting.deduplicate_preloaded_batches,
                         )
                         .await;
                 }
@@ -614,11 +614,11 @@ impl DiscoveryService {
     }
 
     fn remaining_for(&self, setting: &MusicSetting) -> Result<u32, String> {
-        if !setting.playlist_albums.iter().any(|source| source.enabled) {
+        if !setting.sources.iter().any(|source| source.enabled) {
             return Ok(0);
         }
         let (source, snapshot) = self.source_snapshot(setting)?;
-        let excluded = self.excluded_song_ids(setting, &source.name)?;
+        let excluded = self.excluded_song_ids(setting, &source.platform)?;
         Ok(snapshot
             .playlist
             .song_ids
@@ -646,8 +646,8 @@ impl DiscoveryService {
             batch_epoch: self.cache.current_batch_epoch(),
             remaining_songs: remaining,
             replacements_remaining: setting.replacement_limit.saturating_sub(used),
-            exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
-                && setting.history_limit > 0
+            exclusion_enabled: setting.recent_exclusion_mode != HistoryExclusion::Off
+                && setting.recent_exclusion_limit > 0
                 || setting.hand.enabled,
             replacement_enabled: setting.replacement_limit > 0,
             preview: false,
@@ -679,8 +679,8 @@ impl DiscoveryService {
             batch_epoch: 0,
             remaining_songs: remaining,
             replacements_remaining: setting.replacement_limit,
-            exclusion_enabled: setting.history_exclusion != HistoryExclusion::Off
-                && setting.history_limit > 0
+            exclusion_enabled: setting.recent_exclusion_mode != HistoryExclusion::Off
+                && setting.recent_exclusion_limit > 0
                 || setting.hand.enabled,
             replacement_enabled: setting.replacement_limit > 0,
             preview: true,
@@ -718,9 +718,9 @@ impl DiscoveryService {
             mut excluded,
             weights,
         } = self.sampling_inputs(&setting)?;
-        if source.name != args.platform
-            || source.playlist_album_id != args.playlist_id
-            || source.typename != args.typename
+        if source.platform != args.platform
+            || source.source_id != args.source_id
+            || source.source_kind != args.source_kind
         {
             return Err("歌曲来源已改变，请重新发现歌曲".into());
         }
@@ -821,7 +821,7 @@ impl DiscoveryService {
             return Err("歌曲来源已改变，请重新发现歌曲".into());
         }
         // A new visible card must not coexist in a deduplicated future batch.
-        if ticket.setting.preload_deduplication {
+        if ticket.setting.deduplicate_preloaded_batches {
             self.cache
                 .exclude_preloads(&HashSet::from([(
                     prepared.song.platform.clone(),
@@ -843,7 +843,7 @@ impl DiscoveryService {
         &self,
         _guard: &tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<(), String> {
-        if self.settings()?.refreshing_after_cancel {
+        if self.settings()?.refresh_on_cancel {
             self.cache.release_current_batch().await;
         } else {
             self.cache.requeue_current_batch().await;
@@ -861,8 +861,8 @@ impl DiscoveryService {
                 batch.iter().find(|song| {
                     song.song_id == args.song_id
                         && song.platform == args.platform
-                        && song.playlist_id == args.playlist_id
-                        && song.typename == args.typename
+                        && song.source_id == args.source_id
+                        && song.source_kind == args.source_kind
                 })
             })
             .ok_or("歌曲来源已改变，请重新发现歌曲")?;
@@ -901,10 +901,10 @@ impl DiscoveryService {
         if newly_displayed {
             self.cache.mark_batch_displayed(&batch).await;
         }
-        if setting.history_exclusion == HistoryExclusion::Selected {
+        if setting.recent_exclusion_mode == HistoryExclusion::Selected {
             self.exclude_history_preloads(&setting, &song.platform, snapshot.as_ref())
                 .await?;
-        } else if newly_displayed && setting.history_exclusion == HistoryExclusion::Discovered {
+        } else if newly_displayed && setting.recent_exclusion_mode == HistoryExclusion::Discovered {
             self.exclude_history_preloads(&setting, &song.platform, snapshot.as_ref())
                 .await?;
         }
@@ -940,7 +940,7 @@ impl DiscoveryService {
         let setting = self.settings()?;
         let snapshot = self.record_visible_cards(&batch, &setting, None).await?;
         if self.cache.mark_batch_displayed(&batch).await
-            && setting.history_exclusion == HistoryExclusion::Discovered
+            && setting.recent_exclusion_mode == HistoryExclusion::Discovered
         {
             self.exclude_history_preloads(&setting, &batch[0].platform, snapshot.as_ref())
                 .await?;
@@ -1007,14 +1007,14 @@ impl DiscoveryService {
         platform: &str,
         snapshot: Option<&HistorySnapshot>,
     ) -> Result<(), String> {
-        if setting.history_exclusion == HistoryExclusion::Off || setting.history_limit == 0 {
+        if setting.recent_exclusion_mode == HistoryExclusion::Off || setting.recent_exclusion_limit == 0 {
             return Ok(());
         }
         let ranked = setting.weighting_mode() == DiscoveryWeightingMode::Ranked;
         let (mode, limit) = if ranked {
             ranked_scope(setting)
         } else {
-            (setting.history_exclusion, setting.history_limit)
+            (setting.recent_exclusion_mode, setting.recent_exclusion_limit)
         };
         let excluded = match snapshot {
             Some(snapshot) => snapshot.exclusion_ids(platform, mode, limit, ranked),
@@ -1061,8 +1061,8 @@ impl DiscoveryService {
             let key = (
                 row.platform.clone(),
                 row.song_id.clone(),
-                row.playlist_id.clone(),
-                row.typename.clone(),
+                row.source_id.clone(),
+                row.source_kind.clone(),
             );
             if let Some(index) = candidate_indices.get(&key) {
                 candidates[*index].push(row);
@@ -1113,10 +1113,10 @@ impl DiscoveryService {
     ) -> Option<(Vec<HistoryEntry>, CanonicalSongMetadata)> {
         let originals = originals?;
         let entry = originals.first()?;
-        let kind = TypeName::parse(&entry.typename).ok()?;
+        let kind = SourceKind::parse(&entry.source_kind).ok()?;
         let raw = self
             .store
-            .load_json(&entry.platform, &entry.playlist_id, kind)
+            .load_json(&entry.platform, &entry.source_id, kind)
             .ok()?;
         let loader = crate::platforms::detail_loader_for(&entry.platform).ok()?;
         let metadata = tokio::time::timeout(Duration::from_secs(8), async {
@@ -1304,8 +1304,8 @@ impl DiscoveryService {
                     .store
                     .load_json(
                         &row.platform,
-                        &row.playlist_id,
-                        TypeName::parse(&row.typename).ok()?,
+                        &row.source_id,
+                        SourceKind::parse(&row.source_kind).ok()?,
                     )
                     .ok()?;
                 let loader = crate::platforms::detail_loader_for(&row.platform).ok()?;
@@ -1335,8 +1335,8 @@ impl DiscoveryService {
 fn matches_identity(song: &SongCardDto, args: &PlaySongArgs) -> bool {
     song.song_id == args.song_id
         && song.platform == args.platform
-        && song.playlist_id == args.playlist_id
-        && song.typename == args.typename
+        && song.source_id == args.source_id
+        && song.source_kind == args.source_kind
 }
 
 /// Keep real metadata and cover identity, never the large prepared Base64 bytes.
@@ -1345,11 +1345,11 @@ fn history_cards(batch: &[SongCardDto]) -> Vec<SongCardDto> {
         .iter()
         .map(|song| SongCardDto {
             song_id: song.song_id.clone(),
-            name: song.name.clone(),
+            title: song.title.clone(),
             artist_names: song.artist_names.clone(),
             platform: song.platform.clone(),
-            playlist_id: song.playlist_id.clone(),
-            typename: song.typename.clone(),
+            source_id: song.source_id.clone(),
+            source_kind: song.source_kind.clone(),
             mystery_mode: song.mystery_mode,
             real_metadata: song.real_metadata.clone(),
             real_cover_url: song.real_cover_url.clone(),
@@ -1366,8 +1366,8 @@ fn play_args(batch: &[SongCardDto]) -> Vec<PlaySongArgs> {
         .map(|song| PlaySongArgs {
             platform: song.platform.clone(),
             song_id: song.song_id.clone(),
-            playlist_id: song.playlist_id.clone(),
-            typename: song.typename.clone(),
+            source_id: song.source_id.clone(),
+            source_kind: song.source_kind.clone(),
             filename: song.filename.clone(),
         })
         .collect()
@@ -1376,7 +1376,7 @@ fn play_args(batch: &[SongCardDto]) -> Vec<PlaySongArgs> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::music_setting::PlaylistAlbum;
+    use crate::settings::music_setting::SourceConfig;
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -1386,9 +1386,9 @@ mod tests {
         fixture.settings(false);
         fixture.source();
         fixture.configure(|setting| {
-            setting.have_mystery_song = false;
-            setting.history_exclusion = HistoryExclusion::Selected;
-            setting.history_limit = 1;
+            setting.mystery_songs_enabled = false;
+            setting.recent_exclusion_mode = HistoryExclusion::Selected;
+            setting.recent_exclusion_limit = 1;
             setting.discovery_weighting.enabled = true;
         });
         let service = fixture.service(Cache::new());
@@ -1398,7 +1398,7 @@ mod tests {
                 &SongCardDto {
                     platform: "Spotify".into(),
                     song_id: "a".into(),
-                    name: "A".into(),
+                    title: "A".into(),
                     ..Default::default()
                 },
                 MAX_HISTORY_LIMIT,
@@ -1436,18 +1436,18 @@ mod tests {
         }
         fn settings(&self, refresh: bool) {
             let setting = MusicSetting {
-                number_of_discovered_songs: 1,
-                have_mystery_song: true,
-                num_of_mystery_song: 1,
-                cache_batches: 2,
-                refreshing_after_cancel: refresh,
-                playlist_albums: vec![PlaylistAlbum {
-                    name: "Spotify".into(),
-                    playlist_album_id: "source".into(),
-                    typename: "playlist".into(),
-                    playlist_album_name: "fixture".into(),
-                    playlist_album_remark: String::new(),
-                    update_time: String::new(),
+                normal_song_count: 1,
+                mystery_songs_enabled: true,
+                mystery_song_count: 1,
+                preload_batch_count: 2,
+                refresh_on_cancel: refresh,
+                sources: vec![SourceConfig {
+                    platform: "Spotify".into(),
+                    source_id: "source".into(),
+                    source_kind: "playlist".into(),
+                    title: "fixture".into(),
+                    remark: String::new(),
+                    updated_at: String::new(),
                     enabled: true,
                 }],
                 ..Default::default()
@@ -1463,7 +1463,7 @@ mod tests {
                 .save_playlist_json(
                     "Spotify",
                     "source",
-                    TypeName::Playlist,
+                    SourceKind::Playlist,
                     &json!({
                         "playlist_album_name":"fixture", "song_ids":["a","b","a"],
                         "tracks_info":[
@@ -1479,7 +1479,7 @@ mod tests {
             let cover = self.0.join("cover.png");
             std::fs::write(&cover, b"\x89PNG\r\n\x1a\nfixture").unwrap();
             let ids: Vec<_> = (0..count).map(|id| id.to_string()).collect();
-            LibraryStore::new(self.0.clone()).save_playlist_json("Spotify","source",TypeName::Playlist,&json!({"song_ids":ids,"tracks_info":ids.iter().map(|id|json!({"id":id,"name":format!("Song {id}"),"artists":["Artist"],"coverUrl":cover})).collect::<Vec<_>>()})).unwrap();
+            LibraryStore::new(self.0.clone()).save_playlist_json("Spotify","source",SourceKind::Playlist,&json!({"song_ids":ids,"tracks_info":ids.iter().map(|id|json!({"id":id,"name":format!("Song {id}"),"artists":["Artist"],"coverUrl":cover})).collect::<Vec<_>>()})).unwrap();
         }
         fn configure(&self, mutate: impl FnOnce(&mut MusicSetting)) {
             let path = self.0.join("settings/music_setting.json");
@@ -1491,8 +1491,8 @@ mod tests {
         fn exclusion(&self, mode: HistoryExclusion, limit: u32) {
             let path = self.0.join("settings/music_setting.json");
             let mut setting = MusicSetting::load_from_path(&path).unwrap();
-            setting.history_exclusion = mode;
-            setting.history_limit = limit;
+            setting.recent_exclusion_mode = mode;
+            setting.recent_exclusion_limit = limit;
             setting.save_to_path(&path).unwrap();
         }
     }
@@ -1663,7 +1663,7 @@ mod tests {
             );
         }
         assert_eq!(service.get_state().await.unwrap().songs, next.songs);
-        fixture.configure(|s| s.playlist_albums.clear());
+        fixture.configure(|s| s.sources.clear());
         cache.invalidate().await;
         let card = HandStore::new(&fixture.0).load().unwrap().cards.remove(0);
         assert!(crate::platforms::build_scheme_url(&card.playback_args())
@@ -1759,7 +1759,7 @@ mod tests {
         let ids = identities(&songs);
         for song in &mut songs {
             song.detail_error = Some("temporary failure".into());
-            song.name = "unavailable".into();
+            song.title = "unavailable".into();
             song.artist_names.clear();
             song.cover_data_uri = None;
             song.real_metadata = None;
@@ -1783,7 +1783,7 @@ mod tests {
             .all(|song| song.detail_error.is_none()));
         assert_eq!(reopened.songs[0].artist_names, vec!["Artist"]);
         assert!(reopened.songs[0].cover_data_uri.is_some());
-        assert_eq!(reopened.songs[1].name, "???");
+        assert_eq!(reopened.songs[1].title, "???");
         assert_eq!(reopened.songs[1].artist_names, vec!["???"]);
         assert!(reopened.songs[1].real_metadata.is_some());
         assert_eq!(cache.current_batch_epoch(), epoch);
@@ -1903,9 +1903,9 @@ mod tests {
         }
         std::fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
         fixture.configure(|setting| {
-            setting.number_of_discovered_songs = 1;
-            setting.have_mystery_song = false;
-            setting.cache_batches = 1;
+            setting.normal_song_count = 1;
+            setting.mystery_songs_enabled = false;
+            setting.preload_batch_count = 1;
         });
         cache.invalidate().await;
         tokio::time::timeout(Duration::from_secs(1), worker)
@@ -1997,8 +1997,8 @@ mod tests {
             .set_current_batch(vec![SongCardDto {
                 song_id: "hash".into(),
                 platform: "KugouMusic".into(),
-                playlist_id: "source".into(),
-                typename: "playlist".into(),
+                source_id: "source".into(),
+                source_kind: "playlist".into(),
                 filename: "trusted name".into(),
                 ..Default::default()
             }])
@@ -2007,12 +2007,12 @@ mod tests {
         let mut args = PlaySongArgs {
             song_id: "hash".into(),
             platform: "KugouMusic".into(),
-            playlist_id: "other".into(),
-            typename: "playlist".into(),
+            source_id: "other".into(),
+            source_kind: "playlist".into(),
             filename: "untrusted".into(),
         };
         assert!(service.playback_target(&args).await.is_err());
-        args.playlist_id = "source".into();
+        args.source_id = "source".into();
         let target = service.playback_target(&args).await.unwrap();
         use base64::{engine::general_purpose::STANDARD, Engine};
         let payload = STANDARD
@@ -2029,8 +2029,8 @@ mod tests {
             .map(|song| PlaySongArgs {
                 song_id: song.song_id.clone(),
                 platform: song.platform.clone(),
-                playlist_id: song.playlist_id.clone(),
-                typename: song.typename.clone(),
+                source_id: song.source_id.clone(),
+                source_kind: song.source_kind.clone(),
                 filename: String::new(),
             })
             .collect()
@@ -2041,14 +2041,14 @@ mod tests {
         for (platform, kind, source_id, song_ids, playback_prefix) in [
             (
                 crate::platforms::names::KUWO,
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "7065314237",
                 ["228908", "228909"],
                 "https://www.kuwo.cn/play_detail/",
             ),
             (
                 crate::platforms::names::QISHUI,
-                TypeName::Album,
+                SourceKind::Album,
                 "7692011978622584882",
                 ["7692011978622617650", "7692011978622617651"],
                 "luna://luna.com/playing?track_id=",
@@ -2057,18 +2057,18 @@ mod tests {
             let fixture = Fixture::new();
             let settings_path = fixture.0.join("settings/music_setting.json");
             let mut setting = MusicSetting {
-                number_of_discovered_songs: 1,
-                have_mystery_song: true,
-                num_of_mystery_song: 1,
-                cache_batches: 0,
-                refreshing_after_cancel: true,
-                playlist_albums: vec![PlaylistAlbum {
-                    name: platform.into(),
-                    playlist_album_id: source_id.into(),
-                    typename: kind.as_str().into(),
-                    playlist_album_name: "离线来源".into(),
-                    playlist_album_remark: String::new(),
-                    update_time: String::new(),
+                normal_song_count: 1,
+                mystery_songs_enabled: true,
+                mystery_song_count: 1,
+                preload_batch_count: 0,
+                refresh_on_cancel: true,
+                sources: vec![SourceConfig {
+                    platform: platform.into(),
+                    source_id: source_id.into(),
+                    source_kind: kind.as_str().into(),
+                    title: "离线来源".into(),
+                    remark: String::new(),
+                    updated_at: String::new(),
                     enabled: true,
                 }],
                 ..Default::default()
@@ -2095,9 +2095,9 @@ mod tests {
             assert_eq!(batch.songs.len(), 2);
             let ordinary = batch.songs.iter().find(|song| !song.mystery_mode).unwrap();
             let mystery = batch.songs.iter().find(|song| song.mystery_mode).unwrap();
-            assert_eq!(ordinary.name, format!("真实歌曲{}", ordinary.song_id));
+            assert_eq!(ordinary.title, format!("真实歌曲{}", ordinary.song_id));
             assert_eq!(ordinary.artist_names, ["中文歌手"]);
-            assert_eq!(mystery.name, "???");
+            assert_eq!(mystery.title, "???");
             assert_eq!(mystery.artist_names, ["???"]);
             let args = identities(&batch.songs);
             let selected = identities(std::slice::from_ref(mystery)).remove(0);
@@ -2116,11 +2116,11 @@ mod tests {
             assert_eq!(history.discovered.len(), 2);
             assert_eq!(history.selected.len(), 1);
             assert_eq!(
-                history.selected[0].name,
+                history.selected[0].title,
                 format!("真实歌曲{}", selected.song_id)
             );
             assert_eq!(history.selected[0].artist_names, ["中文歌手"]);
-            assert!(history.discovered.iter().all(|entry| entry.name != "???"));
+            assert!(history.discovered.iter().all(|entry| entry.title != "???"));
 
             service.cancel().await.unwrap();
             {
@@ -2130,7 +2130,7 @@ mod tests {
             // Reusing the same song IDs in another source must not authorize the
             // old card's source identity; the host invalidates when saving sources.
             let next_source = "999";
-            setting.playlist_albums[0].playlist_album_id = next_source.into();
+            setting.sources[0].source_id = next_source.into();
             let mut next_snapshot = snapshot;
             next_snapshot["playlist_album_id"] = json!(next_source);
             store
@@ -2165,7 +2165,7 @@ mod tests {
         let batch = service.discover(false).await.unwrap();
         assert!(service.history().unwrap().is_empty());
         let mut stale = identities(&batch.songs);
-        stale[0].playlist_id = "other".into();
+        stale[0].source_id = "other".into();
         assert!(!service.record_discovery_displayed(&stale).await.unwrap());
         assert!(service
             .record_discovery_displayed(&identities(&batch.songs))
@@ -2189,11 +2189,11 @@ mod tests {
             .find(|entry| entry.song_id == hidden.song_id)
             .unwrap();
         assert_eq!(
-            hidden_history.name,
-            hidden.real_metadata.as_ref().unwrap().name
+            hidden_history.title,
+            hidden.real_metadata.as_ref().unwrap().title
         );
         assert_eq!(hidden_history.artist_names, ["Artist"]);
-        assert_eq!(hidden.name, "???");
+        assert_eq!(hidden.title, "???");
         service.cancel().await.unwrap();
         assert!(!service
             .record_discovery_displayed(&identities(&batch.songs))
@@ -2226,7 +2226,7 @@ mod tests {
         service.record_discovery_displayed(&ids).await.unwrap();
         assert_eq!(cache.batch_count().await, 1);
         let mut forged = ids[0].clone();
-        forged.typename = "album".into();
+        forged.source_kind = "album".into();
         assert!(service.record_selection(&forged).await.is_err());
         assert!(service.history.load().unwrap().selected.is_empty());
         service.record_selection(&ids[0]).await.unwrap();
@@ -2268,8 +2268,8 @@ mod tests {
         fixture.settings(false);
         fixture.source_many(8);
         fixture.configure(|setting| {
-            setting.history_exclusion = HistoryExclusion::Discovered;
-            setting.history_limit = 2;
+            setting.recent_exclusion_mode = HistoryExclusion::Discovered;
+            setting.recent_exclusion_limit = 2;
             setting.weighting_mode = DiscoveryWeightingMode::Ranked;
             setting.ranked_weighting.soft_band = 2;
         });
@@ -2281,8 +2281,8 @@ mod tests {
                     &[SongCardDto {
                         platform: "Spotify".into(),
                         song_id: id.into(),
-                        playlist_id: "source".into(),
-                        typename: "playlist".into(),
+                        source_id: "source".into(),
+                        source_kind: "playlist".into(),
                         ..Default::default()
                     }],
                     200,
@@ -2365,8 +2365,8 @@ mod tests {
         fixture.source();
         fixture.configure(|s| {
             s.hand_discovery.enabled = true;
-            s.number_of_discovered_songs = 1;
-            s.have_mystery_song = false;
+            s.normal_song_count = 1;
+            s.mystery_songs_enabled = false;
         });
         let cache = Cache::new();
         let hand_cache = Cache::independent(&cache);
@@ -2375,19 +2375,19 @@ mod tests {
         let before = main.discover(false).await.unwrap();
         let mut raw = main
             .store
-            .load_json("Spotify", "source", TypeName::Playlist)
+            .load_json("Spotify", "source", SourceKind::Playlist)
             .unwrap();
         for row in raw["tracks_info"].as_array_mut().unwrap() {
             row["name"] = json!("Updated source title");
         }
         main.store
-            .save_playlist_json("Spotify", "source", TypeName::Playlist, &raw)
+            .save_playlist_json("Spotify", "source", SourceKind::Playlist, &raw)
             .unwrap();
         let next = hand.discover(true).await.unwrap();
-        assert_eq!(next.songs[0].name, "Updated source title");
+        assert_eq!(next.songs[0].title, "Updated source title");
         assert_eq!(main.discover(false).await.unwrap().songs, before.songs);
         assert_eq!(
-            main.discover(true).await.unwrap().songs[0].name,
+            main.discover(true).await.unwrap().songs[0].title,
             "Updated source title"
         );
     }
@@ -2404,9 +2404,9 @@ mod tests {
         service.record_selection(&args).await.unwrap();
         let snapshot = service.history.load().unwrap();
         let selected = &snapshot.selected[0];
-        assert_eq!(selected.name, mystery.real_metadata.as_ref().unwrap().name);
+        assert_eq!(selected.title, mystery.real_metadata.as_ref().unwrap().title);
         assert_eq!(selected.artist_names, ["Artist"]);
-        assert!(snapshot.discovered.iter().all(|entry| entry.name != "???"));
+        assert!(snapshot.discovered.iter().all(|entry| entry.title != "???"));
         let payload = serde_json::to_value(mystery).unwrap();
         assert_eq!(payload["name"], "???");
         assert_eq!(payload["artistNames"], json!(["???"]));
@@ -2422,9 +2422,9 @@ mod tests {
         let hidden = SongCardDto {
             song_id: "a".into(),
             platform: "Spotify".into(),
-            playlist_id: "source".into(),
-            typename: "playlist".into(),
-            name: "???".into(),
+            source_id: "source".into(),
+            source_kind: "playlist".into(),
+            title: "???".into(),
             artist_names: vec!["???".into()],
             mystery_mode: true,
             ..Default::default()
@@ -2447,7 +2447,7 @@ mod tests {
             after.selected[0].selected_at,
             before.selected[0].selected_at
         );
-        assert_eq!(after.selected[0].name, "A");
+        assert_eq!(after.selected[0].title, "A");
         assert_eq!(after.discovered[0].artist_names, ["Artist"]);
         assert_eq!(service.repair_history_metadata(100).await.unwrap(), 0);
         assert_eq!(service.history().unwrap().len(), 1);
@@ -2464,9 +2464,9 @@ mod tests {
                 &SongCardDto {
                     song_id: "a".into(),
                     platform: "Spotify".into(),
-                    playlist_id: "missing".into(),
-                    typename: "playlist".into(),
-                    name: "???".into(),
+                    source_id: "missing".into(),
+                    source_kind: "playlist".into(),
+                    title: "???".into(),
                     mystery_mode: true,
                     ..Default::default()
                 },
@@ -2488,9 +2488,9 @@ mod tests {
         let songs = ["a", "b"].map(|id| SongCardDto {
             song_id: id.into(),
             platform: "Spotify".into(),
-            playlist_id: "source".into(),
-            typename: "playlist".into(),
-            name: "???".into(),
+            source_id: "source".into(),
+            source_kind: "playlist".into(),
+            title: "???".into(),
             artist_names: vec!["???".into()],
             mystery_mode: true,
             ..Default::default()
@@ -2503,7 +2503,7 @@ mod tests {
                 .history()
                 .unwrap()
                 .iter()
-                .filter(|row| row.name == "???")
+                .filter(|row| row.title == "???")
                 .count(),
             1
         );
@@ -2512,7 +2512,7 @@ mod tests {
             .history()
             .unwrap()
             .iter()
-            .all(|row| row.name != "???"));
+            .all(|row| row.title != "???"));
     }
 
     #[tokio::test]
@@ -2566,8 +2566,8 @@ mod tests {
         fixture.settings(false);
         fixture.source_many(8);
         fixture.configure(|setting| {
-            setting.preload_deduplication = true;
-            setting.cache_batches = 5;
+            setting.deduplicate_preloaded_batches = true;
+            setting.preload_batch_count = 5;
         });
         let cache = Cache::new();
         let service = fixture.service(cache.clone());
@@ -2643,7 +2643,7 @@ mod tests {
         let first = replace(&service, &cache, 1).await;
         assert_eq!(first.songs[0], original.songs[0]);
         assert!(first.songs[1].mystery_mode);
-        assert_eq!(first.songs[1].name, "???");
+        assert_eq!(first.songs[1].title, "???");
         assert_eq!(first.replacements_remaining, 1);
         service
             .record_discovery_displayed(&identities(&first.songs))
@@ -2685,7 +2685,7 @@ mod tests {
             2
         );
         let history = service.history().unwrap();
-        assert!(history.iter().all(|row| row.name != "???"));
+        assert!(history.iter().all(|row| row.title != "???"));
         assert_eq!(history.len(), 3);
     }
 
@@ -2731,7 +2731,7 @@ mod tests {
         ticket.source_data = Arc::new(SourceSnapshot {
             playlist: crate::core::playlist::Playlist::from_json(
                 "Spotify",
-                TypeName::Playlist,
+                SourceKind::Playlist,
                 "source",
                 &raw,
             )
@@ -2765,22 +2765,22 @@ mod tests {
             let replacement_id = ready.song.song_id.clone();
             fixture.configure(|settings| match change {
                 "metadata" => {
-                    settings.shortcut_key = "Ctrl+Shift+D".into();
+                    settings.discovery_shortcut = "Ctrl+Shift+D".into();
                     settings.discovery_keybindings.up = "ArrowUp".into();
-                    settings.playlist_albums[0].playlist_album_remark =
+                    settings.sources[0].remark =
                         "Edited while loading".into();
-                    settings.playlist_albums[0].playlist_album_name = "New title".into();
-                    settings.playlist_albums[0].update_time = "later".into();
-                    let mut inactive = settings.playlist_albums[0].clone();
+                    settings.sources[0].title = "New title".into();
+                    settings.sources[0].updated_at = "later".into();
+                    let mut inactive = settings.sources[0].clone();
                     inactive.enabled = false;
-                    inactive.playlist_album_id = "unrelated".into();
-                    settings.playlist_albums.push(inactive);
+                    inactive.source_id = "unrelated".into();
+                    settings.sources.push(inactive);
                 }
-                "count" => settings.number_of_discovered_songs = 2,
-                "platform" => settings.playlist_albums[0].name = "QQMusic".into(),
-                "id" => settings.playlist_albums[0].playlist_album_id = "another".into(),
-                "kind" => settings.playlist_albums[0].typename = "album".into(),
-                _ => settings.playlist_albums[0].enabled = false,
+                "count" => settings.normal_song_count = 2,
+                "platform" => settings.sources[0].platform = "QQMusic".into(),
+                "id" => settings.sources[0].source_id = "another".into(),
+                "kind" => settings.sources[0].source_kind = "album".into(),
+                _ => settings.sources[0].enabled = false,
             });
             let guard = cache.operation.lock().await;
             let result = service.commit_replacement_in_operation(ready, &guard).await;
@@ -2825,7 +2825,7 @@ mod tests {
         let state = service.get_state().await.unwrap();
         let generation = cache.generation();
         let mut draft = service.settings().unwrap();
-        draft.number_of_discovered_songs = 5;
+        draft.normal_song_count = 5;
         let preview = service.prepare_preview(&draft).await.unwrap();
         assert!(preview.preview);
         assert_eq!(preview.songs.len(), 6);

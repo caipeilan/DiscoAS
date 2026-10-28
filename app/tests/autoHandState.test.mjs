@@ -27,10 +27,10 @@ test("a new handoff locks again after a previous failure", () => {
 });
 
 test("late toggle replies cannot revert a newer temporary setting", () => {
-  const off={token:8,busy:true,configured:true,enabled:false,revision:3};
-  assert.equal(mergeAutoHandState(off,{...off,enabled:true,revision:2}),off);
+  const off={token:8,busy:true,configured:true,active:false,revision:3};
+  assert.equal(mergeAutoHandState(off,{...off,active:true,revision:2}),off);
   const finished=mergeAutoHandState(off,{...off,busy:false});
-  assert.equal(finished.enabled,false);
+  assert.equal(finished.active,false);
   assert.equal(mergeAutoHandState(finished,off),finished);
-  assert.equal(mergeAutoHandState(finished,{...finished,revision:4,enabled:true}).enabled,true);
+  assert.equal(mergeAutoHandState(finished,{...finished,revision:4,active:true}).active,true);
 });

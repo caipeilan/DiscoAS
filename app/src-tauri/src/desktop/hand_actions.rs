@@ -65,8 +65,8 @@ pub fn play_position(app: &tauri::AppHandle, index: usize) {
                     let args = PlaySongArgs {
                         platform: card.song.platform.clone(),
                         song_id: card.song.song_id.clone(),
-                        playlist_id: card.song.playlist_id.clone(),
-                        typename: card.song.typename.clone(),
+                        source_id: card.song.source_id.clone(),
+                        source_kind: card.song.source_kind.clone(),
                         filename: card.song.filename.clone(),
                     };
                     super::hand_discovery::play_hand_discovery_card(app.clone(), args, epoch)
@@ -157,7 +157,7 @@ pub(super) async fn play_automatically(app: &tauri::AppHandle, token: u64) -> Re
         }
         let settings = MusicSetting::load(app).map_err(|e| e.to_string())?;
         if !settings.hand.enabled
-            || !settings.hand.auto_play
+            || !settings.hand.auto_play_enabled
             || preview(app)
             || super::discovery_preview::isolated(app)
         {

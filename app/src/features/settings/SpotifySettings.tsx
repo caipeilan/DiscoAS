@@ -30,7 +30,7 @@ export function SpotifySettings({ settings, setSettings }: {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!desktop || settings.spotify_playback_mode !== "extension" || !inView || working) return;
+    if (!desktop || settings.spotifyPlaybackMode !== "extension" || !inView || working) return;
     let active = true;
     let timer: ReturnType<typeof setInterval> | undefined;
     const refresh = () => Promise.all([
@@ -48,7 +48,7 @@ export function SpotifySettings({ settings, setSettings }: {
     visibility();
     document.addEventListener("visibilitychange", visibility);
     return () => { active = false; clearInterval(timer); document.removeEventListener("visibilitychange", visibility); };
-  }, [settings.spotify_playback_mode, inView, working]);
+  }, [settings.spotifyPlaybackMode, inView, working]);
   const check = async () => {
     lastAction.current = "check";
     setOperation("check"); setError("");
@@ -77,8 +77,8 @@ export function SpotifySettings({ settings, setSettings }: {
     <SettingRow title={t("播放方式")} description={t("Spotify Free 账户的选歌受客户端限制，扩展无法保证每次都播放指定歌曲。") }>
       <Select
         label={t("Spotify 切歌方式")}
-        value={settings.spotify_playback_mode}
-        onChange={(value) => setSettings((current) => ({ ...current, spotify_playback_mode: value as DesktopPreferences["spotify_playback_mode"] }))}
+        value={settings.spotifyPlaybackMode}
+        onChange={(value) => setSettings((current) => ({ ...current, spotifyPlaybackMode: value as DesktopPreferences["spotifyPlaybackMode"] }))}
         options={[
           { value: "extension", label: t("连接桌面播放器") },
           { value: "pause_then_scheme", label: t("先暂停，再打开歌曲") },
@@ -86,7 +86,7 @@ export function SpotifySettings({ settings, setSettings }: {
         ]}
       />
     </SettingRow>
-    <Reveal open={settings.spotify_playback_mode === "extension"}><div className="extension-settings" aria-busy={working}>
+    <Reveal open={settings.spotifyPlaybackMode === "extension"}><div className="extension-settings" aria-busy={working}>
       <div className="connection-status" role="status" data-connected={connected}>
         <Icon name={connected ? "check" : "info"} size={21} /><div>
           <strong>{connected ? t("Spotify 已连接") : installed ? t("等待 Spotify 连接") : t("连接 Spotify 桌面版")}</strong>

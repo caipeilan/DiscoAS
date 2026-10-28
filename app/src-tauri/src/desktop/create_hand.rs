@@ -1,5 +1,5 @@
 use crate::{
-    core::{cache::Cache, playlist::TypeName},
+    core::{cache::Cache, playlist::SourceKind},
     settings::music_setting::{MusicSetting, MusicSettingDesktop},
 };
 use std::sync::Arc;
@@ -26,8 +26,8 @@ pub async fn create_hand_card(
     platform: String,
 ) -> Result<String, String> {
     let setting = MusicSetting::load(&app).map_err(|error| error.to_string())?;
-    let source = setting
-        .playlist_albums
+    let active_source = setting
+        .sources
         .iter()
         .find(|source| source.enabled)
         .ok_or("请先启用一个歌单")?
@@ -35,7 +35,7 @@ pub async fn create_hand_card(
     if !setting.hand.enabled || !setting.hand.create_cards {
         return Err("错误：请先开启创建手牌".into());
     }
-    if source.name != platform {
+    if active_source.platform != platform {
         return Err("链接平台与当前启用歌单不一致".into());
     }
     app.state::<super::auto_hand::AutoHandService>()
@@ -45,16 +45,16 @@ pub async fn create_hand_card(
     }
     let root = crate::paths::user_data_dir(&app).map_err(|error| error.to_string())?;
     let raw = crate::services::library::LibraryRepository::new(root.clone()).load_source(
-        &source.name,
-        &source.playlist_album_id,
-        TypeName::parse(&source.typename).map_err(|error| error.to_string())?,
+        &active_source.platform,
+        &active_source.source_id,
+        SourceKind::parse(&active_source.source_kind).map_err(|error| error.to_string())?,
     )?;
     let mut card = discoas_core::platforms::track_input::resolve_track(
-        &source.name,
+        &active_source.platform,
         &input,
         &raw,
-        &source.playlist_album_id,
-        &source.typename,
+        &active_source.source_id,
+        &active_source.source_kind,
     )
     .await
     .map_err(|error| crate::services::request_errors::short_error(&error.to_string()))?;
@@ -92,10 +92,10 @@ pub async fn create_hand_card(
             return Err("错误：请先开启创建手牌".into());
         }
         if latest
-            .playlist_albums
+            .sources
             .iter()
             .find(|source| source.enabled)
-            .map(|source| &source.name)
+            .map(|source| &source.platform)
             != Some(&platform)
         {
             return Err("链接平台与当前启用歌单不一致".into());
