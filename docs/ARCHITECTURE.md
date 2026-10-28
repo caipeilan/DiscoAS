@@ -279,7 +279,9 @@ Spicetify 私有配置与状态必须分开：移除子进程 SPICETIFY_STATE，
 
 手动更新通过 `desktop/updates.rs` → `services/updates.rs` 请求本项目公开 GitHub Releases；只响应用户点击，不在启动或后台轮询。`release/` 只输出普通和完整两种 Windows x64 安装包，NSIS 提供简体、繁体、英语。安装器先检查 Windows 10 1809 及以上的 AMD64 客户端系统，再处理 WebView2；通过 NSIS `VersionCompare` 选择系统级或当前用户较新的运行时，最低要求为 `109.0.0.0`。普通包按需下载，完整包在生成的 NSIS 脚本中嵌入微软 WebView2 离线安装器。
 
-必要的设置说明通过可悬停、聚焦或点击的圆形问号展开，空说明不产生按钮；键盘选歌、启动与后台运行、本地数据三个分区不显示说明或问号。`HelpHint` 使用同一个 `0 0 24 24` viewBox 中的圆圈、路径和圆点，不使用文字拼接，外尺寸为 `14px × --font-scale`，随界面 zoom 整体缩放；`currentColor` 延续日夜和悬停颜色。帮助按钮保留可访问名称与浮层关联，SVG 隐藏于辅助技术；触发器的 10px 基准字体只用于维持帮助浮层的原文字比例。设置 `fieldset` 内文字 / 数字输入的额外 `:focus-visible` outline 局部取消，按钮、滑块、下拉触发器及挂到 body 的搜索输入仍保留键盘反馈。外观和按键恢复按钮共用 `appearance-actions` 与 `button secondary`。浏览器和 Spicetify 安装教程使用 `features/settings/InstallationGuide.tsx`，准备后自动展开；复制操作通过 `services/desktop.ts`，失败时不能显示已复制。
+必要的设置说明通过可悬停、聚焦或点击的圆形问号展开，空说明不产生按钮；键盘选歌、启动与后台运行、本地数据三个分区不显示说明或问号。`HelpHint` 使用同一个 `0 0 24 24` viewBox 中的圆圈、路径和圆点，不使用文字拼接，外尺寸为 `14px × --font-scale`，随界面 zoom 整体缩放；`currentColor` 延续日夜和悬停颜色。帮助按钮保留可访问名称与浮层关联，SVG 隐藏于辅助技术；触发器的 10px 基准字体只用于维持帮助浮层的原文字比例。设置 `fieldset` 内文字 / 数字输入的额外 `:focus-visible` outline 局部取消，按钮、滑块、下拉触发器及挂到 body 的搜索输入仍保留键盘反馈。外观和按键恢复按钮共用 `appearance-actions` 与 `button secondary`。
+
+Spotify 与浏览器连接使用 `features/settings/ConnectionControls.tsx` 的状态行与按需展开流程，连接成功自动收起；详细信息复用 `InstallationGuide.tsx`，复制操作通过 `services/desktop.ts`。浏览器 `preparedBrowsers` 由实际扩展文件判断，打开文件夹不触发导出；显式导出沿用配对。Spotify 的只读检查忽略空的旧 Raw/Themed 目录；非空冲突返回结构化 `issue`，只有存在有效备份或原始客户端时才能显式整理。整理将冲突项移入同卷 `DiscoAS-Recovery-*` 并保留配置副本，自动启动不会执行这一步。控制台通过 `spotify configure --repair` 与 `spotify open-folder --config` 使用同一实现。
 
 共用下拉框采用应用样式，浮层挂到 `body`，根据触发控件的累计 CSS `zoom` 与屏幕边界定位，避免被滚动容器裁切。应保留方向键、确认、Esc 与 Tab 的焦点行为；Esc 关闭控件浮层时不能同时关闭外层导入对话框。禁用父 `fieldset` 后已打开的控件也不得继续写入。
 

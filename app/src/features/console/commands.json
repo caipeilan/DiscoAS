@@ -2479,13 +2479,21 @@
   {
     "name": "spotify configure",
     "method": "spotify.configure",
-    "description": "安装或配置 Spotify 播放扩展",
-    "usage": "spotify configure",
+    "description": "配置 Spotify 扩展；--repair 保留副本后整理可修复的旧目录",
+    "usage": "spotify configure [--repair]",
     "group": "窗口、客户端与播放连接",
     "positionals": [],
     "async": true,
-    "options": [],
-    "parameters": [],
+    "options": [
+      "repair"
+    ],
+    "parameters": [
+      {
+        "name": "repair",
+        "type": "boolean",
+        "required": false
+      }
+    ],
     "result": "操作结果对象；失败返回 error"
   },
   {
@@ -2503,13 +2511,21 @@
   {
     "name": "spotify open-folder",
     "method": "spotify.open-folder",
-    "description": "打开扩展目录",
-    "usage": "spotify open-folder",
+    "description": "打开扩展目录；--config 打开配置目录",
+    "usage": "spotify open-folder [--config]",
     "group": "窗口、客户端与播放连接",
     "positionals": [],
     "async": false,
-    "options": [],
-    "parameters": [],
+    "options": [
+      "config"
+    ],
+    "parameters": [
+      {
+        "name": "config",
+        "type": "boolean",
+        "required": false
+      }
+    ],
     "result": "操作结果对象；失败返回 error"
   },
   {

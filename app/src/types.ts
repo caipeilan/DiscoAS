@@ -209,12 +209,15 @@ export interface SpotifySetupStatus {
   toolVersion: string | null;
   toolPath: string | null;
   managed: boolean;
+  issue?: { code: string; path: string; repairable: boolean } | null;
+  recoveryPath?: string | null;
 }
 export interface BrowserBridgeStatus {
   connected: boolean;
   connectedBrowser?: "chromium" | "firefox" | null;
   extensionPath: string | null;
   extensionPaths?: { chromium: string; firefox: string } | null;
+  preparedBrowsers?: ("chromium" | "firefox")[];
 }
 export interface ColorGroup {
   background: string;

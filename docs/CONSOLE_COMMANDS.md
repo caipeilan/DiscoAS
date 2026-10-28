@@ -277,9 +277,9 @@ event unwatch watch-1
 | `client desktop create` | `client.desktop.create` | — | 手动创建独立桌面；操作结果对象；失败返回 error | — |
 | `spotify status` | `spotify.status` | — | 查询 Spotify 扩展连接；操作结果对象；失败返回 error | — |
 | `spotify setup-status` | `spotify.setup-status` | — | 查询安装与配置状态；操作结果对象；失败返回 error | — |
-| `spotify configure` | `spotify.configure` | — | 安装或配置 Spotify 播放扩展；操作结果对象；失败返回 error | 支持 |
+| `spotify configure [--repair]` | `spotify.configure` | `repair`: boolean | 配置 Spotify 扩展；--repair 保留副本后整理可修复的旧目录；操作结果对象；失败返回 error | 支持 |
 | `spotify export` | `spotify.export` | — | 导出 Spotify 扩展；操作结果对象；失败返回 error | — |
-| `spotify open-folder` | `spotify.open-folder` | — | 打开扩展目录；操作结果对象；失败返回 error | — |
+| `spotify open-folder [--config]` | `spotify.open-folder` | `config`: boolean | 打开扩展目录；--config 打开配置目录；操作结果对象；失败返回 error | — |
 | `browser status` | `browser.status` | — | 查询受控浏览器连接；操作结果对象；失败返回 error | — |
 | `browser export [browser]` | `browser.export` | `browser`: string | 导出对应扩展；类型是操作参数；操作结果对象；失败返回 error | — |
 | `browser open-folder [browser]` | `browser.open-folder` | `browser`: string | 打开对应扩展目录；操作结果对象；失败返回 error | — |

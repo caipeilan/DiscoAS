@@ -199,6 +199,29 @@ impl Bridge {
                 .into_owned(),
         }
     }
+    pub fn prepared_browsers(&self) -> Vec<ExtensionBrowser> {
+        [ExtensionBrowser::Chromium, ExtensionBrowser::Firefox]
+            .into_iter()
+            .filter(|browser| extension_files_ready(&self.folder(*browser)))
+            .collect()
+    }
+    pub fn export_extension(&self, browser: ExtensionBrowser) -> Result<PathBuf, String> {
+        let pairing: Pairing = serde_json::from_slice(
+            &std::fs::read(self.extension_path.join("pairing.json"))
+                .map_err(|_| "无法读取浏览器配对信息")?,
+        )
+        .map_err(|_| "浏览器配对信息无效")?;
+        let folder = self.folder(browser);
+        let manifest = match browser {
+            ExtensionBrowser::Chromium => CHROMIUM_MANIFEST,
+            ExtensionBrowser::Firefox => FIREFOX_MANIFEST,
+        };
+        export_files(&folder, &pairing, manifest)?;
+        if browser == ExtensionBrowser::Chromium {
+            export_files(&self.extension_path, &pairing, manifest)?;
+        }
+        Ok(folder)
+    }
     pub fn connected(&self) -> bool {
         self.state
             .lock()
@@ -269,6 +292,14 @@ pub fn allowed_origin(origin: &str) -> bool {
             })
     })
 }
+pub fn extension_files_ready(folder: &Path) -> bool {
+    folder.join("manifest.json").is_file()
+        && FILES.iter().all(|(name, _)| folder.join(name).is_file())
+        && ICONS
+            .iter()
+            .all(|(name, _)| folder.join("icons").join(name).is_file())
+}
+
 fn export_files(folder: &Path, pairing: &Pairing, manifest: &str) -> Result<(), String> {
     let icons = folder.join("icons");
     std::fs::create_dir_all(&icons).map_err(|_| "错误：无法创建浏览器扩展目录")?;
@@ -612,6 +643,32 @@ mod tests {
         }
     }
     #[test]
+    fn readiness_requires_all_extension_files_and_reexport_restores_them() {
+        let folder =
+            std::env::temp_dir().join(format!("discoas-browser-ready-{}", rand::random::<u64>()));
+        let pairing = Pairing {
+            port: 43210,
+            token: "a".repeat(64),
+        };
+        assert!(!extension_files_ready(&folder));
+        export_files(&folder, &pairing, CHROMIUM_MANIFEST).unwrap();
+        assert!(extension_files_ready(&folder));
+        std::fs::remove_file(folder.join("background.js")).unwrap();
+        assert!(!extension_files_ready(&folder));
+        export_files(&folder, &pairing, CHROMIUM_MANIFEST).unwrap();
+        assert!(extension_files_ready(&folder));
+        assert!(std::fs::read_to_string(folder.join("config.js"))
+            .unwrap()
+            .contains(&pairing.token));
+        assert!(folder
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("discoas-browser-ready-"));
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
     fn browser_exports_keep_pairing_legacy_path_and_browser_manifests_and_logos() {
         let root = std::env::temp_dir().join(format!(
             "discoas-browser-export-test-{}",
@@ -803,9 +860,19 @@ mod tests {
     #[test]
     fn manual_pause_remains_available_when_automatic_observation_is_off() {
         let (sender, receiver) = mpsc::channel();
-        let bridge = Bridge { sender, state: Arc::new(Mutex::new(Connection::default())), stopped: Arc::new(AtomicBool::new(false)), extension_path: PathBuf::new() };
+        let bridge = Bridge {
+            sender,
+            state: Arc::new(Mutex::new(Connection::default())),
+            stopped: Arc::new(AtomicBool::new(false)),
+            extension_path: PathBuf::new(),
+        };
         assert!(!bridge.has_controlled_session(7));
-        { let mut state = bridge.state.lock().unwrap(); state.connected = true; state.seen = Some(Instant::now()); state.result = Some((7, Ok(()))); }
+        {
+            let mut state = bridge.state.lock().unwrap();
+            state.connected = true;
+            state.seen = Some(Instant::now());
+            state.result = Some((7, Ok(())));
+        }
         assert!(bridge.has_controlled_session(7));
         assert!(!bridge.has_controlled_session(8));
         assert!(!bridge.state.lock().unwrap().observing);

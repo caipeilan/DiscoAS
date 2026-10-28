@@ -40,6 +40,18 @@ pub struct SpotifySetupStatus {
     pub tool_version: Option<String>,
     pub tool_path: Option<String>,
     pub managed: bool,
+    #[serde(default)]
+    pub issue: Option<SpotifySetupIssue>,
+    #[serde(default)]
+    pub recovery_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotifySetupIssue {
+    pub code: String,
+    pub path: String,
+    pub repairable: bool,
 }
 
 impl Default for SpotifySetupStatus {
@@ -50,6 +62,8 @@ impl Default for SpotifySetupStatus {
             tool_version: None,
             tool_path: None,
             managed: false,
+            issue: None,
+            recovery_path: None,
         }
     }
 }
@@ -331,31 +345,129 @@ fn config_locations(
     (config, state)
 }
 
-fn ensure_safe_state_layout(config: &Path, state: &Path) -> Result<(), String> {
+pub fn configuration_directory(paths: &SpotifySetupPaths) -> PathBuf {
+    config_locations(paths, read_installation(paths).as_ref()).0
+}
+
+fn legacy_state_entries(config: &Path, state: &Path) -> Result<Vec<PathBuf>, String> {
     if state.file_name().is_none_or(|name| name != "spicetify") {
         return Err("错误：Spicetify 状态目录不兼容".into());
     }
-    let mixed_packages = fs::read_dir(config).ok().is_some_and(|entries| {
-        entries.flatten().any(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "spa")
-        })
-    });
-    // Older DiscoAS versions placed .spa packages, Raw and Themed beside the
-    // configuration. Never run upstream backup/restore against that folder,
-    // and never turn an already patched client into a supposed clean backup.
-    if mixed_packages || config.join("Raw").exists() || config.join("Themed").exists() {
-        return Err("错误：Spicetify 旧版备份目录异常".into());
+    let mut legacy: Vec<_> = fs::read_dir(config)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "spa"))
+        .collect();
+    for name in ["Raw", "Themed"] {
+        let path = config.join(name);
+        // Empty leftovers do not contain a backup and do not affect upstream's
+        // normal Backup/Extracted layout. Reading status never removes them.
+        if path.exists() && fs::read_dir(&path).map_or(true, |mut entries| entries.next().is_some())
+        {
+            legacy.push(path);
+        }
     }
-    // Upstream silently migrates these folders and deletes their source when
-    // configuration and state differ. Leave such existing files for an explicit
-    // repair instead of triggering that migration from an automatic resume.
-    if config != state && (config.join("Backup").exists() || config.join("Extracted").exists()) {
-        return Err("错误：Spicetify 旧版备份目录异常".into());
+    if config != state {
+        for name in ["Backup", "Extracted"] {
+            let path = config.join(name);
+            if path.exists() {
+                legacy.push(path);
+            }
+        }
     }
-    Ok(())
+    legacy.sort();
+    Ok(legacy)
+}
+
+fn ensure_safe_state_layout(config: &Path, state: &Path) -> Result<(), String> {
+    if legacy_state_entries(config, state)?.is_empty() {
+        Ok(())
+    } else {
+        Err("错误：Spicetify 旧版备份目录异常".into())
+    }
+}
+
+fn layout_issue(paths: &SpotifySetupPaths) -> Option<SpotifySetupStatus> {
+    let previous = read_installation(paths);
+    let (config, state) = config_locations(paths, previous.as_ref());
+    let entries = match legacy_state_entries(&config, &state) {
+        Ok(entries) if entries.is_empty() => return None,
+        Ok(entries) => entries,
+        Err(message) => {
+            return Some(SpotifySetupStatus {
+                phase: "error".into(),
+                message,
+                issue: Some(SpotifySetupIssue {
+                    code: "state_path".into(),
+                    path: state.to_string_lossy().into_owned(),
+                    repairable: false,
+                }),
+                ..Default::default()
+            })
+        }
+    };
+    let config_text = fs::read_to_string(config.join("config-xpui.ini")).unwrap_or_default();
+    let (spotify, _) = spotify_paths(paths, &config_text);
+    let repairable = (has_backup(&state) || has_stock_client(&spotify))
+        && entries.iter().all(|path| {
+            fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.file_type().is_symlink())
+        });
+    Some(SpotifySetupStatus {
+        phase: "repair_required".into(),
+        message: if repairable {
+            "发现旧版备份目录。处理后将继续连接 Spotify。"
+        } else {
+            "发现旧版备份目录，但缺少可确认的原始备份。请先恢复官方桌面版 Spotify，再重新连接。"
+        }
+        .into(),
+        issue: Some(SpotifySetupIssue {
+            code: "legacy_state".into(),
+            path: config.to_string_lossy().into_owned(),
+            repairable,
+        }),
+        ..Default::default()
+    })
+}
+
+fn repair_state_layout(paths: &SpotifySetupPaths) -> Result<Option<PathBuf>, String> {
+    let Some(status) = layout_issue(paths) else {
+        return Ok(None);
+    };
+    if !status.issue.as_ref().is_some_and(|issue| issue.repairable) {
+        return Err(status.message);
+    }
+    let previous = read_installation(paths);
+    let (config, state) = config_locations(paths, previous.as_ref());
+    let entries = legacy_state_entries(&config, &state)?;
+    // Keep moves on the same volume even when DiscoAS itself is on another
+    // drive. Spicetify does not use this application-named recovery folder.
+    let recovery = config.join(format!("DiscoAS-Recovery-{:016x}", rand::random::<u64>()));
+    fs::create_dir_all(&recovery).map_err(|_| "错误：无法保存 Spotify 恢复副本")?;
+    if config.join("config-xpui.ini").is_file() {
+        fs::copy(
+            config.join("config-xpui.ini"),
+            recovery.join("config-xpui.ini"),
+        )
+        .map_err(|_| "错误：无法保存 Spotify 配置副本")?;
+    }
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for source in entries {
+        let target = recovery.join(source.file_name().ok_or("错误：Spotify 备份路径无效")?);
+        if fs::rename(&source, &target).is_err() {
+            for (source, target) in moved.iter().rev() {
+                let _ = fs::rename(target, source);
+            }
+            return Err(format!(
+                "无法整理旧版备份目录。恢复副本位于 {}",
+                recovery.display()
+            ));
+        }
+        moved.push((source, target));
+    }
+    Ok(Some(recovery))
 }
 
 fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
@@ -465,9 +577,14 @@ impl SpotifySetupService {
                 ..Default::default()
             };
         }
+        if let Some(issue) = layout_issue(paths) {
+            return issue;
+        }
         if let Ok(last) = self.last_status.lock() {
             if let Some(status) = &*last {
-                return status.clone();
+                if status.issue.is_none() {
+                    return status.clone();
+                }
             }
         }
         read_installation(paths)
@@ -480,7 +597,16 @@ impl SpotifySetupService {
         paths: &SpotifySetupPaths,
         paired_extension: &Path,
     ) -> Result<SpotifySetupStatus, String> {
-        self.run_configuration(paths, paired_extension, false)
+        self.run_configuration(paths, paired_extension, false, false)
+            .map(|status| status.unwrap_or_default())
+    }
+
+    pub fn repair_and_configure(
+        &self,
+        paths: &SpotifySetupPaths,
+        paired_extension: &Path,
+    ) -> Result<SpotifySetupStatus, String> {
+        self.run_configuration(paths, paired_extension, false, true)
             .map(|status| status.unwrap_or_default())
     }
 
@@ -489,7 +615,7 @@ impl SpotifySetupService {
         paths: &SpotifySetupPaths,
         paired_extension: &Path,
     ) -> Result<Option<SpotifySetupStatus>, String> {
-        self.run_configuration(paths, paired_extension, true)
+        self.run_configuration(paths, paired_extension, true, false)
     }
 
     fn run_configuration(
@@ -497,6 +623,7 @@ impl SpotifySetupService {
         paths: &SpotifySetupPaths,
         paired_extension: &Path,
         resume_only: bool,
+        repair: bool,
     ) -> Result<Option<SpotifySetupStatus>, String> {
         let _operation = self
             .operation
@@ -506,16 +633,34 @@ impl SpotifySetupService {
             return Ok(None);
         }
         self.busy.store(true, Ordering::SeqCst);
-        let result = configure_with(paths, paired_extension, &NativeRunner).map(Some);
+        let mut recovery_path = None;
+        let result: Result<Option<SpotifySetupStatus>, String> = (|| {
+            if repair {
+                recovery_path =
+                    repair_state_layout(paths)?.map(|path| path.to_string_lossy().into_owned());
+            }
+            let mut status = configure_with(paths, paired_extension, &NativeRunner)?;
+            if recovery_path.is_some() {
+                status.recovery_path = recovery_path.clone();
+            }
+            if status.recovery_path.is_some() {
+                if let Some(mut record) = read_installation(paths) {
+                    record.status = status.clone();
+                    write_installation(paths, &record)?;
+                }
+            }
+            Ok(Some(status))
+        })();
         if let Ok(mut last) = self.last_status.lock() {
             *last = Some(match &result {
                 Ok(Some(status)) => status.clone(),
                 Ok(None) => SpotifySetupStatus::default(),
-                Err(error) => SpotifySetupStatus {
+                Err(error) => layout_issue(paths).unwrap_or_else(|| SpotifySetupStatus {
                     phase: "error".into(),
                     message: error.clone(),
+                    recovery_path: recovery_path.clone(),
                     ..Default::default()
-                },
+                }),
             });
         }
         self.busy.store(false, Ordering::SeqCst);
@@ -599,6 +744,9 @@ fn configure_with(
             }),
             tool_path: Some(tool.to_string_lossy().into_owned()),
             managed,
+            recovery_path: previous
+                .as_ref()
+                .and_then(|record| record.status.recovery_path.clone()),
             ..Default::default()
         },
         config_dir: config_dir.clone(),
@@ -1089,6 +1237,117 @@ mod tests {
     }
 
     #[test]
+    fn empty_legacy_folders_do_not_block_an_existing_theme_and_valid_backup() {
+        let fixture = Fixture::new();
+        fixture.spotify();
+        let config = fixture.paths.roaming_app_data.join("spicetify");
+        for name in ["Raw", "Themed", "Backup", "Themes/personal"] {
+            fs::create_dir_all(config.join(name)).unwrap();
+        }
+        fs::write(config.join("Backup/xpui.spa"), "original backup").unwrap();
+        fs::write(config.join("Themes/personal/user.css"), "personal theme").unwrap();
+        fs::write(
+            config.join("config-xpui.ini"),
+            "[Setting]\ncurrent_theme = personal\n[AdditionalOptions]\nextensions = other.js\n",
+        )
+        .unwrap();
+        assert!(layout_issue(&fixture.paths).is_none());
+        let status =
+            configure_with(&fixture.paths, &fixture.extension(), &FakeRunner::default()).unwrap();
+        assert_eq!(status.phase, "ready");
+        assert!(config.join("Raw").is_dir());
+        assert!(config.join("Themed").is_dir());
+        assert_eq!(
+            fs::read_to_string(config.join("Themes/personal/user.css")).unwrap(),
+            "personal theme"
+        );
+        assert_eq!(
+            fs::read_to_string(config.join("Backup/xpui.spa")).unwrap(),
+            "original backup"
+        );
+    }
+
+    #[test]
+    fn explicit_repair_saves_legacy_data_and_keeps_working_backup_theme_and_extensions() {
+        let fixture = Fixture::new();
+        fixture.spotify();
+        let config = fixture.paths.roaming_app_data.join("spicetify");
+        for name in ["Raw", "Backup", "Themes/personal", "Extensions"] {
+            fs::create_dir_all(config.join(name)).unwrap();
+        }
+        let original =
+            "[Setting]\ncurrent_theme = personal\n[AdditionalOptions]\nextensions = other.js\n";
+        fs::write(config.join("config-xpui.ini"), original).unwrap();
+        fs::write(config.join("xpui.spa"), "legacy package").unwrap();
+        fs::write(config.join("Raw/legacy.txt"), "legacy raw data").unwrap();
+        fs::write(config.join("Backup/xpui.spa"), "working backup").unwrap();
+        fs::write(config.join("Themes/personal/user.css"), "personal theme").unwrap();
+        fs::write(config.join("Extensions/other.js"), "other extension").unwrap();
+        let service = SpotifySetupService::default();
+        let status = service.status(&fixture.paths);
+        assert_eq!(status.phase, "repair_required");
+        assert!(status.issue.unwrap().repairable);
+        assert!(
+            config.join("xpui.spa").is_file(),
+            "status must be read-only"
+        );
+        let recovery = repair_state_layout(&fixture.paths).unwrap().unwrap();
+        assert_eq!(
+            fs::read_to_string(recovery.join("config-xpui.ini")).unwrap(),
+            original
+        );
+        assert_eq!(
+            fs::read_to_string(recovery.join("xpui.spa")).unwrap(),
+            "legacy package"
+        );
+        assert_eq!(
+            fs::read_to_string(recovery.join("Raw/legacy.txt")).unwrap(),
+            "legacy raw data"
+        );
+        assert!(layout_issue(&fixture.paths).is_none());
+        assert_eq!(
+            configure_with(&fixture.paths, &fixture.extension(), &FakeRunner::default())
+                .unwrap()
+                .phase,
+            "ready"
+        );
+        assert_eq!(
+            fs::read_to_string(config.join("Backup/xpui.spa")).unwrap(),
+            "working backup"
+        );
+        assert_eq!(
+            fs::read_to_string(config.join("Themes/personal/user.css")).unwrap(),
+            "personal theme"
+        );
+        assert_eq!(
+            fs::read_to_string(config.join("Extensions/other.js")).unwrap(),
+            "other extension"
+        );
+        assert!(fs::read_to_string(config.join("config-xpui.ini"))
+            .unwrap()
+            .contains("other.js|discoas-bridge.js"));
+    }
+
+    #[test]
+    fn a_patched_client_with_only_ambiguous_backup_is_not_automatically_repaired() {
+        let fixture = Fixture::new();
+        fixture.spotify();
+        fs::create_dir_all(fixture.paths.roaming_app_data.join("Spotify/Apps/xpui")).unwrap();
+        let config = fixture.paths.roaming_app_data.join("spicetify");
+        fs::create_dir_all(&config).unwrap();
+        fs::write(config.join("config-xpui.ini"), "personal config").unwrap();
+        fs::write(config.join("xpui.spa"), "unknown backup").unwrap();
+        let status = SpotifySetupService::default().status(&fixture.paths);
+        assert!(!status.issue.unwrap().repairable);
+        assert!(repair_state_layout(&fixture.paths).is_err());
+        assert_eq!(
+            fs::read_to_string(config.join("xpui.spa")).unwrap(),
+            "unknown backup"
+        );
+        assert!(!record_path(&fixture.paths).exists());
+    }
+
+    #[test]
     fn mixed_legacy_state_is_rejected_before_any_extension_record_or_tool_changes() {
         for shared in [false, true] {
             let fixture = Fixture::new();
@@ -1257,6 +1516,10 @@ mod tests {
     #[test]
     fn no_spotify_installs_extension_but_defers_activation() {
         let fixture = Fixture::new();
+        assert_eq!(
+            configuration_directory(&fixture.paths),
+            support_dir(&fixture.paths).join("config")
+        );
         let runner = FakeRunner::default();
         let status = configure_with(&fixture.paths, &fixture.extension(), &runner).unwrap();
         assert_eq!(status.phase, "pending");

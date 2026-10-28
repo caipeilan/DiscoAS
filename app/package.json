@@ -15,6 +15,7 @@
     "test:client-desktop": "node --test tests/clientDesktopSettings.test.mjs",
     "test:transport": "node --test tests/desktopWire.test.mjs",
     "test:settings-layout": "node --test tests/settingsLayout.test.mjs",
+    "test:connections": "node --test tests/connectionFlow.test.mjs",
     "test:covers": "tsc src/prepareCovers.ts --target ES2020 --module ES2020 --skipLibCheck --outDir tests/.compiled && node --test tests/covers.test.mjs",
     "test:source": "node --test tests/sourceInput.test.mjs",
     "test:browser": "node --test ../extensions/browser/bridge.test.mjs",

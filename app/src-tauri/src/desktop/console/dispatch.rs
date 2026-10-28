@@ -213,15 +213,23 @@ pub async fn execute(
             app.clone(),
             app.state(),
         )?),
-        "spotify.configure" => {
-            model::to_value(crate::spotify_setup::configure_spotify_support(app.clone()).await?)
-        }
+        "spotify.configure" => model::to_value(
+            crate::spotify_setup::configure_spotify_support(
+                app.clone(),
+                Some(params.get("repair") == Some(&Value::Bool(true))),
+            )
+            .await?,
+        ),
         "spotify.export" => model::to_value(crate::spotify_playback::export_spotify_extension(
             app.clone(),
             app.state(),
         )?),
         "spotify.open-folder" => {
-            crate::spotify_playback::open_spotify_extension_folder(app.clone())?;
+            if params.get("config") == Some(&Value::Bool(true)) {
+                crate::spotify_setup::open_spotify_config_folder(app.clone())?;
+            } else {
+                crate::spotify_playback::open_spotify_extension_folder(app.clone())?;
+            }
             Ok(json!({"opened":true}))
         }
         "browser.status" => model::to_value(crate::browser_playback::get_browser_bridge_status(

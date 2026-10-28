@@ -156,8 +156,6 @@
 .hand-transferring { pointer-events: none; transition: none; }
 .hand-intake-boundary { position: absolute; width: 0; height: 24px; border-left: 1px dashed var(--text-secondary); opacity: .6; pointer-events: none; transition: left 300ms var(--ease-out), top 300ms var(--ease-out); }
 .hand-intake-boundary[data-vertical] { width: 24px; height: 0; border-left: 0; border-top: 1px dashed var(--text-secondary); }
-.hand-card-face > .hand-card-shortcut { position: absolute; bottom: 9px; right: 10px; margin: 0; padding: 1px 4px; border-radius: 4px; border: 1px solid var(--border); font-size: calc(10px * var(--font-scale)); opacity: 0; }
-.hand-active .hand-card-shortcut { opacity: 1; }
 .hand-discovery-controls { display: flex; align-items: center; gap: calc(9px * var(--font-scale)); font-size: calc(12px * var(--font-scale)); font-variant-numeric: tabular-nums; }
 .hand-discovery-controls + .hand-dock-count { border-left: 1px solid var(--border); padding-left: calc(8px * var(--font-scale)); }
 .hand-dock .hand-refresh { width: calc(28px * var(--font-scale)); height: calc(28px * var(--font-scale)); border-radius: 50%; flex-shrink: 0; }

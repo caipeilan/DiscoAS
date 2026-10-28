@@ -47,6 +47,7 @@ export type DesktopCommand =
   | "open_spotify_extension_folder"
   | "get_spotify_setup_status"
   | "configure_spotify_support"
+  | "open_spotify_config_folder"
   | "export_browser_extension"
   | "get_browser_bridge_status"
   | "open_browser_extension_folder"

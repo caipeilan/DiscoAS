@@ -1466,9 +1466,6 @@ html.floating-window #root {
 .import-progress > span { flex: 1; }
 .import-progress small { font: inherit; }
 .setting-control select { max-width: 250px; }
-.extension-settings { font-size: calc(12px * var(--font-scale, 1)); line-height: 1.75; color: var(--text-secondary); padding: 14px 18px 18px; }
-.extension-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
-.extension-path { overflow-wrap: anywhere; user-select: text; }
 @media (max-width: 680px) {
   .playlist-row .playlist-details { min-width: calc(100% - 96px); }
   .playlist-row .row-actions { margin-left: 80px; width: calc(100% - 80px); }

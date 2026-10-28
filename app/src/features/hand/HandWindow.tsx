@@ -20,7 +20,7 @@ export function HandWindow() {
   const { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
     scheduleRegions, busy, autoLocked, autoNextId, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
-    endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId, refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount, ordinaryCount,
+    endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId, refreshDiscovery, restPoses, layoutDiscoveryCount, ordinaryCount,
     retiringById, entering, finishCardTransition, layoutTransition, arrivalReady } = useHandController();
   useAppearance(snapshot.gui);
   const layoutPending = !!layoutTransition?.pending;
@@ -73,7 +73,6 @@ export function HandWindow() {
         refreshing,
       });
       const autoNext = card.id === autoNextId && !drag && !removing && !retiring && !flyingCard && !layoutPending && !surfaceWaiting;
-      const shortcutIndex = snapshot.discoverySettings?.enabled && !snapshot.discoverySettings.merged ? (card.discovery ? -1 : i-discoveryCount) : i;
       const style = { "--hand-x": `${held ? held.pose.x : pose.x}px`, "--hand-y": `${held ? held.pose.y : pose.y}px`, width: pose.width, height: pose.height,
         "--hand-base-scale": pose.width / 156,
         zIndex: flyingCard ? 1200 : held ? 1000 : active === card.id ? 500 : i+1,
@@ -89,7 +88,6 @@ export function HandWindow() {
           <HandCardContent card={card} />
           {!snapshot.preview && !card.placeholder && (!card.discovery || snapshot.discovery?.replacementEnabled) && <button className="hand-discard" aria-label={card.discovery ? t("替换这张迷你发现卡") : t("弃掉此牌")} disabled={!!busy || !!card.discovery && !snapshot.discovery?.replacementsRemaining}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void operation("discard_hand_card", card); }}><Icon name={card.discovery ? "refresh" : "close"} size={14} /></button>}
-          {!card.placeholder && shortcutIndex >= 0 && shortcutIndex < 9 && <span className="hand-card-shortcut">{snapshot.settings.playShortcuts[shortcutIndex]}</span>}
           {(playing || collecting) && <div className="hand-release-label"><Icon name={collecting ? "hand" : "play"} size={10} />{t(collecting ? "松开以加入手牌" : "松开以播放")}</div>}
         </div>{card.discovery ? <div className="hand-card-back hand-discovery-back"><div className="hand-card-face"><img src={appLogo} draggable={false} alt="DiscoAS" /></div></div> : card.mysteryRevealed && snapshot.arrival?.id === card.id && <div className="hand-card-back"><div className="hand-card-face"><div className="hand-art"><Cover url="" data={snapshot.arrival.mysteryCover} prepared mystery label={t("神秘歌曲")} /></div><strong>???</strong><span>???</span></div></div>}</div>
         <HandAutoPlayLock locked={autoLocked} />

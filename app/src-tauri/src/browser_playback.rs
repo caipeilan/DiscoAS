@@ -21,6 +21,7 @@ pub struct BrowserBridgeStatus {
     connected_browser: Option<ExtensionBrowser>,
     extension_path: Option<String>,
     extension_paths: Option<ExtensionPaths>,
+    prepared_browsers: Vec<ExtensionBrowser>,
 }
 impl BrowserPlaybackService {
     pub fn has_controlled_session(&self) -> bool {
@@ -205,7 +206,7 @@ pub fn export_browser_extension(
 ) -> Result<String, String> {
     Ok(service
         .ensure(&app)?
-        .folder(browser.unwrap_or_default())
+        .export_extension(browser.unwrap_or_default())?
         .to_string_lossy()
         .into_owned())
 }
@@ -220,6 +221,7 @@ pub fn get_browser_bridge_status(
         connected_browser: bridge.and_then(|b| b.connected_browser()),
         extension_path: bridge.map(|b| b.extension_path.to_string_lossy().into_owned()),
         extension_paths: bridge.map(|b| b.extension_paths()),
+        prepared_browsers: bridge.map(|b| b.prepared_browsers()).unwrap_or_default(),
     }
 }
 #[tauri::command]
@@ -227,10 +229,17 @@ pub fn open_browser_extension_folder(
     app: tauri::AppHandle,
     browser: Option<ExtensionBrowser>,
 ) -> Result<(), String> {
-    let folder = app
-        .state::<BrowserPlaybackService>()
-        .ensure(&app)?
-        .folder(browser.unwrap_or_default());
+    let service = app.state::<BrowserPlaybackService>();
+    let folder = service
+        .bridge
+        .lock()
+        .map_err(|_| "浏览器扩展不可用")?
+        .as_ref()
+        .map(|bridge| bridge.folder(browser.unwrap_or_default()))
+        .ok_or("请先准备浏览器扩展文件")?;
+    if !browser_bridge::extension_files_ready(&folder) {
+        return Err("扩展文件不完整，请重新准备文件".into());
+    }
     tauri_plugin_opener::open_path(folder.to_string_lossy().into_owned(), None::<&str>)
         .map_err(|_| "错误：无法打开浏览器扩展目录".into())
 }

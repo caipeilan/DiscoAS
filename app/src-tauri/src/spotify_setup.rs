@@ -88,6 +88,7 @@ fn ensure_normal_user() -> Result<(), String> {
 fn configure(
     app: &tauri::AppHandle,
     resume_only: bool,
+    repair: bool,
 ) -> Result<Option<SpotifySetupStatus>, String> {
     let paths = desktop_paths(app)?;
     let service = app.state::<SpotifySetupService>();
@@ -101,7 +102,11 @@ fn configure(
     let status = if resume_only {
         service.resume(&paths, &extension)?
     } else {
-        Some(service.configure(&paths, &extension)?)
+        Some(if repair {
+            service.repair_and_configure(&paths, &extension)?
+        } else {
+            service.configure(&paths, &extension)?
+        })
     };
     if let Some(status) = &status {
         let _ = app.emit("spotify-setup-changed", status);
@@ -115,7 +120,7 @@ fn configure(
 pub fn start_automatic_setup(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(error) = configure(&app, true) {
+        if let Err(error) = configure(&app, true, false) {
             let _ = app.emit(
                 "spotify-setup-changed",
                 SpotifySetupStatus {
@@ -140,12 +145,24 @@ pub fn get_spotify_setup_status(
 #[tauri::command]
 pub async fn configure_spotify_support(
     app: tauri::AppHandle,
+    repair: Option<bool>,
 ) -> Result<SpotifySetupStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        configure(&app, false).map(|status| status.unwrap_or_default())
+        configure(&app, false, repair.unwrap_or(false)).map(|status| status.unwrap_or_default())
     })
     .await
     .map_err(|_| "错误：Spotify 配置任务未完成".to_string())?
+}
+
+#[tauri::command]
+pub fn open_spotify_config_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let paths = desktop_paths(&app)?;
+    let folder = crate::services::spotify_setup::configuration_directory(&paths);
+    if !folder.is_dir() {
+        return Err("Spotify 配置目录尚未创建".into());
+    }
+    tauri_plugin_opener::open_path(folder.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|_| "无法打开 Spotify 配置目录".into())
 }
 
 fn installer_paths(executable: &Path) -> Result<SpotifySetupPaths, String> {

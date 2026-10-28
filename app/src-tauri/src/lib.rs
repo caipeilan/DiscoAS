@@ -445,6 +445,7 @@ pub fn run() {
             spotify_playback::open_spotify_extension_folder,
             spotify_setup::get_spotify_setup_status,
             spotify_setup::configure_spotify_support,
+            spotify_setup::open_spotify_config_folder,
             browser_playback::export_browser_extension,
             browser_playback::get_browser_bridge_status,
             browser_playback::open_browser_extension_folder,
