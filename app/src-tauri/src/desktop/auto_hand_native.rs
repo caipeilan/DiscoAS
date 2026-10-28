@@ -100,6 +100,7 @@ impl Drop for Apartment {
 }
 struct Watched {
     instance: u64,
+    source: String,
     session: Session,
     token: i64,
     playback_token: Option<i64>,
@@ -111,6 +112,16 @@ struct Watched {
     read_revision: u64,
     last_read: Instant,
     was_playing: bool,
+    last_event_ms: Arc<AtomicU64>,
+    properties_started_ms: u64,
+    text_ready_ms: u64,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct SampleTiming {
+    pub event_ms: u64,
+    pub properties_started_ms: u64,
+    pub text_ready_ms: u64,
 }
 impl Drop for Watched {
     fn drop(&mut self) {
@@ -124,15 +135,19 @@ impl Watched {
     fn mark_dirty(&self) {
         self.dirty.store(true, Ordering::Release);
     }
-    fn new(session: Session, wake: Option<mpsc::Sender<()>>, instance: u64) -> Option<Self> {
+    fn new(source: String, session: Session, wake: Option<mpsc::Sender<()>>, instance: u64) -> Option<Self> {
         let dirty = Arc::new(AtomicBool::new(true));
         let changed = dirty.clone();
         let metadata_wake = wake.clone();
         let revision = Arc::new(AtomicU64::new(1));
         let updated_revision = revision.clone();
+        let last_event_ms = Arc::new(AtomicU64::new(0));
+        let metadata_event_ms = last_event_ms.clone();
+        let playback_event_ms = last_event_ms.clone();
         let token = session
             .MediaPropertiesChanged(
                 &TypedEventHandler::<Session, MediaPropertiesChangedEventArgs>::new(move |_, _| {
+                    metadata_event_ms.store(now_ms(), Ordering::Release);
                     changed.store(true, Ordering::Release);
                     updated_revision.fetch_add(1, Ordering::AcqRel);
                     if let Some(wake) = &metadata_wake {
@@ -145,6 +160,7 @@ impl Watched {
         let playback_token = session
             .PlaybackInfoChanged(
                 &TypedEventHandler::<Session, PlaybackInfoChangedEventArgs>::new(move |_, _| {
+                    playback_event_ms.store(now_ms(), Ordering::Release);
                     if let Some(wake) = &wake {
                         let _ = wake.send(());
                     }
@@ -154,6 +170,7 @@ impl Watched {
             .ok();
         Some(Self {
             instance,
+            source,
             session,
             playback_token,
             token,
@@ -165,14 +182,18 @@ impl Watched {
             read_revision: 0,
             last_read: Instant::now(),
             was_playing: false,
+            last_event_ms,
+            properties_started_ms: 0,
+            text_ready_ms: 0,
         })
     }
-    fn sample(&mut self, platform: &str) -> Option<Observation> {
+    fn sample(&mut self, platform: &str, with_timeline: bool) -> Option<Observation> {
         let dirty = self.dirty.swap(false, Ordering::AcqRel);
         if dirty
             || self.last_read.elapsed() >= OBSERVATION_INTERVAL
         {
             self.last_read = Instant::now();
+            self.properties_started_ms = now_ms();
             if let Ok(properties) = self.session.TryGetMediaPropertiesAsync().and_then(wait) {
                 let title = track_title(&properties.Title().ok()?.to_string());
                 if title.is_empty() { return None; }
@@ -181,16 +202,17 @@ impl Watched {
                 self.metadata.album = properties.AlbumTitle().unwrap_or_default().to_string();
                 self.metadata.track_number = properties.TrackNumber().unwrap_or(0).max(0) as u32;
                 self.read_revision = self.revision.load(Ordering::Acquire);
+                self.text_ready_ms = now_ms();
             } else {
                 self.dirty.store(true, Ordering::Release);
                 return None;
             }
         }
-        self.snapshot(platform)
+        self.snapshot(platform, with_timeline)
     }
     /// Read playback state using the text already obtained by the observer.
     /// A confirmed pause must not wait for another media-properties request.
-    fn snapshot(&mut self, platform: &str) -> Option<Observation> {
+    fn snapshot(&mut self, platform: &str, with_timeline: bool) -> Option<Observation> {
         if self.title.is_empty() {
             return None;
         }
@@ -201,12 +223,11 @@ impl Watched {
         if playing || status == Status::Paused || status == Status::Stopped {
             self.was_playing = playing;
         }
-        let rate = info.PlaybackRate().and_then(|v| v.Value()).unwrap_or(1.0);
-        let progress = self
-            .session
-            .GetTimelineProperties()
-            .ok()
-            .and_then(|timeline| {
+        // Text and playback state can trigger the first Pause immediately.
+        // Timeline RPCs are reserved for confirming our own dispatched target.
+        let progress = if with_timeline {
+            let rate = info.PlaybackRate().and_then(|v| v.Value()).unwrap_or(1.0);
+            self.session.GetTimelineProperties().ok().and_then(|timeline| {
                 let updated_at = timeline.LastUpdatedTime().ok()?.UniversalTime / 10_000
                     - 11_644_473_600_000_i64;
                 let now = now_ms();
@@ -227,7 +248,8 @@ impl Watched {
                     updated_at,
                 };
                 progress.valid().then_some(progress)
-            });
+            })
+        } else { None };
         Some(Observation {
             platform: platform.into(),
             identity: self.title.clone(),
@@ -241,7 +263,7 @@ impl Watched {
                 ..self.metadata.clone()
             },
             revision: self.read_revision,
-            source: self.session.SourceAppUserModelId().ok()?.to_string(),
+            source: self.source.clone(),
         })
     }
 }
@@ -249,6 +271,7 @@ pub struct Reader {
     wake: Option<mpsc::Sender<()>>,
     manager: Option<Manager>,
     watched: HashMap<String, Watched>,
+    ambiguous_sources: HashSet<String>,
     titles: HashMap<String, client_window::TitleReader>,
     last_scan: Option<Instant>,
     last_platform: Option<String>,
@@ -357,7 +380,11 @@ impl PausedSession {
                     if !quiet { quiet_since = None; std::thread::sleep(Duration::from_millis(10)); continue; }
                 } else {
                     if cancelled() { return Err(CANCELLED_ERROR.into()); }
+                    let requested_at_ms = now_ms();
                     let operation = match command { PauseCommand::Pause => self.session.TryPauseAsync() };
+                    // The request has already been issued before diagnostic I/O.
+                    super::diagnostics::trace_auto_hand_at(self.token, "pause_requested",
+                        &format!("source={} queued={} elapsed_ms={}", self.source, operation.is_ok(), started.elapsed().as_millis()), requested_at_ms);
                     let accepted = operation.and_then(wait).map_err(|_| "错误：播放器暂停请求失败")?;
                     attempts += 1;
                     commands_sent += 1;
@@ -397,6 +424,7 @@ impl Reader {
             wake,
             manager: None,
             watched: HashMap::new(),
+            ambiguous_sources: HashSet::new(),
             titles: HashMap::new(),
             last_scan: None,
             last_platform: None,
@@ -415,6 +443,23 @@ impl Reader {
         self.pause_for(platform, source, token, cancelled, on_sent)
     }
     fn pause_for(&mut self, platform: &str, source: Option<&str>, token: u64, cancelled: &dyn Fn() -> bool, on_sent: &mut dyn FnMut()) -> Result<PausedSession, String> {
+        let selected = self.select_pause_session(platform, source, token)?;
+        selected.pause(cancelled, on_sent)?;
+        Ok(selected)
+    }
+    fn select_pause_session(&mut self, platform: &str, source: Option<&str>, token: u64) -> Result<PausedSession, String> {
+        if let Some(source) = source {
+            if self.ambiguous_sources.contains(source) {
+                return Err("错误：播放器存在多个媒体会话，无法确定暂停目标".into());
+            }
+            let watched = self.watched.get(source).filter(|_| {
+                platform_for_app(source) == Some(platform)
+                    || platform == names::LOCAL && self.local_session.as_deref() == Some(source)
+            }).ok_or("错误：未找到对应播放器的媒体会话")?;
+            // Use exactly the COM session that supplied this observation.
+            // A fresh GetSessions scan is unnecessary on the first-pause path.
+            return Ok(PausedSession { session: watched.session.clone(), token, source: source.into() });
+        }
         if self.manager.is_none() {
             self.manager = Manager::RequestAsync().and_then(wait).ok();
         }
@@ -425,17 +470,13 @@ impl Reader {
             let Ok(session) = sessions.GetAt(index) else { continue; };
             let Ok(id) = session.SourceAppUserModelId() else { continue; };
             let id = id.to_string();
-            let matches = source.map_or_else(|| {
-                if platform == names::LOCAL { self.local_session.as_deref() == Some(&id) }
-                else { platform_for_app(&id) == Some(platform) }
-            }, |source| source == id);
+            let matches = if platform == names::LOCAL { self.local_session.as_deref() == Some(&id) }
+                else { platform_for_app(&id) == Some(platform) };
             if !matches { continue; }
             if selected.is_some() { return Err("错误：播放器存在多个媒体会话，无法确定暂停目标".into()); }
             selected = Some(PausedSession { session, token, source: id });
         }
-        let selected = selected.ok_or("错误：未找到对应播放器的媒体会话")?;
-        selected.pause(cancelled, on_sent)?;
-        Ok(selected)
+        selected.ok_or("错误：未找到对应播放器的媒体会话".into())
     }
 
     pub fn current_platform(&self) -> Option<String> {
@@ -448,7 +489,15 @@ impl Reader {
     pub fn paused_observation(&mut self, platform: &str, paused: &PausedSession) -> Option<Observation> {
         let watched = self.watched.get_mut(&paused.source)?;
         if watched.session != paused.session { return None; }
-        watched.snapshot(platform)
+        watched.snapshot(platform, false)
+    }
+    pub fn sample_timing(&self, source: &str) -> Option<SampleTiming> {
+        let watched = self.watched.get(source)?;
+        Some(SampleTiming { event_ms: watched.last_event_ms.load(Ordering::Acquire),
+            properties_started_ms: watched.properties_started_ms, text_ready_ms: watched.text_ready_ms })
+    }
+    pub fn confirmation_snapshot(&mut self, platform: &str, source: &str) -> Option<Observation> {
+        self.watched.get_mut(source)?.snapshot(platform, true)
     }
     #[cfg(test)]
     pub fn sample(
@@ -457,13 +506,13 @@ impl Reader {
         mode: AutoDetectionMode,
         title: Option<&str>,
     ) -> Vec<Observation> {
-        self.sample_with_mode(active, Some(mode), title, true)
+        self.sample_with_mode(active, Some(mode), title, true, true)
     }
     pub fn sample_automatic(&mut self, active: Option<&str>, title: Option<&str>) -> Vec<Observation> {
-        self.sample_with_mode(active, None, title, true)
+        self.sample_with_mode(active, None, title, true, false)
     }
     pub fn sample_read_only(&mut self) -> Vec<Observation> {
-        self.sample_with_mode(None, None, None, false)
+        self.sample_with_mode(None, None, None, false, true)
     }
     pub fn take_rebound(&mut self) -> HashSet<String> {
         std::mem::take(&mut self.bindings.changed)
@@ -474,6 +523,7 @@ impl Reader {
         mode: Option<AutoDetectionMode>,
         title: Option<&str>,
         consume_hints: bool,
+        with_timeline: bool,
     ) -> Vec<Observation> {
         // Wake the observer from the verified main-HWND NAMECHANGE, but never
         // turn the title itself into an Observation. A title-only event cannot
@@ -508,6 +558,7 @@ impl Reader {
             self.last_scan = Some(Instant::now());
             self.last_platform = active.map(str::to_string);
             let mut found = HashSet::new();
+            let mut ambiguous_sources = HashSet::new();
             let sessions = self.manager.as_ref().and_then(|m| m.GetSessions().ok());
             if sessions.is_none() { self.manager = None; }
             if let Some(sessions) = sessions {
@@ -527,27 +578,30 @@ impl Reader {
                     if active.is_some_and(|p| p != platform) {
                         continue;
                     }
-                    found.insert(id.clone());
+                    if !found.insert(id.clone()) { ambiguous_sources.insert(id.clone()); }
                     let replace = self.watched.get(&id).is_none_or(|w| w.session != session);
                     if replace {
                         self.next_instance += 1;
-                        if let Some(watched) = Watched::new(session, self.wake.clone(), self.next_instance) {
+                        if let Some(watched) = Watched::new(id.clone(), session, self.wake.clone(), self.next_instance) {
                             self.watched.insert(id, watched);
                         }
                     }
                 }
             }
             self.watched.retain(|id, _| found.contains(id));
+            self.ambiguous_sources = ambiguous_sources;
         }
         let mut observations = Vec::new();
-        let mut ambiguous = HashSet::new();
+        let mut ambiguous: HashSet<String> = self.ambiguous_sources.iter()
+            .map(|id| platform_for_app(id).unwrap_or(names::LOCAL).to_string()).collect();
         let mut local_candidate = None;
         for (id, watched) in &mut self.watched {
+            if self.ambiguous_sources.contains(id) { continue; }
             let platform = platform_for_app(id).unwrap_or(names::LOCAL);
             if active.is_some_and(|p| p != platform) {
                 continue;
             }
-            if let Some(value) = watched.sample(platform) {
+            if let Some(value) = watched.sample(platform, with_timeline) {
                 if platform == names::LOCAL {
                     if !matches_local_session(
                         self.local_session.as_deref(),
@@ -678,6 +732,18 @@ mod tests {
         assert!(bindings.changed.remove(names::NETEASE), "same app ID with a new COM session is a new binding");
     }
     #[test]
+    fn an_observed_pause_never_guesses_a_missing_or_ambiguous_source() {
+        let mut reader = Reader::new();
+        let missing = reader.select_pause_session(names::NETEASE, Some("cloudmusic.exe"), 7).err().unwrap();
+        assert_eq!(missing, "错误：未找到对应播放器的媒体会话");
+        assert!(reader.manager.is_none(), "an absent observation must not select a different live session");
+        reader.ambiguous_sources.insert("cloudmusic.exe".into());
+        let ambiguous = reader.select_pause_session(names::NETEASE, Some("cloudmusic.exe"), 7).err().unwrap();
+        assert_eq!(ambiguous, "错误：播放器存在多个媒体会话，无法确定暂停目标");
+        assert!(reader.manager.is_none());
+    }
+
+    #[test]
     fn a_sent_pause_is_not_aborted_by_late_cancellation() {
         assert_eq!(pause_cancel_action(true, 0), PauseCancel::Abort);
         assert_eq!(pause_cancel_action(true, 1), PauseCancel::Hold);
@@ -762,6 +828,33 @@ mod tests {
         assert_eq!(watched.last_read, last_read);
         elapsed.sort_by(f64::total_cmp);
         println!("{platform} cached state snapshot: samples={} p50_ms={:.3} p95_ms={:.3} max_ms={:.3}", elapsed.len(), elapsed[6], elapsed[11], elapsed[11]);
+        let mut elapsed = Vec::new();
+        for _ in 0..12 {
+            for watched in reader.watched.values() { watched.mark_dirty(); }
+            let started = Instant::now();
+            let snapshots = reader.sample_automatic(Some(&platform), None);
+            assert!(!snapshots.is_empty());
+            assert!(snapshots.iter().all(|snapshot| snapshot.progress.is_none() && snapshot.metadata.duration_ms == 0));
+            elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        elapsed.sort_by(f64::total_cmp);
+        println!("{platform} text-first refresh: samples={} p50_ms={:.3} p95_ms={:.3} max_ms={:.3}", elapsed.len(), elapsed[6], elapsed[11], elapsed[11]);
+        let manager = reader.manager.take();
+        let mut elapsed = Vec::new();
+        for _ in 0..12 {
+            let started = Instant::now();
+            let selected = reader.select_pause_session(&platform, Some(&source), 7).unwrap();
+            elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(selected.session, reader.watched[&source].session);
+            assert!(reader.manager.is_none(), "cached selection must not enumerate the manager");
+        }
+        reader.manager = manager;
+        elapsed.sort_by(f64::total_cmp);
+        println!("{platform} cached pause selection (no Pause sent): samples={} p50_ms={:.3} p95_ms={:.3} max_ms={:.3}", elapsed.len(), elapsed[6], elapsed[11], elapsed[11]);
+        let full = reader.confirmation_snapshot(&platform, &source).expect("full target-confirmation snapshot");
+        if let Some(progress) = full.progress {
+            assert_eq!(full.metadata.duration_ms, (progress.duration * 1000.0) as u64);
+        }
     }
     #[test]
     #[ignore = "reads installed media sessions on the interactive Windows desktop"]

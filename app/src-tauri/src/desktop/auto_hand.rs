@@ -64,6 +64,11 @@ fn publish_busy(
         let _ = app.emit("auto-hand-state-changed", next);
     }
 }
+fn trace_observation(token: u64, at_ms: u64, detail: Option<&str>) {
+    if let Some(detail) = detail {
+        super::diagnostics::trace_auto_hand_at(token, "observation", detail, at_ms);
+    }
+}
 
 #[derive(Default)]
 struct Runtime {
@@ -218,7 +223,21 @@ impl AutoHandService {
                                 runtime.policy.rebind();
                             }
                         }
-                        for value in values {
+                        for mut value in values {
+                            let mut guard = runtime.lock().unwrap();
+                            if value.signal == discoas_core::auto_hand::Signal::Interface
+                                && guard.policy.dispatched(guard.policy.generation())
+                            {
+                                // A dispatch can begin during text sampling. Check under
+                                // the policy lock so its confirmation still gets a full
+                                // timeline, but never hold that lock across the RPC.
+                                drop(guard);
+                                let Some(full) = reader.confirmation_snapshot(&value.platform, &value.source) else { continue; };
+                                value = full;
+                                guard = runtime.lock().unwrap();
+                            }
+                            let observed_at_ms = native::now_ms();
+                            let observed_token = guard.policy.generation();
                             let platform = value.platform.clone();
                             let source = value.source.clone();
                             let browser = value.signal == discoas_core::auto_hand::Signal::Browser;
@@ -232,21 +251,26 @@ impl AutoHandService {
                                     || old.album != value.metadata.album
                                     || old.playing != value.playing
                             });
-                            if changed {
+                            let observation_trace = if changed {
                                 observations.insert(key, Observed {
                                     identity: value.identity.clone(),
                                     artist: value.artist.clone(),
                                     album: value.metadata.album.clone(),
                                     playing: value.playing,
                                 });
-                                let token = runtime.lock().unwrap().policy.generation();
-                                super::diagnostics::trace_auto_hand(token, "observation", &format!("source={} signal={:?} playing={} title={:x} artist={:x} album={:x} revision={}", value.source, value.signal, value.playing, md5::compute(&value.identity), md5::compute(&value.artist), md5::compute(&value.metadata.album), value.revision));
-                            }
+                                let timing = reader.sample_timing(&source).map(|timing| format!(" event_ms={} properties_ms={} text_ms={}", timing.event_ms, timing.properties_started_ms, timing.text_ready_ms)).unwrap_or_default();
+                                Some(format!("source={} signal={:?} playing={} title={:x} artist={:x} album={:x} revision={}{timing}", value.source, value.signal, value.playing, md5::compute(&value.identity), md5::compute(&value.artist), md5::compute(&value.metadata.album), value.revision))
+                            } else { None };
                             let paused_observation = !value.playing;
-                            let event = runtime.lock().unwrap().policy.observe(value, native::now_ms());
+                            let event = guard.policy.observe(value, observed_at_ms);
+                            drop(guard);
+                            if !matches!(event, Some(Event::Play { .. })) {
+                                trace_observation(observed_token, observed_at_ms, observation_trace.as_deref());
+                            }
                             match event {
                                 Some(Event::Play { token }) => {
                                     if !has_cards.load(Ordering::Acquire) {
+                                        trace_observation(observed_token, observed_at_ms, observation_trace.as_deref());
                                         runtime.lock().unwrap().policy.empty(token);
                                         continue;
                                     }
@@ -296,6 +320,7 @@ impl AutoHandService {
                                         // Release only this token's pause lock; a newer
                                         // token must keep its own protection.
                                         app.state::<AutoHandService>().pause_finished(token);
+                                        trace_observation(observed_token, observed_at_ms, observation_trace.as_deref());
                                         match result {
                                             Ok(session) => {
                                                 let still = {
@@ -333,6 +358,7 @@ impl AutoHandService {
                                         let pause = if browser {
                                             app.state::<crate::browser_playback::BrowserPlaybackService>().pause().await
                                         } else { Ok(()) };
+                                        if browser { trace_observation(observed_token, observed_at_ms, observation_trace.as_deref()); }
                                         if browser { app.state::<AutoHandService>().pause_finished(token); }
                                         if app.state::<AutoHandService>().stopped.load(Ordering::Acquire) { return; }
                                         let result = match pause {

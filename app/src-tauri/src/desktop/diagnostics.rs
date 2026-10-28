@@ -72,7 +72,10 @@ pub fn log_event(app: &tauri::AppHandle, context: &str, code: &str) {
     crate::services::logging::log_event(&root, context, code);
 }
 pub fn trace_auto_hand(token: u64, stage: &str, detail: &str) {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    trace_auto_hand_at(token, stage, detail, stamp);
+}
+pub fn trace_auto_hand_at(token: u64, stage: &str, detail: &str, stamp: u64) {
     log_isolation("auto_hand", &format!("token={token} t_ms={stamp} step={stage} {detail}"));
 }
 pub fn log_frontend_error(app: tauri::AppHandle, context: String) {

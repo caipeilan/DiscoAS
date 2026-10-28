@@ -542,6 +542,37 @@ mod tests {
     }
 
     #[test]
+    fn text_first_detection_keeps_full_target_confirmation_without_an_extra_card() {
+        let mut policy = engine();
+        let mut original = observation("same title");
+        original.artist = "same artist".into();
+        original.metadata.album = "Album A".into();
+        original.metadata.duration_ms = 180_000;
+        policy.observe(original.clone(), 0);
+        let mut unexpected = original;
+        unexpected.metadata.album = "Album B".into();
+        unexpected.metadata.duration_ms = 0;
+        let Some(Event::Play { token }) = policy.observe(unexpected.clone(), 1) else { panic!("album change must not wait for a timeline"); };
+        let mut hand_target = target("hand");
+        hand_target.metadata.album = "Hand album".into();
+        hand_target.metadata.duration_ms = 240_000;
+        policy.begin(hand_target.clone(), Some(token), 2).unwrap();
+        assert_eq!(policy.observe(unexpected, 3), None);
+        let mut hand = observation("hand");
+        hand.metadata = hand_target.metadata;
+        hand.metadata.duration_ms = 180_000;
+        assert_eq!(policy.observe(hand.clone(), 4), None, "confirmation retains recording checks");
+        hand.metadata.duration_ms = 240_000;
+        assert_eq!(policy.observe(hand.clone(), 5), Some(Event::Confirmed { token, automatic: true }));
+        let mut text_only = hand.clone();
+        text_only.metadata.duration_ms = 0;
+        assert_eq!(policy.observe(text_only.clone(), 6), None);
+        assert_eq!(policy.observe(hand, 7), None, "a later timeline is not another track change");
+        assert_eq!(policy.observe(text_only, 8), None);
+        assert!(!policy.busy());
+    }
+
+    #[test]
     fn intermediate_queue_updates_do_not_consume_another_card() {
         let mut a = engine();
         assert_eq!(a.observe(observation("old"), 0), None);
