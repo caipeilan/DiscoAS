@@ -102,7 +102,7 @@ pub struct AutoHandService {
     stopped: Arc<AtomicBool>,
     worker: Mutex<Option<Worker>>,
     has_cards: Arc<AtomicBool>,
-    /// Serializes a maintenance pause with the dispatch that ends it. The
+    /// Serializes a preparation pause with the initial target dispatch. The
     /// runtime mutex is never held across a player round-trip.
     handoff: Mutex<()>,
 }
@@ -137,7 +137,7 @@ impl AutoHandService {
                     return;
                 };
                 let mut reader = None;
-                let mut paused: Option<(u64, native::PausedSession)> = None;
+                let mut paused: Option<(u64, native::PausedSession, native::ReplayGuard)> = None;
                 let mut observations: HashMap<(String, discoas_core::auto_hand::Signal), Observed> = HashMap::new();
                 let mut previous = None;
                 let mut observing = None;
@@ -161,51 +161,6 @@ impl AutoHandService {
                     }
                     if active {
                         let reader = reader.get_or_insert_with(|| native::Reader::with_wake(Some(native_wake.clone())));
-                        if let Some((token, session)) = paused.take() {
-                            // Decide under the runtime mutex, but never poll or pause a
-                            // player while holding it: the handoff lock serializes this
-                            // pause with begin(), which marks `dispatching` first.
-                            let keep = {
-                                let runtime = runtime.lock().unwrap();
-                                runtime.policy.current(token)
-                                    && !runtime.policy.dispatched(token)
-                                    && !runtime.dispatching
-                            };
-                            if keep {
-                                let service = app.state::<AutoHandService>();
-                                {
-                                    let _handoff = service.handoff.lock().unwrap();
-                                    let still = {
-                                        let runtime = runtime.lock().unwrap();
-                                        runtime.policy.current(token)
-                                            && !runtime.policy.dispatched(token)
-                                            && !runtime.dispatching
-                                    };
-                                    if still {
-                                        let cancel_runtime = runtime.clone();
-                                        if let Err(error) = session.maintain(&|| {
-                                            let runtime = cancel_runtime.lock().unwrap();
-                                            runtime.dispatching
-                                                || !runtime.policy.current(token)
-                                                || runtime.policy.dispatched(token)
-                                        }) {
-                                            // A sent pause that could not be confirmed quiet
-                                            // must fail this token before the handoff is
-                                            // released; a queued dispatch then cannot open
-                                            // the same target after a late pause.
-                                            if error != native::CANCELLED_ERROR {
-                                                service.failed_playback(&app, token, &error);
-                                            }
-                                        }
-                                    }
-                                }
-                                let still = {
-                                    let runtime = runtime.lock().unwrap();
-                                    runtime.policy.current(token) && !runtime.policy.dispatched(token)
-                                };
-                                if still { paused = Some((token, session)); }
-                            }
-                        }
                         let (platform, title) = {
                             let mut runtime = runtime.lock().unwrap();
                             if let Some(source) = runtime.source.clone() { runtime.policy.adopt(&source); }
@@ -224,6 +179,58 @@ impl AutoHandService {
                             }
                         }
                         for mut value in values {
+                            if let Some((token, session, mut replay)) = paused.take() {
+                                let (current, target) = {
+                                    let runtime = runtime.lock().unwrap();
+                                    (runtime.policy.current(token), runtime.policy.target_matches(token, &value))
+                                };
+                                if current {
+                                    // Read fresh track text before acting on Playing. The
+                                    // guard survives URI dispatch, but retires as soon as
+                                    // the target (including a paused one) takes over.
+                                    match replay.observe(&value, !value.playing && session.quiet(), target) {
+                                        native::ReplayAction::Release => {
+                                            super::diagnostics::trace_auto_hand(token, "replay_guard_released", "track_changed");
+                                        }
+                                        native::ReplayAction::Keep => {
+                                            paused = Some((token, session, replay));
+                                        }
+                                        native::ReplayAction::Pause => {
+                                            let service = app.state::<AutoHandService>();
+                                            {
+                                                let _handoff = service.handoff.lock().unwrap();
+                                                let cancel = || {
+                                                    let runtime = runtime.lock().unwrap();
+                                                    stopped.load(Ordering::Acquire)
+                                                        || runtime.dispatching
+                                                        || !runtime.policy.current(token)
+                                                };
+                                                let dispatched = runtime.lock().unwrap().policy.dispatched(token);
+                                                let result = if dispatched {
+                                                    session.pause_replay(&cancel)
+                                                } else {
+                                                    // A not-yet-sent target still waits for
+                                                    // this pause to become quiet via begin().
+                                                    session.maintain(&cancel).map(|_| false)
+                                                };
+                                                match result {
+                                                    Ok(true) => replay.sent(),
+                                                    Err(error) if error != native::CANCELLED_ERROR => {
+                                                        service.failed_playback(&app, token, &error);
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            if runtime.lock().unwrap().policy.current(token) {
+                                                paused = Some((token, session, replay));
+                                            }
+                                            // The sampled Playing value predates our Pause;
+                                            // wait for a fresh observation, not a new play.
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
                             let mut guard = runtime.lock().unwrap();
                             if value.signal == discoas_core::auto_hand::Signal::Interface
                                 && guard.policy.dispatched(guard.policy.generation())
@@ -262,6 +269,7 @@ impl AutoHandService {
                                 Some(format!("source={} signal={:?} playing={} title={:x} artist={:x} album={:x} revision={}{timing}", value.source, value.signal, value.playing, md5::compute(&value.identity), md5::compute(&value.artist), md5::compute(&value.metadata.album), value.revision))
                             } else { None };
                             let paused_observation = !value.playing;
+                            let pause_origin = (!browser && !guard.policy.busy()).then(|| value.clone());
                             let event = guard.policy.observe(value, observed_at_ms);
                             drop(guard);
                             if !matches!(event, Some(Event::Play { .. })) {
@@ -333,7 +341,7 @@ impl AutoHandService {
                                                 if let Some(value) = reader.paused_observation(&platform, &session) {
                                                     runtime.lock().unwrap().policy.paused(token, value);
                                                 }
-                                                paused = Some((token, session));
+                                                paused = Some((token, session, native::ReplayGuard::new(pause_origin.unwrap())));
                                             }
                                             Err(error) if error == native::CANCELLED_ERROR => continue,
                                             Err(_) => continue,

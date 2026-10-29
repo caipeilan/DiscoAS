@@ -304,6 +304,32 @@ pub struct PausedSession {
     token: u64,
     source: String,
 }
+/// Keeps the interrupted player paused until the requested target takes over.
+/// An accepted replay Pause is not sent again until actual quiet is observed.
+pub struct ReplayGuard {
+    original: Observation,
+    ready: bool,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReplayAction { Keep, Pause, Release }
+impl ReplayGuard {
+    pub fn new(original: Observation) -> Self {
+        Self { original, ready: true }
+    }
+    pub fn observe(&mut self, value: &Observation, quiet: bool, target: bool) -> ReplayAction {
+        if value.platform != self.original.platform { return ReplayAction::Keep; }
+        if target
+            || value.signal != self.original.signal
+            || value.source != self.original.source
+        {
+            return ReplayAction::Release;
+        }
+        if quiet { self.ready = true; }
+        if value.playing && self.ready { ReplayAction::Pause }
+        else { ReplayAction::Keep }
+    }
+    pub fn sent(&mut self) { self.ready = false; }
+}
 #[derive(Debug, PartialEq)]
 enum PauseCommand { Pause }
 /// Directed Pause is idempotent and never followed by a reverse Toggle. The
@@ -339,6 +365,24 @@ fn pause_cancel_action(cancelled: bool, commands_sent: u32) -> PauseCancel {
 impl PausedSession {
     fn status(&self) -> Option<Status> {
         self.session.GetPlaybackInfo().ok()?.PlaybackStatus().ok()
+    }
+    pub fn quiet(&self) -> bool {
+        matches!(self.status(), Some(Status::Paused | Status::Stopped))
+    }
+    /// A target is registered and may still be loading. Send one Pause for this
+    /// observed replay, then keep observing so a new target retires its guard.
+    pub fn pause_replay(&self, cancelled: &dyn Fn() -> bool) -> Result<bool, String> {
+        if cancelled() { return Err(CANCELLED_ERROR.into()); }
+        if self.status() != Some(Status::Playing) { return Ok(false); }
+        if cancelled() { return Err(CANCELLED_ERROR.into()); }
+        let requested_at_ms = now_ms();
+        let operation = self.session.TryPauseAsync();
+        super::diagnostics::trace_auto_hand_at(self.token, "replay_pause_requested",
+            &format!("source={} queued={}", self.source, operation.is_ok()), requested_at_ms);
+        let accepted = operation.and_then(wait).map_err(|_| "错误：播放器暂停请求失败")?;
+        super::diagnostics::trace_auto_hand(self.token, "replay_pause_reply", &format!("accepted={accepted}"));
+        if !accepted { return Err("错误：播放器拒绝暂停".into()); }
+        Ok(true)
     }
     pub fn maintain(&self, cancelled: &dyn Fn() -> bool) -> Result<(), String> {
         if cancelled() { return Ok(()); }
@@ -692,6 +736,113 @@ fn matches_local_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn interrupted_track() -> Observation {
+        Observation {
+            platform: names::NETEASE.into(), identity: "interrupted".into(), artist: "artist".into(),
+            metadata: discoas_core::model::PlaybackMetadata { album: "Album".into(), ..Default::default() },
+            signal: Signal::Interface, source: "cloudmusic.exe".into(),
+            playing: true, ended: false, progress: None, revision: 1,
+        }
+    }
+    fn target_policy(value: &Observation) -> (discoas_core::auto_hand::AutoHand, u64) {
+        let mut policy = discoas_core::auto_hand::AutoHand::default();
+        let token = policy.begin(discoas_core::auto_hand::Target {
+            platform: value.platform.clone(), song_id: "target-id".into(), title: value.identity.clone(),
+            artists: vec![value.artist.clone()], metadata: value.metadata.clone(),
+        }, None, 0).unwrap();
+        (policy, token)
+    }
+    #[test]
+    fn a_replay_pause_is_sent_once_until_actual_quiet() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let mut quiet = original.clone();
+        quiet.playing = false;
+        assert_eq!(guard.observe(&quiet, true, false), ReplayAction::Keep);
+        assert_eq!(guard.observe(&original, false, false), ReplayAction::Pause);
+        guard.sent();
+        for _ in 0..10 {
+            assert_eq!(guard.observe(&original, false, false), ReplayAction::Keep);
+        }
+        // Buffering/Changing is not a confirmed pause and must not rearm it.
+        assert_eq!(guard.observe(&quiet, false, false), ReplayAction::Keep);
+        assert_eq!(guard.observe(&original, false, false), ReplayAction::Keep);
+        assert_eq!(guard.observe(&quiet, true, false), ReplayAction::Keep);
+        assert_eq!(guard.observe(&original, false, false), ReplayAction::Pause);
+    }
+    #[test]
+    fn a_paused_target_releases_the_replay_guard_before_it_starts() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let target = Observation { identity: "target".into(), playing: false, ..original };
+        let (policy, token) = target_policy(&target);
+        assert_eq!(guard.observe(&target, true, policy.target_matches(token, &target)), ReplayAction::Release);
+    }
+    #[test]
+    fn a_playing_target_is_never_a_replay_pause() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let target = Observation { identity: "target".into(), ..original };
+        let (policy, token) = target_policy(&target);
+        assert_eq!(guard.observe(&target, false, policy.target_matches(token, &target)), ReplayAction::Release);
+    }
+    #[test]
+    fn replay_guard_distinguishes_same_title_by_artist_and_album() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let another_artist = Observation { artist: "anotherartist".into(), ..original.clone() };
+        let (policy, token) = target_policy(&another_artist);
+        assert!(!policy.target_matches(token, &original));
+        assert_eq!(guard.observe(&original, false, false), ReplayAction::Pause);
+        assert_eq!(guard.observe(&another_artist, false, policy.target_matches(token, &another_artist)), ReplayAction::Release);
+        let mut another_album = original.clone();
+        another_album.metadata.album = "Another Album".into();
+        let (policy, token) = target_policy(&another_album);
+        assert!(!policy.target_matches(token, &original));
+        assert_eq!(guard.observe(&another_album, false, policy.target_matches(token, &another_album)), ReplayAction::Release);
+    }
+    #[test]
+    fn replay_guard_ignores_duration_revision_and_album_formatting() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let mut changed = original;
+        changed.playing = false;
+        changed.revision += 1;
+        changed.metadata.duration_ms = 123_456;
+        changed.metadata.album = "AL BUM!".into();
+        assert_eq!(guard.observe(&changed, true, false), ReplayAction::Keep);
+    }
+    #[test]
+    fn replay_guard_releases_on_a_new_source_or_detection_binding() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let another_source = Observation { source: "another-session".into(), ..original.clone() };
+        assert_eq!(guard.observe(&another_source, false, false), ReplayAction::Release);
+        let another_binding = Observation { signal: Signal::Window, ..original };
+        assert_eq!(guard.observe(&another_binding, false, false), ReplayAction::Release);
+    }
+    #[test]
+    fn another_platform_cannot_release_or_pause_the_guarded_session() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let unrelated = Observation { platform: names::QQ.into(), ..original.clone() };
+        assert_eq!(guard.observe(&unrelated, false, false), ReplayAction::Keep);
+        assert_eq!(guard.observe(&original, false, false), ReplayAction::Pause);
+    }
+
+    #[test]
+    fn transient_or_reverted_text_does_not_end_replay_protection() {
+        let original = interrupted_track();
+        let mut guard = ReplayGuard::new(original.clone());
+        let target = Observation { identity: "requestedtarget".into(), ..original.clone() };
+        let (policy, token) = target_policy(&target);
+        let reverted = Observation { identity: "previoustrack".into(), ..original };
+        assert_eq!(guard.observe(&reverted, false, policy.target_matches(token, &reverted)), ReplayAction::Pause);
+        guard.sent();
+        assert_eq!(guard.observe(&reverted, false, false), ReplayAction::Keep);
+        assert_eq!(guard.observe(&target, false, policy.target_matches(token, &target)), ReplayAction::Release);
+    }
 
     #[test]
     fn observer_handoff_and_recreated_session_rebaseline_without_losing_the_pending_token() {

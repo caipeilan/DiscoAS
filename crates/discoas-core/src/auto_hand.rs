@@ -186,6 +186,12 @@ impl AutoHand {
     pub fn automatic_pending(&self, token: u64) -> bool {
         self.pending.as_ref().is_some_and(|pending| pending.token == token && pending.automatic)
     }
+    /// Text/ID ownership does not require the target to have started playing.
+    pub fn target_matches(&self, token: u64, value: &Observation) -> bool {
+        self.pending.as_ref().filter(|pending| pending.token == token)
+            .and_then(|pending| pending.target.as_ref())
+            .is_some_and(|target| target.matches(value))
+    }
     pub fn configure(&mut self, enabled: bool) {
         if self.enabled == enabled {
             return;
@@ -539,6 +545,22 @@ mod tests {
             artists: Vec::new(),
             metadata: Default::default(),
         }
+    }
+
+    #[test]
+    fn pending_target_text_matches_before_playing_without_confirming_it() {
+        let mut policy = engine();
+        let token = policy.begin(target("requested"), None, 0).unwrap();
+        let mut value = observation("requested");
+        value.playing = false;
+        assert!(policy.target_matches(token, &value));
+        assert!(!policy.target_matches(token + 1, &value));
+        assert!(!policy.target_matches(token, &observation("intermediate")));
+        assert_eq!(policy.observe(value.clone(), 1), None);
+        assert!(policy.busy(), "paused target text must not unlock the hand");
+        value.playing = true;
+        assert!(matches!(policy.observe(value.clone(), 2), Some(Event::Confirmed { token: seen, .. }) if seen == token));
+        assert!(!policy.target_matches(token, &value));
     }
 
     #[test]
