@@ -34,9 +34,13 @@ export function useHandController() {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [busy, setBusy] = useState("");
   const [manualPlaying, setManualPlaying] = useState(false);
+  const presentedPlay = useRef<{ id: string; token?: number } | null>(null);
   const [autoState, setAutoState] = useState(idleAutoHandState);
   const autoStateRef = useRef(autoState); autoStateRef.current = autoState;
   const autoLocked = (autoState.busy || manualPlaying) && !snapshot.preview;
+  const playingCardId = manualPlaying ? busy : autoState.busy
+    ? autoState.playingCardId ?? (presentedPlay.current?.token === autoState.token ? presentedPlay.current.id : undefined)
+    : undefined;
   const [discoveryPhase, setDiscoveryPhase] = useState<"" | "fold" | "fill">("");
   const [refill, setRefill] = useState<HandCard | null>(null);
   const [refillCount, setRefillCount] = useState(0);
@@ -247,7 +251,10 @@ export function useHandController() {
   const operation = async (name: "play_hand_card" | "discard_hand_card" | "collect_hand_discovery_card", card: HandCard, pose?: CardPose, insert = 0) => {
     if (autoStateRef.current.busy || busyRef.current || current.current.preview) return;
     busyRef.current = card.id; setBusy(card.id); setError("");
-    if (name === "play_hand_card") setManualPlaying(true);
+    if (name === "play_hand_card") {
+      presentedPlay.current = { id: card.id };
+      setManualPlaying(true);
+    }
     if (card.discovery) {
       const state = current.current, batchEpoch = state.discovery?.batchEpoch;
       const args = { platform: card.song.platform, songId: card.song.songId, sourceId: card.song.sourceId, sourceKind: card.song.sourceKind, filename: card.song.filename };
@@ -282,6 +289,7 @@ export function useHandController() {
         replacementSlot.current = null;
         if (mounted.current) {
           setRefill(null); setReplacing(-1); setDiscoveryPhase(""); setManualPlaying(false); busyRef.current = ""; setBusy("");
+          if (presentedPlay.current?.token === undefined) presentedPlay.current = null;
           if (name === "discard_hand_card") requestAnimationFrame(() => refreshPointerHover());
         }
       }
@@ -303,7 +311,7 @@ export function useHandController() {
       if (name !== "play_hand_card") returning.current.push(card.id);
       setError(errorText(e));
     }
-    finally { finishDiscards(); setManualPlaying(false); busyRef.current = ""; setBusy(""); }
+    finally { finishDiscards(); setManualPlaying(false); busyRef.current = ""; setBusy(""); if (presentedPlay.current?.token === undefined) presentedPlay.current = null; }
   };
   const clearHand = async () => {
     if (busyRef.current || current.current.preview) { if (desktop) void notifyHandClear(null); return; }
@@ -330,8 +338,32 @@ export function useHandController() {
       const accepted = mergeAutoHandState(autoStateRef.current, next);
       autoStateRef.current = accepted; setAutoState(accepted);
       if (accepted.busy) {
-        busyRef.current = "auto"; cancelDrag();
-        hoverRef.current = null; selectedRef.current = null; setHover(null); setSelected(null);
+        const seen = presentedPlay.current;
+        const id = accepted.playingCardId ?? (seen && (seen.token === undefined || seen.token === accepted.token) ? seen.id : undefined);
+        const alreadyPresented = !!seen && seen.id === id && (seen.token === undefined || seen.token === accepted.token);
+        if (id) {
+          presentedPlay.current = { id, token: accepted.token };
+          // Native drag owns its release frame. Shortcut/automatic plays freeze
+          // the actual visible pose before clearing hover and changing layout.
+          const nativeExit = dragRef.current?.id === id && dragRef.current.ending;
+          if (!alreadyPresented && !nativeExit && flyingRef.current?.card.id !== id && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            const card = current.current.cards.find(card => card.id === id);
+            const element = stage.current?.querySelector<HTMLElement>(`[data-hand-id="${id}"]`);
+            if (card && element) {
+              const pose = readPose(element);
+              releaseHandMotion(element);
+              flyingRef.current = { card, pose, complete: () => {} };
+              setFlying(flyingRef.current);
+            }
+          }
+        }
+        busyRef.current = "auto";
+        if (!dragRef.current?.ending) cancelDrag();
+        if (id) {
+          hoverRef.current = null; selectedRef.current = null; setHover(null); setSelected(null);
+        }
+      } else if (presentedPlay.current?.token === accepted.token) {
+        presentedPlay.current = null;
       }
     };
     void onDesktopEvent("auto-hand-state-changed", acceptAuto).then(cleanup => {
@@ -430,7 +462,7 @@ export function useHandController() {
   const errorPosition = errorDock ? { left: errorDock.left, top: Math.max(snapshot.workArea.top + 8, errorDock.top - 48) } : undefined;
   const clearError = () => setError("");
   return { snapshot, phase, hidden, inputMode, cardsMounted, stage, surface, cardSize, toolbarElement, dockPosition, dockAreas, diameter,
-    scheduleRegions, busy: autoLocked ? "auto" : busy, autoLocked, autoNextId, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
+    scheduleRegions, busy: autoLocked ? "auto" : busy, autoLocked, playingCardId, autoNextId, error, clearConfirm, toCanvas, setDockMoving, moveDock, toggleDock, clearDock, visibleCards, discardById,
     flying, drag, poses, cardIndices, active, operation, finishFlight, onCardPointerDown, onCardPointerMove,
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId: groups.discovery[replacing]?.id,
     refreshDiscovery, restPoses, layoutDiscoveryCount, discoveryCount: groups.discovery.length, ordinaryCount: groups.ordinary.length,

@@ -1563,7 +1563,7 @@
   {
     "name": "auto state",
     "method": "auto.state",
-    "description": "返回 configured、active、busy、revision、token",
+    "description": "返回 configured、active、busy、revision、token，以及出牌期间的 playingCardId",
     "usage": "auto state",
     "group": "手牌、迷你发现与 AUTO",
     "positionals": [],

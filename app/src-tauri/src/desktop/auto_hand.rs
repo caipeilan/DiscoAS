@@ -16,7 +16,7 @@ use std::{
 use tauri::{Emitter, Manager};
 
 pub const BUSY_ERROR: &str = "正在出牌，请稍候";
-#[derive(Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoHandState {
     pub token: u64,
@@ -25,6 +25,8 @@ pub struct AutoHandState {
     #[serde(rename = "enabled")]
     pub active: bool,
     pub revision: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playing_card_id: Option<String>,
 }
 fn state(runtime: &Runtime) -> AutoHandState {
     AutoHandState {
@@ -33,6 +35,11 @@ fn state(runtime: &Runtime) -> AutoHandState {
         configured: runtime.configured,
         active: runtime.configured && !runtime.temporarily_paused,
         revision: runtime.revision,
+        playing_card_id: runtime
+            .playing_card
+            .as_ref()
+            .filter(|(token, _)| *token == runtime.policy.generation() && runtime.policy.busy())
+            .map(|(_, id)| id.clone()),
     }
 }
 #[tauri::command]
@@ -50,7 +57,7 @@ pub fn set_auto_hand_enabled(app: tauri::AppHandle, service: tauri::State<'_, Au
     let value = state(&runtime);
     drop(runtime);
     service.wake();
-    let _ = app.emit("auto-hand-state-changed", value);
+    let _ = app.emit("auto-hand-state-changed", &value);
     Ok(value)
 }
 fn publish_busy(
@@ -60,7 +67,7 @@ fn publish_busy(
 ) {
     let next = state(&runtime.lock().unwrap());
     if previous.as_ref() != Some(&next) {
-        *previous = Some(next);
+        *previous = Some(next.clone());
         let _ = app.emit("auto-hand-state-changed", next);
     }
 }
@@ -78,6 +85,7 @@ struct Runtime {
     revision: u64,
     policy: AutoHand,
     request: Option<(u64, PlaySongArgs)>,
+    playing_card: Option<(u64, String)>,
     source: Option<String>,
     title: String,
     pausing: Option<u64>,
@@ -465,13 +473,13 @@ impl AutoHandService {
     /// Locks a manual hand play before its details are prepared. The worker
     /// keeps observing while the auto switch is off, so this reservation can
     /// still confirm or time out without an automatic trigger.
-    pub fn reserve_manual(&self, args: &PlaySongArgs) -> Result<u64, String> {
-        self.reserve(Some(args))
+    pub fn reserve_manual(&self, args: &PlaySongArgs, card_id: &str) -> Result<u64, String> {
+        self.reserve(Some(args), Some(card_id))
     }
     pub(super) fn reserve_control(&self) -> Result<u64, String> {
-        self.reserve(None)
+        self.reserve(None, None)
     }
-    fn reserve(&self, args: Option<&PlaySongArgs>) -> Result<u64, String> {
+    fn reserve(&self, args: Option<&PlaySongArgs>, card_id: Option<&str>) -> Result<u64, String> {
         let mut runtime = self.runtime.lock().unwrap();
         if runtime.policy.busy() || runtime.pausing.is_some() || runtime.dispatching {
             return Err(BUSY_ERROR.into());
@@ -481,6 +489,7 @@ impl AutoHandService {
             .reserve_manual(native::now_ms())
             .ok_or_else(|| BUSY_ERROR.to_string())?;
         runtime.request = args.map(|args|(token, args.clone()));
+        runtime.playing_card = card_id.map(|id| (token, id.into()));
         drop(runtime);
         self.wake();
         Ok(token)
@@ -592,11 +601,14 @@ impl AutoHandService {
     pub(super) fn automatic_pending(&self, token: u64) -> bool {
         self.runtime.lock().unwrap().policy.automatic_pending(token)
     }
-    pub fn prepare(&self, token: u64, args: PlaySongArgs) {
+    pub fn prepare(&self, token: u64, args: PlaySongArgs, card_id: &str) {
         let mut runtime = self.runtime.lock().unwrap();
         if runtime.policy.current(token) {
             runtime.request = Some((token, args));
+            runtime.playing_card = Some((token, card_id.into()));
         }
+        drop(runtime);
+        self.wake();
     }
     fn failed_playback(&self, app: &tauri::AppHandle, token: u64, error: &str) {
         let mut runtime = self.runtime.lock().unwrap();
@@ -652,6 +664,7 @@ impl AutoHandService {
             runtime.policy.configure(false);
             runtime.pausing = None;
             runtime.request = None;
+            runtime.playing_card = None;
             runtime.dispatching = false;
         }
         let worker = self.worker.lock().unwrap().take();
@@ -704,7 +717,7 @@ mod tests {
 
     #[test]
     fn temporary_active_state_preserves_the_existing_event_field() {
-        let snapshot = AutoHandState { token: 2, busy: false, configured: true, active: false, revision: 3 };
+        let snapshot = AutoHandState { token: 2, busy: false, configured: true, active: false, revision: 3, playing_card_id: None };
         let wire = serde_json::to_value(snapshot).unwrap();
         assert_eq!(wire["enabled"], false);
         assert!(wire.get("active").is_none());
@@ -753,20 +766,22 @@ mod tests {
     fn reserve_manual_locks_until_the_token_finishes() {
         let service = AutoHandService::default();
         let args = manual_args();
-        let token = service.reserve_manual(&args).unwrap();
+        let token = service.reserve_manual(&args, "card-a").unwrap();
         assert!(service.state().busy);
+        assert_eq!(service.state().playing_card_id.as_deref(), Some("card-a"));
         let resumed = service.begin(&args, None, Some(token)).unwrap();
         assert_eq!(resumed, token);
         assert!(service.state().busy);
         service.fail(token);
         assert!(!service.state().busy);
+        assert!(service.state().playing_card_id.is_none());
     }
 
     #[test]
     fn stop_fails_a_pending_manual_reservation() {
         let service = AutoHandService::default();
         let args = manual_args();
-        service.reserve_manual(&args).unwrap();
+        service.reserve_manual(&args, "card-a").unwrap();
         assert!(service.state().busy);
         service.stop();
         assert!(!service.state().busy);
@@ -778,10 +793,10 @@ mod tests {
         let service = AutoHandService::default();
         let args = manual_args();
         service.runtime.lock().unwrap().pausing = Some(7);
-        assert!(service.reserve_manual(&args).is_err());
+        assert!(service.reserve_manual(&args, "card-a").is_err());
         service.runtime.lock().unwrap().pausing = None;
         service.runtime.lock().unwrap().dispatching = true;
-        assert!(service.reserve_manual(&args).is_err());
+        assert!(service.reserve_manual(&args, "card-a").is_err());
     }
 
     #[test]

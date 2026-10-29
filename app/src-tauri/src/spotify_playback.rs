@@ -845,7 +845,21 @@ mod tests {
     #[test]
     #[ignore = "opens a real NetEase scheme and verifies the current desktop"]
     fn live_isolated_netease_uri_does_not_switch_desktop() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetForegroundWindow, GetWindowThreadProcessId,
+        };
         let original = crate::desktop::virtual_desktop::current().expect("current desktop");
+        let foreground = unsafe { GetForegroundWindow() };
+        let mut foreground_pid = 0;
+        unsafe { GetWindowThreadProcessId(foreground, &mut foreground_pid) };
+        for client in crate::client_window::windows(crate::platforms::names::NETEASE) {
+            let mut client_pid = 0;
+            unsafe { GetWindowThreadProcessId(client.hwnd as _, &mut client_pid) };
+            assert_ne!(
+                foreground_pid, client_pid,
+                "another application must actually own foreground"
+            );
+        }
         let log_root = std::env::temp_dir().join(format!(
             "discoas-uri-test-{}",
             std::process::id()
@@ -865,6 +879,10 @@ mod tests {
             other => panic!("isolation prepared: {other:?}"),
         };
         let prepare_elapsed = prepare_started.elapsed();
+        assert_eq!(
+            unsafe { GetForegroundWindow() }, foreground,
+            "preparation changed foreground"
+        );
         let url = discoas_core::platforms::netease::card::scheme_url("2121980421");
         let open_started = std::time::Instant::now();
         open_url_no_activate(&url).expect("scheme opened");
@@ -874,7 +892,14 @@ mod tests {
             open_started.elapsed().as_millis()
         );
         crate::desktop::client_isolation::playback_started(handle);
-        std::thread::sleep(Duration::from_secs(2));
+        for _ in 0..160 {
+            std::thread::sleep(Duration::from_millis(50));
+            assert_eq!(crate::desktop::virtual_desktop::current().unwrap(), original);
+            assert_eq!(
+                unsafe { GetForegroundWindow() }, foreground,
+                "delayed client activation"
+            );
+        }
         let after = crate::desktop::virtual_desktop::current().expect("current desktop");
         if let Ok(log) = std::fs::read_to_string(log_root.join("client-isolation.log")) {
             eprintln!("diagnostics:\n{log}");

@@ -211,7 +211,7 @@ event unwatch watch-1
 | `mini play <card> --batch-epoch <batchEpoch> [--platform platform] [--source-id sourceId] [--source-kind sourceKind]` | `mini.play` | `card`*: identity；`batchEpoch`*: integer；`platform`: string；`sourceId`: string；`sourceKind`: string | 播放选中曲目并准备下一批迷你发现；操作结果对象；失败返回 error | — |
 | `mini reorder <cardIds> --batch-epoch <batchEpoch>` | `mini.reorder` | `cardIds`*: array；`batchEpoch`*: integer | 调整迷你发现顺序；操作结果对象；失败返回 error | — |
 | `mini displayed <batchEpoch> [--identities identities]` | `mini.displayed` | `batchEpoch`*: integer；`identities`: array | 确认当前迷你发现批次已展示，并写入展示记录；操作结果对象；失败返回 error | — |
-| `auto state` | `auto.state` | — | 返回 configured、active、busy、revision、token；AutoHandState | — |
+| `auto state` | `auto.state` | — | 返回 configured、active、busy、revision、token，以及出牌期间的 playingCardId；AutoHandState | — |
 | `auto on` | `auto.on` | — | 临时开启 AUTO，要求保存设置允许自动打出；回复包含控制修订号；操作结果对象；失败返回 error | — |
 | `auto off` | `auto.off` | — | 临时关闭 AUTO，在途播放继续确认与解锁；回复包含控制修订号；操作结果对象；失败返回 error | — |
 | `auto toggle` | `auto.toggle` | — | 基于当前服务状态切换，沿用修订号过滤迟到回复；操作结果对象；失败返回 error | — |

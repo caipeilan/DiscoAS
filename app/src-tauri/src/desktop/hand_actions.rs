@@ -125,7 +125,8 @@ pub async fn play_hand_card(
     }
     let automation = app.state::<super::auto_hand::AutoHandService>();
     let args = store(&app)?.get(&id)?.1.playback_args();
-    let token = automation.reserve_manual(&args)?;
+    let token = automation.reserve_manual(&args, &id)?;
+    let _ = app.emit("auto-hand-state-changed", automation.state());
     let result = play_card(&app, id.clone(), cache.inner(), token).await;
     if result.is_err() {
         automation.fail(token);
@@ -173,7 +174,8 @@ pub(super) async fn play_automatically(app: &tauri::AppHandle, token: u64) -> Re
             automation.empty(token);
             return Ok(());
         }
-        automation.prepare(token, card.playback_args());
+        automation.prepare(token, card.playback_args(), &card.id);
+        let _ = app.emit("auto-hand-state-changed", automation.state());
         card.id.clone()
     };
     super::diagnostics::log_event(app, "auto_hand", "dispatch_started");

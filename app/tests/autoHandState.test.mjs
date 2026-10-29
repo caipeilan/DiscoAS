@@ -26,6 +26,19 @@ test("a new handoff locks again after a previous failure", () => {
   assert.deepEqual(mergeAutoHandState(failed, { token: 10, busy: true }), { token: 10, busy: true });
 });
 
+test("a selected outgoing card arrives during the same busy request", () => {
+  const preparing = { token: 8, busy: true };
+  const playing = mergeAutoHandState(preparing, { ...preparing, playingCardId: "card-a" });
+  assert.equal(playing.playingCardId, "card-a");
+  assert.equal(mergeAutoHandState(playing, preparing), playing);
+  assert.equal(mergeAutoHandState(playing, { token: 8, busy: false }).playingCardId, undefined);
+});
+
+test("an outgoing identity from an old request cannot replace the new card", () => {
+  const playing = { token: 9, busy: true, playingCardId: "card-b" };
+  assert.equal(mergeAutoHandState(playing, { token: 8, busy: true, playingCardId: "card-a" }), playing);
+});
+
 test("late toggle replies cannot revert a newer temporary setting", () => {
   const off={token:8,busy:true,configured:true,active:false,revision:3};
   assert.equal(mergeAutoHandState(off,{...off,active:true,revision:2}),off);
