@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/DiscoAS.png" width="200" alt="DiscoAS">
+  <img src="assets/DiscoAS.png" width="400" alt="DiscoAS">
 </p>
 
 
@@ -92,6 +92,7 @@ npm run tauri build -- --bundles nsis
 </details>
 
 - 功能边界与开发入口：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 控制台命令列表：[docs/CONSOLE_COMMANDS.md](docs/CONSOLE_COMMANDS.md)
 - 核心库说明与示例：[crates/discoas-core/README.md](crates/discoas-core/README.md)
 - 更新记录：[CHANGELOG.md](CHANGELOG.md)
 
