@@ -52,14 +52,16 @@ MD FOR AGENT/
 /app/tests/fixtures/HandHoverPreview.tsx
 /nul
 
-# Public documentation is limited to the root README and its developer links.
+# Public documentation is limited to the root README, CHANGELOG and the fixed docs below.
 *.md
 *.markdown
 *.rst
 *.adoc
 *.txt
 !/README.md
+!/CHANGELOG.md
 !/docs/ARCHITECTURE.md
+!/docs/DEVELOPMENT.md
 !/docs/CONSOLE_COMMANDS.md
 !/crates/discoas-core/README.md
 !LICENSE*.txt

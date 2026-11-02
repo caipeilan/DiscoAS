@@ -43,8 +43,10 @@ DiscoAS是蔡某人特地为了他那[5000+曲数小众歌单](https://music.163
 ## 所以，怎么用上呢？
 
 能看到右边的 [Releases](https://github.com/caipeilan/DiscoAS/releases/latest) 吗？就从那下载最新版本的就行。
+
 只有十几MB的安装包是在线安装包喵，两百多MB那个是离线的，看您的网络情况选安装包喵。
-目前仅支持Win 64系统喵。
+
+目前仅支持Win 64系统喵，具体点讲是Windows 10 1809及以上，以及Windows 11的x64系统喵。
 
 ---
 
@@ -61,6 +63,7 @@ DiscoAS是蔡某人特地为了他那[5000+曲数小众歌单](https://music.163
 - Apple Music（通过网页）
 - YouTube（通过网页）
 - Bilibili（通过网页）
+- 本地音频（文件、文件夹、M3U/M3U8）
 
 就像前面说的那样，这个小项目本质是个「选歌器」，本身没有播放器功能，就只是唤起本地应用而已（更别说什么播放权限、地区限制了），所以还请先安装你所使用的音乐平台对应的桌面软件捏。
 
@@ -87,7 +90,7 @@ npm run tauri dev
 npm run tauri build -- --bundles nsis
 ```
 
-测试、发布流程和完整命令见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 与 [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md)。
+测试、开发、发布流程和完整命令见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 </details>
 
@@ -103,11 +106,12 @@ npm run tauri build -- --bundles nsis
 
 ```text
 user_data/
-├── settings/    # 偏好设置
+├── settings/    # 偏好、引导、控制台连接
 ├── pic/         # 封面缓存
 ├── logs/        # 日志
-├── history/     # 发现历史
-└── <平台>/{playlist,album}/<id>.json   # 歌单 / 专辑缓存
+├── history/     # 发现历史与封面
+├── hand/        # 手牌与浮窗位置
+└── <平台>/<来源类型>/<id>.json   # 歌单 / 专辑 / 视频等缓存
 ```
 
 旧版1.x的`user_data/`可以在设置里迁移导入。
@@ -118,7 +122,7 @@ user_data/
 
 Q:没有支持我使用的平台/软件诶
 
-A: 目前已接入网易云、QQ音乐、酷狗、酷我、汽水、Spotify以及Apple Music、YouTube和Bilibili。其他平台看反馈后续再考虑。
+A: 目前已接入平台见上文。其他平台看反馈后续再考虑。
 
 Q:界面尺寸太大/太小了
 
@@ -142,7 +146,7 @@ A:参考现有第三方实现、公开网页接口和相关文档。
 
 Q:安装时提示「未知发布者」怎么办？
 
-A:安装包暂时没有代码签名，点「更多信息 → 仍要运行」。介意的话可以自己按`docs/RELEASE_GUIDE.md`从源码构建。
+A:安装包暂时没有代码签名（作者目前要时间没时间，要马内没马内），点「更多信息 → 仍要运行」。介意的话可以自己按 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 从源码开始构建。
 
 Q:想清空数据重来？
 
