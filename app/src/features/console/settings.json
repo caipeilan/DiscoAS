@@ -1,4 +1,5 @@
 [
+  { "path": "gui.playbackCoverScale", "description": "浮窗播放栏封面大小；100% 为 44px，随界面字号缩放", "range": "0.5–2.0，默认 1.0", "readOnly": false },
   {
     "path": "music.normalSongCount",
     "description": "普通发现歌曲数",

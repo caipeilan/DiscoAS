@@ -69,3 +69,4 @@ html.tray-menu-window,
   .tray-menu-panel { animation: none; }
   .tray-menu-item { transition: none; }
 }
+.tray-menu-error { margin: 8px 12px; max-width: 260px; color: var(--danger); font-size: 12px; line-height: 1.5; white-space: normal; }

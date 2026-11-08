@@ -26,7 +26,9 @@ pub(super) fn owns_keyboard() -> bool {
 pub struct TrayMenuSnapshot {
     generation: u64,
     gui: GuiSetting,
-    labels: [String; 6],
+    labels: [String; 7],
+    client_platform: Option<String>,
+    client_restart_enabled: bool,
     paused: bool,
     hand_enabled: bool,
 }
@@ -71,13 +73,14 @@ fn menu_is_foreground(hwnd: isize) -> bool {
     foreground as isize == hwnd || unsafe { GetAncestor(foreground, GA_ROOT) } as isize == hwnd
 }
 
-pub fn labels(language: &str) -> [&'static str; 6] {
+pub fn labels(language: &str) -> [&'static str; 7] {
     match language {
         "en_US" => [
             "Discover a song",
             "Show hand",
             "Library and settings",
             "Pause global shortcut",
+            "Restart player",
             "Restart DiscoAS",
             "Quit DiscoAS",
         ],
@@ -86,6 +89,7 @@ pub fn labels(language: &str) -> [&'static str; 6] {
             "顯示手牌",
             "歌單與設定",
             "暫停全域快捷鍵",
+            "重新啟動播放器",
             "重新啟動 DiscoAS",
             "退出 DiscoAS",
         ],
@@ -94,6 +98,7 @@ pub fn labels(language: &str) -> [&'static str; 6] {
             "显示手牌",
             "歌单与设置",
             "暂停全局快捷键",
+            "重启播放器",
             "重启 DiscoAS",
             "退出 DiscoAS",
         ],
@@ -165,7 +170,23 @@ pub fn show_at(app: &tauri::AppHandle, cursor: PhysicalPosition<f64>) {
             }
             .into();
         }
+        let target = super::client_restart::target(&app);
+        if let Some(target) = &target {
+            if let Some(client) = crate::client_window::Client::from_platform(&target.platform) {
+                text[4] = format!(
+                    "{}{}",
+                    match gui.language.as_str() {
+                        "en_US" => "Restart ",
+                        "zh_TW" => "重新啟動",
+                        _ => "重启",
+                    },
+                    client.label()
+                );
+            }
+        }
         let snapshot = TrayMenuSnapshot {
+            client_platform: target.as_ref().map(|target| target.platform.clone()),
+            client_restart_enabled: target.is_some(),
             generation,
             labels: text,
             gui,
@@ -377,12 +398,13 @@ pub enum TrayAction {
     Hand,
     Main,
     Pause,
+    RestartClient,
     Restart,
     Quit,
 }
 
 #[tauri::command]
-pub fn tray_menu_action(
+pub async fn tray_menu_action(
     window: tauri::WebviewWindow,
     generation: u64,
     action: TrayAction,
@@ -394,6 +416,22 @@ pub fn tray_menu_action(
     {
         return Ok(());
     }
+    if matches!(action, TrayAction::RestartClient) {
+        let selected = state
+            .pending
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|opening| opening.snapshot.client_platform.clone());
+        let target = super::client_restart::target(app)
+            .filter(|target| Some(&target.platform) == selected.as_ref())
+            .ok_or("未找到可重启的桌面播放器")?;
+        tauri::async_runtime::spawn_blocking(move || super::client_restart::restart(target))
+            .await
+            .map_err(|_| "播放器重启任务未完成")??;
+        dismiss(app);
+        return Ok(());
+    }
     dismiss(app);
     match action {
         TrayAction::Discover => crate::show_overlay(app),
@@ -402,6 +440,7 @@ pub fn tray_menu_action(
         TrayAction::Pause => {
             app.state::<AtomicBool>().fetch_xor(true, Ordering::Relaxed);
         }
+        TrayAction::RestartClient => unreachable!(),
         TrayAction::Restart => app.request_restart(),
         TrayAction::Quit => app.exit(0),
     }

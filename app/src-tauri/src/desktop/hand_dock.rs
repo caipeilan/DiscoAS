@@ -19,6 +19,7 @@ pub struct Snapshot {
     pub(super) discovery_settings: HandDiscoverySettings,
     pub(super) discovery: Option<discoas_core::model::DiscoveryStateDto>,
     pub(super) gui: GuiSetting,
+    pub(super) mystery_cover: String,
     pub(super) work_area: Rect,
     pub(super) work_areas: Vec<Rect>,
     pub(super) dock_point: Option<Point>,
@@ -45,7 +46,8 @@ pub struct DockState {
     snapshot: Mutex<Option<Snapshot>>,
     canvas: Mutex<Option<Canvas>>,
     layout: Mutex<Option<Layout>>,
-    region: Mutex<Option<(u64, Vec<Rect>)>>,
+    bounds: Mutex<Option<(PhysicalPosition<i32>, PhysicalSize<u32>)>>,
+    region: Mutex<Option<(u64, Vec<Rect>, Vec<Rect>)>>,
 }
 
 pub(super) use super::floating_window::show as show_window;
@@ -85,6 +87,19 @@ async fn create(app: &tauri::AppHandle) -> Result<(), String> {
     window.on_window_event(move |event| {
         let state = motion_app.state::<DockState>();
         match event {
+            tauri::WindowEvent::Moved(position) => {
+                if let Some((origin, _)) = state.bounds.lock().unwrap().as_mut() {
+                    *origin = *position;
+                }
+            }
+            tauri::WindowEvent::Resized(size) => {
+                if let Some((_, current)) = state.bounds.lock().unwrap().as_mut() {
+                    *current = *size;
+                }
+            }
+            _ => {}
+        }
+        match event {
             tauri::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 if let Some(layout) = state.layout.lock().unwrap().as_mut() {
                     layout.native_scale = *scale_factor;
@@ -119,6 +134,54 @@ async fn create(app: &tauri::AppHandle) -> Result<(), String> {
                 }
             }
             _ => {}
+        }
+    });
+    let pointer_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use windows_sys::Win32::{
+            Foundation::POINT, UI::WindowsAndMessaging::GetPhysicalCursorPos,
+        };
+        let mut intercepting = true;
+        loop {
+            let state = pointer_app.state::<DockState>();
+            let visible = state.visible.load(Ordering::Acquire);
+            tokio::time::sleep(std::time::Duration::from_millis(if visible {
+                16
+            } else {
+                200
+            }))
+            .await;
+            if !visible {
+                continue;
+            }
+            if state.dragging.load(Ordering::Acquire) {
+                if !intercepting && super::floating_window::ignore_cursor(&window, false).is_ok() {
+                    intercepting = true;
+                }
+                continue;
+            }
+            let Some((origin, _)) = *state.bounds.lock().unwrap() else {
+                continue;
+            };
+            let mut cursor = POINT::default();
+            if unsafe { GetPhysicalCursorPos(&mut cursor) == 0 } {
+                continue;
+            }
+            let hit = state
+                .region
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|(_, rects, _)| {
+                    rects.iter().any(|rect| {
+                        rect.contains((cursor.x - origin.x) as f64, (cursor.y - origin.y) as f64)
+                    })
+                });
+            if hit != intercepting {
+                if super::floating_window::ignore_cursor(&window, !hit).is_ok() {
+                    intercepting = hit;
+                }
+            }
         }
     });
     Ok(())
@@ -176,15 +239,19 @@ pub(super) fn moved(app: &tauri::AppHandle, generation: u64, point: Point) {
     if state.generation.load(Ordering::Acquire) != generation {
         return;
     }
-    let snapshot = {
+    let changed = {
         let mut current = state.snapshot.lock().unwrap();
         current.as_mut().map(|s| {
             s.dock_point = Some(point);
-            s.clone()
+            ()
         })
     };
-    if let Some(snapshot) = snapshot {
-        let _ = app.emit_to(LABEL, "hand-dock-state-changed", snapshot);
+    if changed.is_some() {
+        let _ = app.emit_to(
+            LABEL,
+            "hand-dock-position-changed",
+            serde_json::json!({"generation":generation,"point":point}),
+        );
     }
 }
 
@@ -200,15 +267,17 @@ pub fn hand_dock_ready(app: tauri::AppHandle) -> Option<Snapshot> {
     snapshot
 }
 pub(super) fn console_snapshot(app: &tauri::AppHandle) -> serde_json::Value {
-    let state=app.state::<DockState>();
-    let snapshot=state.snapshot.lock().unwrap().clone();
+    let state = app.state::<DockState>();
+    let snapshot = state.snapshot.lock().unwrap().clone();
     serde_json::json!({"visible":state.visible.load(Ordering::Acquire),"snapshot":snapshot})
 }
 pub(super) async fn console_position(app: &tauri::AppHandle, point: Point) -> Result<(), String> {
-    if !point.x.is_finite() || !point.y.is_finite() { return Err("浮窗坐标应为有限数值。".into()); }
-    let generation=app.state::<DockState>().generation.load(Ordering::Acquire);
-    position_hand_dock(app.clone(),generation,point,None).await?;
-    save_hand_dock(app.clone(),generation,point).await
+    if !point.x.is_finite() || !point.y.is_finite() {
+        return Err("浮窗坐标应为有限数值。".into());
+    }
+    let generation = app.state::<DockState>().generation.load(Ordering::Acquire);
+    position_hand_dock(app.clone(), generation, point, None).await?;
+    save_hand_dock(app.clone(), generation, point).await
 }
 #[tauri::command]
 pub async fn position_hand_dock(
@@ -229,14 +298,15 @@ pub async fn position_hand_dock(
         .unwrap()
         .clone()
         .ok_or("错误：手牌浮窗不可用")?;
-    let font_size = state
+    let gui = state
         .snapshot
         .lock()
         .unwrap()
         .as_ref()
         .ok_or("错误：手牌已关闭")?
         .gui
-        .font_size;
+        .clone();
+    let font_size = gui.font_size;
     let window = app
         .get_webview_window(LABEL)
         .ok_or("错误：手牌浮窗不可用")?;
@@ -250,22 +320,38 @@ pub async fn position_hand_dock(
     let extent = width - diameter / 2.0 + 14.0;
     let center = canvas.physical(point);
     let x = (center.x - extent * canvas.scale).floor() as i32;
-    let y = (center.y - (diameter / 2.0 + 14.0) * canvas.scale).floor() as i32;
+    let vertical_padding =
+        diameter.max(diameter * (gui.playback_cover_scale + 0.5)) + diameter * 2.0 / 11.0 + 14.0;
+    let y = (center.y - (diameter / 2.0 + vertical_padding) * canvas.scale).floor() as i32;
     let size = PhysicalSize::new(
         (extent * 2.0 * canvas.scale).ceil() as u32,
-        ((diameter + 28.0) * canvas.scale).ceil() as u32,
+        ((diameter + vertical_padding * 2.0) * canvas.scale).ceil() as u32,
     );
+    let native_scale = window
+        .scale_factor()
+        .map_err(|_| "错误：无法读取显示器信息")?;
+    let resized = state
+        .bounds
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_none_or(|(_, old)| *old != size)
+        || state
+            .layout
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|old| old.native_scale != native_scale);
     *state.layout.lock().unwrap() = Some(Layout {
         canvas: canvas.clone(),
         logo_offset: Point {
             x: center.x - x as f64,
             y: center.y - y as f64,
         },
-        native_scale: window
-            .scale_factor()
-            .map_err(|_| "错误：无法读取显示器信息")?,
+        native_scale,
     });
     super::floating_window::place_confirmed(&window, PhysicalPosition::new(x, y), size).await?;
+    *state.bounds.lock().unwrap() = Some((PhysicalPosition::new(x, y), size));
     let surface = canvas.surface(&window)?;
     if let Some(layout) = state.layout.lock().unwrap().as_mut() {
         layout.native_scale = canvas.scale / surface.scale;
@@ -273,7 +359,9 @@ pub async fn position_hand_dock(
     if let Some(snapshot) = state.snapshot.lock().unwrap().as_mut() {
         snapshot.dock_point = Some(point);
     }
-    *state.region.lock().unwrap() = None;
+    if resized {
+        *state.region.lock().unwrap() = None;
+    }
     Ok(surface)
 }
 #[tauri::command]
@@ -281,6 +369,7 @@ pub async fn set_hand_dock_hit_regions(
     app: tauri::AppHandle,
     generation: u64,
     rects: Vec<Rect>,
+    drawing_rects: Option<Vec<Rect>>,
 ) -> Result<(), String> {
     let state = app.state::<DockState>();
     if state.dragging.load(Ordering::Acquire) {
@@ -310,9 +399,10 @@ pub async fn set_hand_dock_hit_regions(
     if state.dragging.load(Ordering::Acquire) {
         return Ok(());
     }
-    if region.as_ref() != Some(&(generation, physical.clone())) {
-        super::geometry::apply_regions(&window, &rects, false)?;
-        *region = Some((generation, physical));
+    let drawing = drawing_rects.unwrap_or_else(|| rects.clone());
+    if region.as_ref() != Some(&(generation, physical.clone(), drawing.clone())) {
+        super::geometry::apply_regions(&window, &drawing, false)?;
+        *region = Some((generation, physical, drawing));
     }
     drop(region);
     if !window.is_visible().map_err(|_| "错误：手牌浮窗不可用")? {
@@ -322,8 +412,13 @@ pub async fn set_hand_dock_hit_regions(
     Ok(())
 }
 #[tauri::command]
-pub async fn begin_hand_dock_drag(app: tauri::AppHandle, generation: u64) -> Result<Point, String> {
+pub async fn begin_hand_dock_drag(
+    app: tauri::AppHandle,
+    generation: u64,
+    cursor: Option<Point>,
+) -> Result<Point, String> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetPhysicalCursorPos};
     let state = app.state::<DockState>();
     if state.generation.load(Ordering::Acquire) != generation
         || !state.visible.load(Ordering::Acquire)
@@ -333,25 +428,62 @@ pub async fn begin_hand_dock_drag(app: tauri::AppHandle, generation: u64) -> Res
     let window = app
         .get_webview_window(LABEL)
         .ok_or("错误：手牌浮窗不可用")?;
-    // A direction change can draw on either side of the Logo during the native
-    // drag. Restore compact clipping only after the pointer is released.
+    let origin = window
+        .inner_position()
+        .map_err(|_| "错误：无法定位手牌浮窗")?;
+    let size = window.inner_size().map_err(|_| "错误：手牌浮窗不可用")?;
+    let mut start = POINT::default();
+    if unsafe { GetPhysicalCursorPos(&mut start) } == 0 {
+        return Err("错误：无法读取指针位置".into());
+    }
+    if let Some(cursor) = cursor {
+        if !cursor.x.is_finite() || !cursor.y.is_finite() {
+            return Err("错误：浮窗坐标无效".into());
+        }
+        let layout = state
+            .layout
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("错误：手牌浮窗不可用")?;
+        let physical = layout.canvas.physical(cursor);
+        start = POINT {
+            x: physical.x.round() as i32,
+            y: physical.y.round() as i32,
+        };
+    }
     {
         let mut region = state.region.lock().unwrap();
         super::geometry::apply_regions(&window, &[], true)?;
         *region = None;
         state.dragging.store(true, Ordering::Release);
     }
-    if let Err(_) = window.start_dragging() {
-        state.dragging.store(false, Ordering::Release);
-        return Err("错误：无法移动手牌浮窗".into());
-    }
-    // Observe release only during an actual native drag; no idle pointer loop.
-    while unsafe { GetAsyncKeyState(VK_LBUTTON as i32) } < 0
-        && state.visible.load(Ordering::Acquire)
-    {
+    // Windows constrains native caption drags by the transparent window bounds.
+    // Follow physical pointer deltas so the visible toolbar can reach the top.
+    let mut previous = origin;
+    let mut result = Ok(());
+    loop {
+        let mut cursor = POINT::default();
+        if unsafe { GetPhysicalCursorPos(&mut cursor) } != 0 {
+            let next =
+                PhysicalPosition::new(origin.x + cursor.x - start.x, origin.y + cursor.y - start.y);
+            if next != previous {
+                result = super::floating_window::place_confirmed(&window, next, size).await;
+                if result.is_err() {
+                    break;
+                }
+                previous = next;
+            }
+        }
+        if unsafe { GetAsyncKeyState(VK_LBUTTON as i32) } >= 0
+            || !state.visible.load(Ordering::Acquire)
+        {
+            break;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(16)).await;
     }
     state.dragging.store(false, Ordering::Release);
+    result?;
     let origin = window
         .inner_position()
         .map_err(|_| "错误：无法定位手牌浮窗")?;

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { HandSettings as HandPreferences, HandDiscoverySettings, Preferences } from "../../types";
+import { useState, type CSSProperties } from "react";
+import type { GuiSettings, HandSettings as HandPreferences, HandDiscoverySettings, Preferences } from "../../types";
 import { SettingRow, NumberField, ScaleField, Toggle } from "../../components/SettingsControls";
 import { Select } from "../../components/Select";
 import { Reveal } from "../../components/Motion";
@@ -7,7 +7,8 @@ import { call } from "../../services/desktop";
 import { t, errorText } from "../../i18n";
 import { AUTO_PLAY_AVAILABLE, supportsAutoPlay } from "./autoHandDetection";
 
-export function HandSettings({ settings, onChange, onDiscoveryChange }: { settings: Preferences; onChange: (value: HandPreferences) => void; onDiscoveryChange: (value: HandDiscoverySettings) => void }) {
+export function HandSettings({ settings, onChange, onDiscoveryChange, gui, onCoverScaleChange }: { settings: Preferences; onChange: (value: HandPreferences) => void; onDiscoveryChange: (value: HandDiscoverySettings) => void; gui: GuiSettings; onCoverScaleChange: (value: number) => void }) {
+  const coverScale = gui.playbackCoverScale ?? 1;
   const value = settings.hand;
   const platform = settings.sources.find(source => source.enabled)?.platform;
   const autoPlaySupported = supportsAutoPlay(platform);
@@ -84,5 +85,15 @@ export function HandSettings({ settings, onChange, onDiscoveryChange }: { settin
         <SettingRow title={t("倾斜角度")}><NumberField decimal label={t("倾斜角度")} value={discovery.tiltDegrees} min={0} max={45} suffix="°" onChange={v => setDiscovery("tiltDegrees", v)} /></SettingRow>
       </Reveal>
     </Reveal>
+  </section><section className="settings-section">
+    <h2>{t("浮窗播放栏")}</h2>
+    <SettingRow title={t("封面大小")} description={t("100% 为默认大小，播放栏高度随封面调整，文字和按钮大小保持不变。") }>
+      <div className="scale-field">
+        <input type="range" aria-label={t("封面大小滑块")} min={50} max={200} step={1} value={Math.round(coverScale * 100)}
+          style={{ "--range-progress": `${(coverScale * 100 - 50) / 1.5}%` } as CSSProperties}
+          onChange={event => onCoverScaleChange(Number(event.target.value) / 100)} />
+        <NumberField label={t("封面大小")} value={Math.round(coverScale * 100)} min={50} max={200} suffix="%" onChange={value => onCoverScaleChange(value / 100)} />
+      </div>
+    </SettingRow>
   </section></>;
 }

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import "./PlatformIcon.css";
 import { Icon } from "../Icon";
 import netease from "../assets/platforms/neteasecloudmusic.svg";
 import qq from "../assets/platforms/qq-music.svg";

@@ -84,3 +84,4 @@
   .settings-save-actions .button { padding: 6px 9px; }
   .client-desktop-actions { margin-left: 0; width: 100%; }
 }
+.help-hint-content { white-space: pre-line; }

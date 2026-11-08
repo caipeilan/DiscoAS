@@ -4,8 +4,10 @@ import { appLogo } from "../../assets";
 import { Icon } from "../../Icon";
 import { t, errorText } from "../../i18n";
 import { getClientHideEnabled, onDesktopEvent, showLocalClient } from "../../services/desktop";
-import { floatingDockRect, settleDockPoint, type DockPoint, type DockDirection } from "./floatingDock";
+import { dockPlaybackRect, dockPlaybackSide, dockPlaybackWidth, floatingDockRect, settleDockPoint, type DockPoint, type DockDirection } from "./floatingDock";
 import { useAutoHandControl } from "./useAutoHandControl";
+import { HandPlayback } from "./HandPlayback";
+import type { MediaController } from "./useMediaSession";
 import { call } from "../../services/desktop";
 import "./handControls.css";
 
@@ -15,7 +17,8 @@ interface Props {
   diameter: number; count: number; capacity: number; busy: boolean; confirm: boolean;
   toCanvas: (x: number, y: number) => DockPoint;
   beginDrag: () => Promise<unknown>;
-  nativeDrag?: () => Promise<DockPoint>;
+  nativeDrag?: (cursor: DockPoint) => Promise<DockPoint>;
+  motion?: RefObject<((point: DockPoint) => void) | null>;
   dragging: (value: boolean) => void;
   move: (point: DockPoint) => void;
   toggle: () => void; clear: () => void;
@@ -23,15 +26,22 @@ interface Props {
   handEnabled?: boolean; discovery?: DiscoveryState | null; refresh?: () => void;
   createCards?: boolean;
   onWidthChange?: (width: number) => void;
+  media?: MediaController;
+  coverScale?: number;
+  mysteryCover?: string;
+  autoControl?: ReturnType<typeof useAutoHandControl>;
 }
 
 export function HandDock({ element, point, areas, expanded, preview, diameter, count, capacity, busy, confirm,
-  toCanvas, beginDrag, nativeDrag, dragging, move, toggle, clear, message, handEnabled = true, discovery, refresh, onWidthChange, createCards = false }: Props) {
-  const auto = useAutoHandControl();
+  toCanvas, beginDrag, nativeDrag, motion, dragging, move, toggle, clear, message, handEnabled = true, discovery, refresh, onWidthChange, createCards = false, media, autoControl, coverScale = 1, mysteryCover = "" }: Props) {
+  const liveAuto = useAutoHandControl(!autoControl), auto = autoControl ?? liveAuto;
+  const player = useRef<HTMLDivElement>(null);
+  const playerWidth = media && !preview ? dockPlaybackWidth(diameter, areas, point) : 0;
   const [moving, setMoving] = useState(false);
   const gesture = useRef<{ pointerId: number; x: number; y: number; dx: number; dy: number;
     origin: DockPoint; started: boolean; native?: boolean } | null>(null);
   const animationFrame = useRef(0);
+  const nativePosition = useRef<DockPoint | null>(null);
   const content = useRef<HTMLDivElement>(null);
   const [expandedWidth, setExpandedWidth] = useState(diameter);
   const [hideClientEnabled, setHideClientEnabled] = useState(false);
@@ -74,22 +84,47 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
     if (!node) return;
     const measure = () => {
       const width = Math.ceil(diameter + node.scrollWidth);
-      setExpandedWidth(width); onWidthChange?.(width);
+      setExpandedWidth(width); onWidthChange?.(Math.max(width, playerWidth));
     };
     const observer = new ResizeObserver(measure);
     observer.observe(node); measure();
     return () => observer.disconnect();
-  }, [diameter, onWidthChange]);
-  const wantedDirection = floatingDockRect(point, expanded || preview, diameter, areas, undefined, expandedWidth).direction;
+  }, [diameter, onWidthChange, playerWidth]);
+  const wantedDirection = floatingDockRect(nativePosition.current ?? point, expanded || preview, diameter, areas, undefined, expandedWidth).direction;
   const [appearance, setAppearance] = useState({ direction: wantedDirection, folding: false });
   const appearanceRef = useRef(appearance);
   const desiredDirection = useRef(wantedDirection);
   const held = gesture.current;
-  const displayPoint = held?.started && !held.native ? { x: held.origin.x + held.dx, y: held.origin.y + held.dy } : point;
+  const displayPoint = held?.native ? nativePosition.current ?? point : held?.started ? { x: held.origin.x + held.dx, y: held.origin.y + held.dy } : point;
   const pillExpanded = (expanded || preview) && !appearance.folding;
+  const wantedSide = dockPlaybackSide(displayPoint, areas);
+  const [placement, setPlacement] = useState({ side: wantedSide, folding: false });
+  const desiredSide = useRef(wantedSide), placementRef = useRef(placement);
+  placementRef.current = placement;
+  const requestSide = (side: typeof wantedSide) => {
+    desiredSide.current = side;
+    const view = placementRef.current;
+    if (view.folding || view.side === side) return;
+    const next = !pillExpanded || window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? { side, folding: false } : { ...view, folding: true };
+    placementRef.current = next; setPlacement(next);
+  };
+  const finishPlacement = () => {
+    if (placementRef.current.folding) {
+      const next = { side: desiredSide.current, folding: false };
+      placementRef.current = next; setPlacement(next);
+    }
+  };
+  useLayoutEffect(() => { requestSide(wantedSide); }, [wantedSide, pillExpanded]);
+  useEffect(() => {
+    if (!placement.folding) return;
+    const timer = setTimeout(finishPlacement, 170);
+    return () => clearTimeout(timer);
+  }, [placement.folding]);
+  const playerRect = dockPlaybackRect(displayPoint, diameter, areas, appearance.direction, placement.side, coverScale);
   const geometry = floatingDockRect(displayPoint, pillExpanded, diameter, areas, appearance.direction, expandedWidth);
-  const latest = useRef({ point, areas, expanded: expanded || preview, diameter, toCanvas, expandedWidth });
-  latest.current = { point, areas, expanded: expanded || preview, diameter, toCanvas, expandedWidth };
+  const latest = useRef({ point, areas, expanded: expanded || preview, diameter, toCanvas, expandedWidth, coverScale });
+  latest.current = { point, areas, expanded: expanded || preview, diameter, toCanvas, expandedWidth, coverScale };
   const show = (next: typeof appearance) => { appearanceRef.current = next; setAppearance(next); };
   const finishFold = () => {
     if (appearanceRef.current.folding && element.current && element.current.offsetWidth <= latest.current.diameter + 1) {
@@ -106,20 +141,31 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
       show({ direction, folding: false });
     } else show({ ...view, folding: true });
   };
-  const paint = () => {
-    animationFrame.current = 0;
-    const held = gesture.current, node = element.current;
-    if (!held?.started || !node) return;
+  const paintPoint = (position: DockPoint) => {
+    const node = element.current;
+    if (!node) return;
+    if (gesture.current?.native) nativePosition.current = position;
     const state = latest.current;
-    const position = { x: held.origin.x + held.dx, y: held.origin.y + held.dy };
     requestDirection(floatingDockRect(position, state.expanded, state.diameter, state.areas).direction);
+    requestSide(dockPlaybackSide(position, state.areas));
     const view = appearanceRef.current;
     const rect = floatingDockRect(position, state.expanded && !view.folding, state.diameter, state.areas, view.direction, state.expandedWidth);
     node.style.setProperty("--dock-x", `${position.x - state.diameter / 2}px`);
     node.style.setProperty("--dock-y", `${rect.top}px`);
+    node.style.setProperty("--dock-width", `${rect.width}px`);
+    const playerRect = dockPlaybackRect(position, state.diameter, state.areas, view.direction, placementRef.current.side, state.coverScale);
+    player.current?.style.setProperty("--player-x", `${playerRect.left}px`);
+    player.current?.style.setProperty("--player-y", `${playerRect.top}px`);
+    if (player.current) player.current.style.width = `${playerRect.width}px`;
     for (const [edge, touching] of Object.entries(rect.edges)) {
       node.toggleAttribute(`data-edge-${edge}`, touching);
     }
+  };
+  if (motion) motion.current = paintPoint;
+  const paint = () => {
+    animationFrame.current = 0;
+    const held = gesture.current;
+    if (held?.started) paintPoint({ x: held.origin.x + held.dx, y: held.origin.y + held.dy });
   };
   useLayoutEffect(() => {
     if (!gesture.current?.started || gesture.current.native) requestDirection(wantedDirection);
@@ -134,6 +180,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
     const held = gesture.current;
     if (!held) return;
     gesture.current = null;
+    nativePosition.current = null;
     cancelAnimationFrame(animationFrame.current); animationFrame.current = 0;
     if (held.started) {
       const next = cancelled ? latest.current.point : settleDockPoint(nativePoint ?? { x: held.origin.x + held.dx, y: held.origin.y + held.dy }, latest.current.diameter, latest.current.areas);
@@ -142,7 +189,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
     } else if (!cancelled) toggle();
     setMoving(false);
   };
-  return <div ref={element} data-hand-hit data-direction={geometry.direction} data-dock-expanded={expanded || preview}
+  return <><div ref={element} data-hand-hit data-direction={geometry.direction} data-dock-expanded={expanded || preview}
     data-folding={appearance.folding || undefined}
     data-edge-left={geometry.edges.left || undefined} data-edge-right={geometry.edges.right || undefined}
     data-edge-top={geometry.edges.top || undefined} data-edge-bottom={geometry.edges.bottom || undefined}
@@ -171,7 +218,7 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
           held.started = true; setMoving(true); dragging(true);
           if (nativeDrag) {
             held.native = true;
-            void nativeDrag().then((point) => { if (gesture.current === held) finish(false, point); })
+            void nativeDrag({ x: held.x, y: held.y }).then((point) => { if (gesture.current === held) finish(false, point); })
               .catch(() => { if (gesture.current === held) finish(true); });
             return;
           }
@@ -209,5 +256,9 @@ export function HandDock({ element, point, areas, expanded, preview, diameter, c
         : handEnabled && <button className={`hand-clear${confirm ? " hand-clear-confirm" : ""}`} disabled={!count || busy}
           aria-label={confirm ? t("确认清空") : t("清空手牌")} onClick={clear}><Icon name={confirm ? "check" : "remove"} size={16} /></button>}
     </div>
-  </div>;
+  </div>
+    {!preview && media && <HandPlayback element={player} media={media} mysteryCover={mysteryCover} showNext={!!auto.state.active}
+      open={pillExpanded} side={placement.side} folding={placement.folding} finishFold={finishPlacement}
+      style={{ "--player-x": `${playerRect.left}px`, "--player-y": `${playerRect.top}px`, "--playback-cover-scale": coverScale, width: playerRect.width, height: playerRect.height } as CSSProperties} />}
+  </>;
 }

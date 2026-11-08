@@ -1,5 +1,6 @@
 //! Frameless floating windows: framework visibility and native drawing share one lifecycle.
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use tokio::sync::oneshot;
 use windows_sys::Win32::{
@@ -9,14 +10,14 @@ use windows_sys::Win32::{
     UI::{
         Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            CallNextHookEx, GetWindowLongPtrW, GetWindowRect, IsWindowVisible, SetWindowLongPtrW,
-            SetWindowPos, SetWindowsHookExW, UnhookWindowsHookEx, GWL_EXSTYLE, GWL_STYLE,
-            HCBT_ACTIVATE, HHOOK, HWND_TOPMOST, MA_NOACTIVATE, STYLESTRUCT, SWP_FRAMECHANGED,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WH_CBT, WM_DWMCOMPOSITIONCHANGED,
-            WM_MOUSEACTIVATE, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCPAINT,
-            WM_STYLECHANGING, WS_CAPTION, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_NOACTIVATE,
-            WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP,
-            WS_SYSMENU, WS_THICKFRAME,
+            CallNextHookEx, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, IsWindowVisible,
+            SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, UnhookWindowsHookEx, GWL_EXSTYLE,
+            GWL_STYLE, HCBT_ACTIVATE, HHOOK, HWND_NOTOPMOST, HWND_TOPMOST, MA_NOACTIVATE,
+            STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+            WH_CBT, WM_DWMCOMPOSITIONCHANGED, WM_MOUSEACTIVATE, WM_NCACTIVATE, WM_NCCALCSIZE,
+            WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION, WS_EX_CLIENTEDGE,
+            WS_EX_DLGMODALFRAME, WS_EX_NOACTIVATE, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE,
+            WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
         },
     },
 };
@@ -25,6 +26,67 @@ const SUBCLASS_ID: usize = 0xDA50;
 const FRAME: u32 = WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX;
 const EDGE: u32 = WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE;
 type Completion = oneshot::Receiver<Result<(), String>>;
+
+#[derive(Default)]
+pub struct MainAttention {
+    active: AtomicBool,
+    raised: AtomicBool,
+}
+
+#[tauri::command]
+pub fn set_main_attention(window: WebviewWindow, active: bool) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("此操作仅用于主窗口".into());
+    }
+    window
+        .state::<MainAttention>()
+        .active
+        .store(active, Ordering::Release);
+    refresh_main_attention(window.app_handle())
+}
+
+pub fn refresh_main_attention(app: &tauri::AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let handle = window.hwnd().map_err(|_| "错误：主窗口不可用")?.0 as usize;
+    dispatch(&window, move |w| {
+        let hwnd = handle as HWND;
+        let state = w.state::<MainAttention>();
+        let raised = state.active.load(Ordering::Acquire)
+            && unsafe { IsWindowVisible(hwnd) != 0 && GetForegroundWindow() == hwnd };
+        if !raised && !state.raised.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        unsafe {
+            if SetWindowPos(
+                hwnd,
+                if raised { HWND_TOPMOST } else { HWND_NOTOPMOST },
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+            ) == 0
+            {
+                return Err("错误：无法调整提示窗口层级".into());
+            }
+        }
+        state.raised.store(raised, Ordering::Release);
+        if raised {
+            raise_discovery(w.app_handle());
+            if let Some(tray) = w.app_handle().get_webview_window("tray-menu") {
+                if let Ok(handle) = tray.hwnd() {
+                    if unsafe { IsWindowVisible(handle.0 as _) != 0 } {
+                        raise_topmost(&tray)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    })
+    .map(|_| ())
+}
 
 struct ActivationHook(HHOOK);
 
@@ -220,7 +282,8 @@ pub fn show(window: &WebviewWindow, visible: bool) -> Result<(), String> {
     dispatch(window, move |w| {
         // These setters update Tao's VISIBLE state as well as the actual HWND.
         let result = if visible { w.show() } else { w.hide() };
-        result.map_err(|_| "错误：无法更新浮窗显示".into())
+        result.map_err(|_| "错误：无法更新浮窗显示".to_string())?;
+        refresh_main_attention(w.app_handle())
     })
     .map(|_| ())
 }

@@ -93,7 +93,7 @@ export function ClientDesktopSettings({
       </SettingRow>
       <SettingRow
         title={t("创建独立桌面（实验）")}
-        description={t("将客户端置于独立的虚拟桌面，减少切歌时的窗口跳动和抢焦点行为，当然有可能更严重")}
+        description={t("将客户端置于独立的虚拟桌面，减少切歌时的窗口跳动和抢焦点行为，当然有可能更严重") + "\n" + t("如果出现跳转至DiscoAS桌面的情况，可以在切回平常使用的桌面后，重启你使用的播放器客户端，然后通过切歌将其重新移动回DiscoAS桌面")}
       >
         <Toggle label={t("创建独立桌面（实验）")} value={separateDesktop} onChange={onSeparateDesktopChange} />
       </SettingRow>

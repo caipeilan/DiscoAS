@@ -66,6 +66,7 @@ export interface HandDragIntent { playable: boolean; collecting: boolean; dx: nu
 export interface HandDragEnd { cancelled: boolean }
 export interface HandDockSnapshot {
   generation: number; count: number; settings: HandSettings; gui: GuiSettings;
+  mysteryCover?: string;
   workArea: HandRect; workAreas: HandRect[]; dockPoint: HandPoint | null; expanded: boolean;
   discoverySettings?: HandDiscoverySettings; discovery?: DiscoveryState | null;
 }
@@ -238,6 +239,7 @@ export interface GuiSettings {
   replacementButtonScale: number;
   discoveryBarScale: number;
   mainWindowScale: number;
+  playbackCoverScale: number;
   fontFamily: string;
   fontSize: number;
   language: string;
@@ -257,6 +259,7 @@ export const defaultGuiSettings: GuiSettings = {
   replacementButtonScale: 1,
   discoveryBarScale: 1,
   mainWindowScale: 1,
+  playbackCoverScale: 1,
   fontFamily: "",
   fontSize: 14,
   language: "zh_CN",

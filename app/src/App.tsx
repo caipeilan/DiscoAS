@@ -3,7 +3,7 @@ import { About } from "./About";
 import { Sidebar } from "./components/Sidebar";
 import type { Page } from "./components/Sidebar";
 import { Toast } from "./components/Toast";
-import { Presence } from "./components/Motion";
+import { Presence, usePresence } from "./components/Motion";
 import { MainWindowFrame } from "./components/MainWindowFrame";
 import { LibraryView } from "./features/library/LibraryView";
 import { ImportDialog } from "./features/library/ImportDialog";
@@ -16,7 +16,7 @@ import { useSettings } from "./features/settings/useSettings";
 import { useAppearance } from "./features/settings/useAppearance";
 import { useAppState } from "./hooks/useAppState";
 import { useNotice } from "./hooks/useNotice";
-import { call, onDesktopEvent } from "./services/desktop";
+import { call, onDesktopEvent, setMainAttention } from "./services/desktop";
 import { t, errorText } from "./i18n";
 import { CreateHandDialog } from "./features/hand/CreateHandDialog";
 import { Onboarding } from "./features/onboarding/Onboarding";
@@ -59,6 +59,12 @@ export default function App() {
   const reportGuideError = useCallback((error: unknown) => notice(errorText(error), true), [notice]);
   const guide = useOnboarding(reportGuideError);
   const guideStep = guide.state.step;
+  const attention = usePresence(!!toast || creatingHand || library.importing || !!library.remove || !!library.editing
+    || !app.startup && [1, 2, 6, 7, 8, 9, 10].includes(guideStep));
+  useEffect(() => {
+    void setMainAttention(attention.mounted).catch(error => notice(errorText(error), true));
+  }, [attention.mounted, notice]);
+  useEffect(() => () => { void setMainAttention(false).catch(() => {}); }, []);
   const advanceGuide = (next: number) => { void guide.advance(guideStep, next).catch(reportGuideError); };
   const importWasOpen = useRef(false);
   useEffect(() => {

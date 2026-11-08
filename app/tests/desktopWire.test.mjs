@@ -7,6 +7,14 @@ const source = ts.transpileModule(fs.readFileSync(new URL("../src/services/deskt
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
 const { decodeDesktopValue, encodeDesktopArgs } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+test("floating cover scale and independent media controls retain their wire identities", () => {
+  assert.deepEqual(decodeDesktopValue({ playback_cover_scale: 1.5 }), { playbackCoverScale: 1.5 });
+  assert.deepEqual(encodeDesktopArgs("save_gui_preferences", { settings: { playbackCoverScale: 1.5 } }), { settings: { playback_cover_scale: 1.5 } });
+  const media = { revision: 3, sessionId: "2:player", title: "Original Title", artist: "原始作者", coverDataUri: "data:image/png;base64,x", playing: true };
+  assert.deepEqual(decodeDesktopValue(media), media);
+  assert.deepEqual(encodeDesktopArgs("control_media_session", { sessionId: "2:player", action: "pause" }), { sessionId: "2:player", action: "pause" });
+  assert.deepEqual(encodeDesktopArgs("begin_hand_dock_drag", { generation: 2, cursor: { x: -500.25, y: 20 } }), { generation: 2, cursor: { x: -500.25, y: 20 } });
+});
 
 test("old settings and source identities roundtrip without changing persisted/wire keys", () => {
   const wire = {

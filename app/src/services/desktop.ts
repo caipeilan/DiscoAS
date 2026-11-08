@@ -12,9 +12,16 @@ import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch,
 export interface PlaySongArgs { platform: string; songId: string; sourceId: string; sourceKind: string }
 
 import type { AutoHandState } from "../features/hand/autoHandState";
+import type { MediaSessionState, MediaSessionUpdate, MediaAction } from "../features/hand/mediaSession";
+export const getMediaSession = () => call<MediaSessionState>("get_media_session");
+export const refreshMediaSession = () => call<MediaSessionState>("refresh_media_session");
+export const watchMediaSession = (enabled: boolean) => call<void>("watch_media_session", { enabled });
+export const controlMediaSession = (sessionId: string, action: MediaAction) => call<void>("control_media_session", { sessionId, action });
+export const setMainAttention = (active: boolean) => desktop ? call<void>("set_main_attention", { active }) : Promise.resolve();
 import type { OnboardingState } from "../features/onboarding/onboardingState";
 
 export type DesktopCommand =
+  | "get_media_session" | "refresh_media_session" | "watch_media_session" | "control_media_session" | "set_main_attention"
   | "console_execute" | "console_catalog" | "console_ui_reply"
   | "get_onboarding_state" | "advance_onboarding" | "start_onboarding"
   | "get_auto_hand_state"
@@ -130,9 +137,12 @@ export interface DesktopEvents {
   "onboarding-changed": OnboardingState;
   "open-create-hand": void;
   "auto-hand-state-changed": AutoHandState;
+  "media-session-changed": MediaSessionUpdate;
+  "media-session-error": string;
   "open-settings-requested": { category: "playback" };
   "hand-dock-state-changed": HandDockSnapshot;
   "hand-dock-moved": { generation: number; point: HandPoint; surface: HandSurface };
+  "hand-dock-position-changed": { generation: number; point: HandPoint };
   "hand-dock-hide": number;
   "hand-clear-requested": void;
   "hand-clear-finished": string | null;

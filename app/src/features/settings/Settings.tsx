@@ -246,7 +246,7 @@ export function Settings({
           </SettingRow>
         </section>)}
         {panel("hand", <>
-        <HandSettings settings={draft} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("handDiscovery", value)} />
+        <HandSettings settings={draft} gui={guiDraft} onCoverScaleChange={playbackCoverScale => setGuiDraft(old => ({ ...old, playbackCoverScale }))} onChange={(value) => set("hand", value)} onDiscoveryChange={(value) => set("handDiscovery", value)} />
         </>)}
         {panel("window", <>
         <section className="settings-section">

@@ -61,6 +61,8 @@ pub struct GuiSetting {
     #[serde(default = "default_one")]
     #[serde(rename = "setting_size")]
     pub main_window_scale: f64,
+    #[serde(default = "default_one")]
+    pub playback_cover_scale: f64,
     #[serde(default = "default_language")]
     pub language: String,
     // 日间配色
@@ -105,6 +107,7 @@ impl Default for GuiSetting {
             replacement_button_scale: 1.0,
             discovery_bar_scale: 1.0,
             main_window_scale: 1.0,
+            playback_cover_scale: 1.0,
             language: "zh_CN".to_string(),
             card: ColorGroup {
                 background: "#FFFFFF".into(),
@@ -148,6 +151,11 @@ impl Default for GuiSetting {
 
 impl GuiSetting {
     pub fn validate(&self) -> AppResult<()> {
+        if !self.playback_cover_scale.is_finite()
+            || !(0.5..=2.0).contains(&self.playback_cover_scale)
+        {
+            return Err(AppError::Platform("浮窗封面大小应为 50%–200%".into()));
+        }
         if !crate::i18n::is_supported(&self.language) {
             return Err(AppError::Platform("不支持的界面语言".into()));
         }
@@ -257,6 +265,7 @@ mod tests {
         assert_eq!(s.discovery_bar_scale, 1.0);
         assert_eq!(s.font_family, "");
         assert_eq!(s.font_size, 14.0);
+        assert_eq!(s.playback_cover_scale, 1.0);
         assert!(!s.user_configured);
         // setting 组缺 background_hover / border → 应为空串（serde default）
         assert_eq!(s.setting.background, "#FFFFFF");
@@ -293,6 +302,7 @@ mod tests {
         original.card.background = "#abcdef".into();
         original.font_family = "Microsoft YaHei UI".into();
         original.font_size = 18.125;
+        original.playback_cover_scale = 1.75;
         original.user_configured = true;
         original.save_to_path(&path).unwrap();
 
@@ -321,6 +331,14 @@ mod tests {
     #[test]
     fn accepts_original_scale_range_and_rejects_nonfinite_or_invalid_font_values() {
         let mut settings = GuiSetting::default();
+        for scale in [0.49, 2.01, f64::NAN, f64::INFINITY] {
+            settings.playback_cover_scale = scale;
+            assert!(settings.validate().is_err());
+        }
+        for scale in [0.5, 2.0, 1.0] {
+            settings.playback_cover_scale = scale;
+            assert!(settings.validate().is_ok());
+        }
         settings.discovery_card_scale = 3.0;
         settings.cancel_button_scale = 0.5;
         settings.replacement_button_scale = 3.0;

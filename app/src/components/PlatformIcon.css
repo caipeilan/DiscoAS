@@ -1,0 +1,1 @@
+.platform-logo { display: inline-block; flex-shrink: 0; background: currentColor; mask: var(--platform-logo) center / contain no-repeat; }

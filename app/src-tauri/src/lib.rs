@@ -195,6 +195,8 @@ pub fn run() {
         .manage(desktop::console::ConsoleService::default())
         .manage(desktop::hand_discovery::HandDiscoveryState::default())
         .manage(desktop::hand_dock::DockState::default())
+        .manage(desktop::media_session::MediaSessionService::default())
+        .manage(desktop::floating_window::MainAttention::default())
         .manage(desktop::hand_drag::DragState::default())
         .manage(AtomicBool::new(false))
         .manage(StartupPending(AtomicBool::new(true)))
@@ -326,6 +328,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(_) | tauri::WindowEvent::CloseRequested { .. }) {
+                let _ = desktop::floating_window::refresh_main_attention(window.app_handle());
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "splash" {
                     return;
@@ -375,6 +380,11 @@ pub fn run() {
             desktop::hand::set_hand_hit_regions,
             desktop::hand_dock::begin_hand_dock_drag,
             desktop::hand_dock::hand_dock_ready,
+            desktop::media_session::get_media_session,
+            desktop::media_session::refresh_media_session,
+            desktop::floating_window::set_main_attention,
+            desktop::media_session::watch_media_session,
+            desktop::media_session::control_media_session,
             desktop::hand_dock::position_hand_dock,
             desktop::hand_dock::set_hand_dock_hit_regions,
             desktop::hand_dock::save_hand_dock,
@@ -456,6 +466,7 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app.state::<desktop::auto_hand::AutoHandService>().stop();
+                app.state::<desktop::media_session::MediaSessionService>().stop();
                 app.state::<desktop::console::ConsoleService>().stop(app);
             }
         });

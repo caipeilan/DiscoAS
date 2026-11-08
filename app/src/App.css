@@ -375,7 +375,6 @@ a {
 .discover-launch { display: grid; place-items: center; flex-shrink: 0; width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; color: var(--on-accent); background: var(--accent); box-shadow: var(--shadow-small); }
 .discover-launch:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.04); }
 .discover-launch > svg { display: block; width: 24px; height: 24px; }
-.platform-logo { display: inline-block; flex-shrink: 0; background: currentColor; mask: var(--platform-logo) center / contain no-repeat; }
 .import-platform-field { padding: 0; margin: 16px 0; border: 0; min-width: 0; }
 .import-platform-field legend { padding: 0; margin-bottom: 8px; }
 .import-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }

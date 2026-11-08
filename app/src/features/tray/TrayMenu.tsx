@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../../Icon";
+import { PlatformIcon } from "../../components/PlatformIcon";
+import { errorText, t } from "../../i18n";
 import { applyAppearance } from "../../appearance";
 import { currentLocale, setLanguage } from "../../i18n";
 import { call, desktop, onDesktopEvent } from "../../services/desktop";
@@ -11,7 +13,7 @@ import { useAppearance } from "../settings/useAppearance";
 const fallback: TrayMenuSnapshot = {
   generation: 0,
   gui: defaultGuiSettings,
-  labels: ["发现一首歌", "显示手牌", "歌单与设置", "暂停全局快捷键", "重启 DiscoAS", "退出 DiscoAS"],
+  labels: ["发现一首歌", "显示手牌", "歌单与设置", "暂停全局快捷键", "重启播放器", "重启 DiscoAS", "退出 DiscoAS"],
   paused: false,
   handEnabled: false,
 };
@@ -19,11 +21,12 @@ const fallback: TrayMenuSnapshot = {
 function TrayGlyph({ action }: { action: TrayAction }) {
   if (action === "pause") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14" /></svg>;
   if (action === "quit") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M12 3v9M6.35 6.35a8 8 0 1 0 11.3 0" /></svg>;
-  return <Icon name={{ discover: "discover", hand: "hand", main: "library", restart: "refresh" }[action]} />;
+  return <Icon name={{ discover: "discover", hand: "hand", main: "library", restart_client: "refresh", restart: "refresh" }[action]} />;
 }
 
-export function TrayMenu() {
-  const [snapshot, setSnapshot] = useState(fallback);
+export function TrayMenu({ initialSnapshot = fallback }: { initialSnapshot?: TrayMenuSnapshot } = {}) {
+  const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [error, setError] = useState("");
   useAppearance(snapshot.gui);
   const [busy, setBusy] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -36,6 +39,7 @@ export function TrayMenu() {
     active.current = next;
     inFlight.current = false;
     setBusy(false);
+    setError("");
     setSnapshot(next);
   };
 
@@ -82,8 +86,11 @@ export function TrayMenu() {
     if (inFlight.current || !desktop) return;
     inFlight.current = true;
     setBusy(true);
+    setError("");
     try {
       await call("tray_menu_action", { generation: snapshot.generation, action });
+    } catch (error) {
+      setError(errorText(error));
     } finally {
       if (mounted.current && active.current.generation === snapshot.generation) {
         inFlight.current = false;
@@ -104,18 +111,20 @@ export function TrayMenu() {
           items.current[nextMenuIndex(event.shiftKey ? "ArrowUp" : "ArrowDown", index)!]?.focus();
         }
       }}>
-      {trayActions.map((action, index) => <div key={action} className={index === 4 ? "tray-menu-group" : undefined}>
+      {trayActions.map((action, index) => <div key={action} className={action === "restart" ? "tray-menu-group" : undefined}>
         <button ref={(element) => { items.current[index] = element; }}
           type="button" role={action === "pause" ? "menuitemcheckbox" : "menuitem"}
           aria-checked={action === "pause" ? snapshot.paused : undefined}
-          className="tray-menu-item" disabled={busy || (action === "hand" && !snapshot.handEnabled)} tabIndex={-1}
+          className="tray-menu-item" disabled={busy || (action === "hand" && !snapshot.handEnabled) || (action === "restart_client" && !snapshot.clientRestartEnabled)} tabIndex={-1}
+          title={action === "restart_client" && !snapshot.clientRestartEnabled ? t("未找到可重启的桌面播放器") : undefined}
           onPointerMove={(event) => { if (event.movementX || event.movementY) event.currentTarget.focus({ preventScroll: true }); }}
           onClick={() => { void activate(action).catch(() => {}); }}>
-          <span className="tray-menu-icon"><TrayGlyph action={action} /></span>
+          <span className="tray-menu-icon">{action === "restart_client" && snapshot.clientPlatform ? <PlatformIcon id={snapshot.clientPlatform} size={18} /> : <TrayGlyph action={action} />}</span>
           <span className="tray-menu-label">{snapshot.labels[index]}</span>
           <span className="tray-menu-check">{action === "pause" && snapshot.paused ? <Icon name="check" /> : null}</span>
         </button>
       </div>)}
+      {error && <p className="tray-menu-error" role="alert">{error}</p>}
     </div>
   </div>;
 }

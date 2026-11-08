@@ -8,13 +8,13 @@ const source = ts.transpileModule(fs.readFileSync(new URL("../src/features/tray/
 }).outputText;
 const { nextMenuIndex } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
-test("menu arrows start at the corresponding end and wrap within the six actions", () => {
+test("menu arrows include the client restart and wrap within seven actions", () => {
   assert.equal(nextMenuIndex("ArrowDown", -1), 0);
-  assert.equal(nextMenuIndex("ArrowUp", -1), 5);
-  assert.equal(nextMenuIndex("ArrowDown", 5), 0);
-  assert.equal(nextMenuIndex("ArrowUp", 0), 5);
+  assert.equal(nextMenuIndex("ArrowUp", -1), 6);
+  assert.equal(nextMenuIndex("ArrowDown", 6), 0);
+  assert.equal(nextMenuIndex("ArrowUp", 0), 6);
   assert.equal(nextMenuIndex("Home", 3), 0);
-  assert.equal(nextMenuIndex("End", 0), 5);
+  assert.equal(nextMenuIndex("End", 0), 6);
 });
 
 test("activation and dismissal keys are not interpreted as navigation", () => {

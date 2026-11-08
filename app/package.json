@@ -1,7 +1,7 @@
 {
   "name": "discoas",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
   "scripts": {
     "icons": "node scripts/build-icons.mjs",
@@ -35,6 +35,7 @@
     "test:installer": "node --test tests/installerPolicy.test.mjs",
     "test:startup": "node --test tests/startupMotion.test.mjs",
     "test:auto-hand": "node --test tests/autoHandDetection.test.mjs tests/autoHandState.test.mjs tests/autoHandNext.test.mjs",
+    "test:media": "node --test tests/mediaSession.test.mjs",
     "test:onboarding": "node --test tests/onboarding.test.mjs",
     "test:console": "node --test tests/consoleModel.test.mjs",
     "test:console:native": "node scripts/test-console-native.mjs",

@@ -16,3 +16,8 @@ export function isHandRegionTransition(event: RegionEvent & { propertyName: stri
 export function isHandRegionAnimation(event: RegionEvent & { animationName: string }) {
   return isChildEvent(event) && matches(event.target, "[data-hand-id]") && REGION_ANIMATIONS.has(event.animationName);
 }
+
+export function changesDockBounds(animation: Animation) {
+  return (animation.playState === "running" || animation.pending) && "transitionProperty" in animation
+    && ["width", "translate", "transform"].includes(animation.transitionProperty as string);
+}

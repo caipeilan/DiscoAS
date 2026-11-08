@@ -14,6 +14,7 @@ export function sameGuiPreferences(a: GuiSettings, b: GuiSettings) {
     "replacementButtonScale",
     "discoveryBarScale",
     "mainWindowScale",
+    "playbackCoverScale",
     "fontFamily",
     "fontSize",
     "language",

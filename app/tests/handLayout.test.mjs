@@ -9,9 +9,30 @@ const { handCardSize, mergeHandCards, handLayout, hoverHandIndex, canPlayDrag, r
 const dockSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/floatingDock.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { floatingDockRect, defaultDockPoint, settleDockPoint } = await import(`data:text/javascript;base64,${Buffer.from(dockSource).toString("base64")}`);
+const { floatingDockRect, defaultDockPoint, settleDockPoint, dockPlaybackSide, dockPlaybackRect, dockPlaybackHeight } = await import(`data:text/javascript;base64,${Buffer.from(dockSource).toString("base64")}`);
 const settings = { side: "bottom", scale: 1, edgeOffsetPx: 12, positionPercent: 50, overlapPercent: 45, tiltDegrees: 12 };
 const area = { left: 200, top: 100, width: 1280, height: 680 };
+test("the playback row uses its monitor's vertical half and stays inside its work area", () => {
+  const bounds = { left: -1280, top: -200, width: 1280, height: 900 };
+  for (const x of [-1272, -8]) for (const y of [-178, 678]) for (const cover of [.5, 1, 2]) {
+    const point = { x, y }, side = dockPlaybackSide(point, [bounds]);
+    assert.equal(side, y < 250 ? "below" : "above");
+    const row = dockPlaybackRect(point, 44, [bounds], x < -640 ? "right" : "left", side, cover);
+    assert.ok(row.left >= bounds.left && row.left + row.width <= 0);
+    assert.ok(row.top >= bounds.top && row.top + row.height <= 700);
+    if (side === "below") assert.ok(row.top > y + 22);
+    else assert.ok(row.top + row.height < y - 22);
+  }
+  assert.equal(dockPlaybackHeight(44), 66);
+  assert.equal(dockPlaybackHeight(44, .5), 44);
+  assert.equal(dockPlaybackHeight(44, 2), 110);
+});
+test("vertical edge settling aligns the visible toolbar with the top and taskbar edge", () => {
+  for (const diameter of [44, 76]) {
+    assert.equal(settleDockPoint({ x: 600, y: -999 }, diameter, [area]).y, area.top + diameter / 2);
+    assert.equal(settleDockPoint({ x: 600, y: 9999 }, diameter, [area]).y, area.top + area.height - diameter / 2);
+  }
+});
 
 test("content-sized docks preserve the Logo anchor on both sides of the middle", () => {
   for (const width of [100, 220, 430]) for (const direction of ["left", "right"]) {

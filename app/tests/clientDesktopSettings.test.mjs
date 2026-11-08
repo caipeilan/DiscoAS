@@ -43,7 +43,7 @@ async function fixture({ supported = true, createFails = false } = {}) {
 test("desktop opt-in is a draft independent of hiding; creation and recheck are explicit actions", async () => {
   const f = await fixture();
   const row = f.find("setting-row", props => props.title === "创建独立桌面（实验）");
-  assert.equal(row.props.description, "将客户端置于独立的虚拟桌面，减少切歌时的窗口跳动和抢焦点行为，当然有可能更严重");
+  assert.equal(row.props.description, "将客户端置于独立的虚拟桌面，减少切歌时的窗口跳动和抢焦点行为，当然有可能更严重\n如果出现跳转至DiscoAS桌面的情况，可以在切回平常使用的桌面后，重启你使用的播放器客户端，然后通过切歌将其重新移动回DiscoAS桌面");
   f.find("toggle").props.onChange(true);
   assert.equal(f.props.separateDesktop, true);
   assert.equal(f.props.mode, "persistent");

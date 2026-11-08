@@ -159,6 +159,8 @@ pub(crate) async fn changed_with_invalidation(
     if let Ok(settings) = repository(app).and_then(|r| r.load_settings()) {
         app.state::<super::auto_hand::AutoHandService>()
             .configure(&settings);
+        app.state::<super::media_session::MediaSessionService>()
+            .configure(&settings);
     }
     if invalidate_discovery {
         cache.invalidate().await;

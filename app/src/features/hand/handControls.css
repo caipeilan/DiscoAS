@@ -5,3 +5,23 @@
 .create-hand-platform { display: flex; align-items: center; gap: 8px; margin: 2px 0 16px; color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); }
 .create-hand-platform svg { width: 20px; height: 20px; }
 .hand-dock-error { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.hand-playback { position: absolute; left: 0; top: 0; translate: var(--player-x) var(--player-y); z-index: 1499;
+  display: flex; align-items: center; gap: calc(10px * var(--font-scale)); padding: calc(8px * var(--font-scale)) calc(10px * var(--font-scale));
+  border-radius: calc(18px * var(--font-scale)); background: var(--surface); box-shadow: var(--shadow-floating); color: var(--text);
+  pointer-events: auto; opacity: 1; transform: scaleY(1); transform-origin: center top;
+  transition: opacity 160ms ease, transform 220ms var(--ease-out); }
+.hand-playback[data-side="above"] { transform-origin: center bottom; }
+.hand-playback:not([data-open]), .hand-playback[data-folding] { opacity: 0; transform: scaleY(.75); pointer-events: none; }
+.hand-playback-cover { width: calc(44px * var(--font-scale) * var(--playback-cover-scale, 1)); height: calc(44px * var(--font-scale) * var(--playback-cover-scale, 1)); object-fit: cover; flex: 0 0 auto; border-radius: calc(8px * var(--font-scale)); }
+.hand-playback-cover .cover { width: 100%; height: 100%; border-radius: inherit; }
+.hand-playback-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(2px * var(--font-scale)); line-height: 1.3; }
+.hand-playback-text strong, .hand-playback-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hand-playback-text strong { font-size: calc(13px * var(--font-scale)); font-weight: 600; }
+.hand-playback-text span { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); }
+.hand-playback-text [role="alert"] { color: var(--danger); }
+.hand-playback button { display: grid; place-items: center; width: calc(30px * var(--font-scale)); height: calc(30px * var(--font-scale)); flex: 0 0 auto;
+  padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.hand-playback button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-text); }
+.hand-playback button:disabled { opacity: .45; cursor: default; }
+.hand-playback button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .hand-playback { transition: none; } }

@@ -43,7 +43,7 @@ impl Client {
         })
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Netease => "网易云音乐",
             Self::Qq => "QQ 音乐",

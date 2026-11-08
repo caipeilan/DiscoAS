@@ -9,7 +9,7 @@ const { LatestRegionUpdate, HandBoundsCache } = await import(`data:text/javascri
 const regionEventsSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handRegionEvents.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { isHandRegionAnimation, isHandRegionTransition } = await import(`data:text/javascript;base64,${Buffer.from(regionEventsSource).toString("base64")}`);
+const { isHandRegionAnimation, isHandRegionTransition, changesDockBounds } = await import(`data:text/javascript;base64,${Buffer.from(regionEventsSource).toString("base64")}`);
 const boundsSource = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/handDrawingBounds.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
@@ -87,6 +87,64 @@ test("only transitions and animations that change hit boxes request a region sca
     assert.equal(isHandRegionAnimation(animation(name, card)), true);
   assert.equal(isHandRegionAnimation(animation("hand-unknown", card)), false);
   assert.equal(isHandRegionAnimation(animation("hand-refill", target(".hand-flip"))), false);
+});
+
+test("dock region scans end with geometry transitions and ignore logo or color animations", () => {
+  for (const transitionProperty of ["width", "translate", "transform"]) {
+    assert.equal(changesDockBounds({ playState: "running", pending: false, transitionProperty }), true);
+    assert.equal(changesDockBounds({ playState: "finished", pending: false, transitionProperty }), false);
+    assert.equal(changesDockBounds({ playState: "idle", pending: true, transitionProperty }), true);
+  }
+  for (const transitionProperty of ["background-color", "color", "opacity", "border-color"]) {
+    assert.equal(changesDockBounds({ playState: "running", transitionProperty }), false);
+  }
+  assert.equal(changesDockBounds({ playState: "running", animationName: "logo-hover" }), false);
+});
+
+test("native dock motion paints without React state updates and preserves its point through media renders", async () => {
+  const geometry = await import(`data:text/javascript;base64,${Buffer.from(compile("../src/features/hand/floatingDock.ts")).toString("base64")}`);
+  const values = [], stateWrites = [], moved = [], dragging = [], styles = new Map();
+  let cursor = 0, resolveDrag, nativeCursor;
+  const react = {
+    useRef(initial) { const i = cursor++; return values[i] ??= { current: initial }; },
+    useState(initial) { const i = cursor++; if (!(i in values)) values[i] = initial;
+      return [values[i], next => { stateWrites.push(next); values[i] = typeof next === "function" ? next(values[i]) : next; }]; },
+    useEffect() {}, useLayoutEffect() {},
+  };
+  const h = (type, props, ...children) => ({ type, props: { ...props, children: children.flat() } });
+  const auto = { state: { token: 0, busy: false }, pending: false, toggle: async () => {} };
+  const stubs = { react, "../../assets": { appLogo: "logo" }, "../../Icon": { Icon: "icon" }, "../../i18n": { t: value => value, errorText: String },
+    "../../services/desktop": { getClientHideEnabled: async () => false, onDesktopEvent: async () => () => {}, showLocalClient: async () => {}, call: async () => {} },
+    "./floatingDock": geometry, "./useAutoHandControl": { useAutoHandControl: () => auto }, "./HandPlayback": { HandPlayback: "playback" } };
+  const saved = { window: globalThis.window, cancelAnimationFrame: globalThis.cancelAnimationFrame };
+  globalThis.window = { matchMedia: () => ({ matches: false }) }; globalThis.cancelAnimationFrame = () => {};
+  globalThis.__dockMotionTest = { h, Fragment: "fragment", stubs };
+  try {
+    const compiled = ts.transpileModule(fs.readFileSync(new URL("../src/features/hand/HandDock.tsx", import.meta.url), "utf8"), {
+      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React, jsxFactory: "h", jsxFragmentFactory: "Fragment" },
+    }).outputText.replace(/import\s+\{([^}]+)\}\s+from\s+"([^"]+)";/g, (_, names, path) => {
+      assert.ok(stubs[path], path); return `const {${names}}=globalThis.__dockMotionTest.stubs[${JSON.stringify(path)}];`;
+    }).replace(/import "[^\"]+\.css";/g, "");
+    const { HandDock } = await import(`data:text/javascript;base64,${Buffer.from('const {h,Fragment}=globalThis.__dockMotionTest;\n'+compiled).toString("base64")}`);
+    const element = { current: { offsetWidth: 44, style: { setProperty: (key, value) => styles.set(key, value) }, toggleAttribute() {} } };
+    const motion = { current: null }, props = { element, motion, point: { x: 200, y: 200 }, areas: [{ left: 0, top: 0, width: 1600, height: 1000 }],
+      expanded: true, preview: false, diameter: 44, count: 0, capacity: 10, busy: false, confirm: false, toCanvas: (x, y) => ({x,y}),
+      beginDrag: async () => {}, nativeDrag: point => { nativeCursor = point; return new Promise(resolve => { resolveDrag = resolve; }); },
+      dragging: value => dragging.push(value), move: point => moved.push(point), toggle() {}, clear() {}, autoControl: auto,
+      media: { state: {}, pending: false, error: "", masked: false, control: async () => {} } };
+    const render = () => { cursor = 0; return HandDock(props); };
+    const tree = render(), toolbar = tree.props.children[0], logo = toolbar.props.children[0];
+    logo.props.onPointerDown({ button: 0, pointerId: 7, clientX: 200, clientY: 200, preventDefault() {},
+      currentTarget: { getBoundingClientRect: () => ({ left: 178, top: 178, width: 44, height: 44 }), setPointerCapture() {} } });
+    logo.props.onPointerMove({ pointerId: 7, clientX: 350, clientY: 250 });
+    assert.deepEqual(nativeCursor, { x: 200, y: 200 });
+    stateWrites.length = 0;
+    for (let x = 300; x <= 650; x += 5) motion.current({ x, y: 350 });
+    assert.equal(stateWrites.length, 0); assert.equal(styles.get("--dock-x"), "628px");
+    assert.equal(render().props.children[0].props.style["--dock-x"], "628px");
+    resolveDrag({ x: 650, y: 350 }); await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(moved, [{ x: 650, y: 350 }]); assert.deepEqual(dragging, [true, false]);
+  } finally { Object.assign(globalThis, saved); delete globalThis.__dockMotionTest; }
 });
 
 const compile = file => ts.transpileModule(fs.readFileSync(new URL(file, import.meta.url), "utf8"), {

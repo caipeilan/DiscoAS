@@ -65,6 +65,8 @@ pub(super) async fn update_preferences(
     shortcuts::save_preferences(&app, &repository, &old, &settings)?;
     app.state::<super::auto_hand::AutoHandService>()
         .configure(&settings);
+    app.state::<super::media_session::MediaSessionService>()
+        .configure(&settings);
     let invalidated = preferences::discovery_preferences_changed(&old, &settings);
     let hand_changed = old.hand != settings.hand
         || old.hand_discovery != settings.hand_discovery

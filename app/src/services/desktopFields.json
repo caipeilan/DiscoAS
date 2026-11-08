@@ -64,6 +64,7 @@
     "replacement_button_size": "replacementButtonScale",
     "discovery_bar_size": "discoveryBarScale",
     "setting_size": "mainWindowScale",
+    "playback_cover_scale": "playbackCoverScale",
     "font_family": "fontFamily",
     "font_size": "fontSize",
     "user_configured": "userConfigured",
