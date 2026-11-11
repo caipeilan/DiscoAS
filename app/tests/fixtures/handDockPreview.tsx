@@ -16,6 +16,7 @@ function Preview() {
   const [point, setPoint] = useState({ x: 100, y: 90 });
   const [expanded, setExpanded] = useState(true), [enabled, setEnabled] = useState(true);
   const [playing, setPlaying] = useState(true), [dark, setDark] = useState(false), [tray, setTray] = useState(false);
+  const [clientRunning, setClientRunning] = useState(false);
   const [empty, setEmpty] = useState(false), [long, setLong] = useState(false), [track, setTrack] = useState(1);
   const [coverScale, setCoverScale] = useState(1);
   useLayoutEffect(() => {
@@ -34,6 +35,7 @@ function Preview() {
       <button className="button secondary" onClick={() => setEmpty(!empty)}>{empty ? "恢复播放" : "无媒体会话"}</button>
       <button className="button secondary" onClick={() => setLong(!long)}>长标题</button>
       <button className="button secondary" onClick={() => setTray(!tray)}>托盘菜单</button>
+      {tray && <button className="button secondary" onClick={() => setClientRunning(!clientRunning)}>客户端{clientRunning ? "已运行" : "未运行"}</button>}
       <label className="preview-cover-scale">封面大小 <input type="range" aria-label="封面大小" min={50} max={200} value={Math.round(coverScale * 100)} onChange={event => setCoverScale(Number(event.target.value) / 100)} /><output>{Math.round(coverScale * 100)}%</output></label>
     </nav>
     <div ref={desktop} className="preview-desktop">
@@ -45,8 +47,8 @@ function Preview() {
           autoControl={{ state: { token: 1, busy: false, configured: true, active: enabled }, pending: false, ready: true, toggle: async () => setEnabled(!enabled) }}
           media={{ state, pending: false, error: "", masked: false, control: async action => { if (action === "next") setTrack(track + 1); else setPlaying(action === "play"); } }} />
       </div>
-      {tray && <div className="preview-tray"><TrayMenu initialSnapshot={{ generation: 0, gui: { ...defaultGuiSettings, followSystemTheme: false, nightMode: dark },
-        labels: ["发现一首歌", "显示手牌", "歌单与设置", "暂停全局快捷键", "重启网易云音乐", "重启 DiscoAS", "退出 DiscoAS"], paused: false, handEnabled: true, clientPlatform: "NeteaseCloudMusic", clientRestartEnabled: true }} /></div>}
+      {tray && <div className="preview-tray"><TrayMenu key={String(clientRunning)} initialSnapshot={{ generation: 0, gui: { ...defaultGuiSettings, followSystemTheme: false, nightMode: dark },
+        labels: ["发现一首歌", "显示手牌", "歌单与设置", "暂停全局快捷键", `${clientRunning ? "重启" : "打开"}网易云音乐`, "重启 DiscoAS", "退出 DiscoAS"], paused: false, handEnabled: true, clientPlatform: "NeteaseCloudMusic", clientRestartEnabled: true }} /></div>}
     </div>
   </main>;
 }

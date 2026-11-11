@@ -116,7 +116,7 @@ export function TrayMenu({ initialSnapshot = fallback }: { initialSnapshot?: Tra
           type="button" role={action === "pause" ? "menuitemcheckbox" : "menuitem"}
           aria-checked={action === "pause" ? snapshot.paused : undefined}
           className="tray-menu-item" disabled={busy || (action === "hand" && !snapshot.handEnabled) || (action === "restart_client" && !snapshot.clientRestartEnabled)} tabIndex={-1}
-          title={action === "restart_client" && !snapshot.clientRestartEnabled ? t("未找到可重启的桌面播放器") : undefined}
+          title={action === "restart_client" && !snapshot.clientRestartEnabled ? t("未找到可用的桌面播放器") : undefined}
           onPointerMove={(event) => { if (event.movementX || event.movementY) event.currentTarget.focus({ preventScroll: true }); }}
           onClick={() => { void activate(action).catch(() => {}); }}>
           <span className="tray-menu-icon">{action === "restart_client" && snapshot.clientPlatform ? <PlatformIcon id={snapshot.clientPlatform} size={18} /> : <TrayGlyph action={action} />}</span>

@@ -58,15 +58,29 @@ impl Client {
         let Some(name) = image.rsplit(['\\', '/']).next() else {
             return false;
         };
-        let executables: &[&str] = match self {
+        self.executables().iter().any(|exe| name.eq_ignore_ascii_case(exe))
+    }
+
+    pub(crate) fn executables(self) -> &'static [&'static str] {
+        match self {
             Self::Netease => &["cloudmusic.exe"],
             Self::Qq => &["qqmusic.exe"],
             Self::Kugou => &["kugou.exe", "kugoumusic.exe"],
             Self::Kuwo => &["kwmusic.exe"],
             Self::Qishui => &["sodamusic.exe"],
             Self::Spotify => &["spotify.exe"],
-        };
-        executables.iter().any(|exe| name.eq_ignore_ascii_case(exe))
+        }
+    }
+
+    pub(crate) fn protocols(self) -> &'static [&'static str] {
+        match self {
+            Self::Netease => &["orpheus"],
+            Self::Qq => &["qqmusic", "tencent"],
+            Self::Kugou => &["kugou"],
+            Self::Kuwo => &["kuwo"],
+            Self::Qishui => &["luna"],
+            Self::Spotify => &["spotify"],
+        }
     }
 }
 

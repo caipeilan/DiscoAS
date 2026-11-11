@@ -37,6 +37,7 @@ pub struct TrayMenuSnapshot {
 struct Opening {
     cursor: PhysicalPosition<f64>,
     snapshot: TrayMenuSnapshot,
+    client_restart: bool,
 }
 
 #[derive(Default)]
@@ -103,6 +104,18 @@ pub fn labels(language: &str) -> [&'static str; 7] {
             "退出 DiscoAS",
         ],
     }
+}
+
+fn client_label(language: &str, client: crate::client_window::Client, restart: bool) -> String {
+    let action = match (language, restart) {
+        ("en_US", true) => "Restart ",
+        ("en_US", false) => "Open ",
+        ("zh_TW", true) => "重新啟動",
+        ("zh_TW", false) => "開啟",
+        (_, true) => "重启",
+        (_, false) => "打开",
+    };
+    format!("{action}{}", client.label())
 }
 
 /// Called once in setup. Repeated clicks reuse this WebView instead of creating new windows.
@@ -173,20 +186,12 @@ pub fn show_at(app: &tauri::AppHandle, cursor: PhysicalPosition<f64>) {
         let target = super::client_restart::target(&app);
         if let Some(target) = &target {
             if let Some(client) = crate::client_window::Client::from_platform(&target.platform) {
-                text[4] = format!(
-                    "{}{}",
-                    match gui.language.as_str() {
-                        "en_US" => "Restart ",
-                        "zh_TW" => "重新啟動",
-                        _ => "重启",
-                    },
-                    client.label()
-                );
+                text[4] = client_label(&gui.language, client, target.restart);
             }
         }
         let snapshot = TrayMenuSnapshot {
             client_platform: target.as_ref().map(|target| target.platform.clone()),
-            client_restart_enabled: target.is_some(),
+            client_restart_enabled: target.as_ref().is_some_and(|target| target.path.is_some()),
             generation,
             labels: text,
             gui,
@@ -203,6 +208,7 @@ pub fn show_at(app: &tauri::AppHandle, cursor: PhysicalPosition<f64>) {
             *pending = Some(Opening {
                 cursor,
                 snapshot: snapshot.clone(),
+                client_restart: target.as_ref().is_some_and(|target| target.restart),
             });
         }
         if state.ready.load(Ordering::Acquire) {
@@ -417,18 +423,26 @@ pub async fn tray_menu_action(
         return Ok(());
     }
     if matches!(action, TrayAction::RestartClient) {
-        let selected = state
+        let (selected, restart) = state
             .pending
             .lock()
             .unwrap()
             .as_ref()
-            .and_then(|opening| opening.snapshot.client_platform.clone());
-        let target = super::client_restart::target(app)
+            .map(|opening| {
+                (
+                    opening.snapshot.client_platform.clone(),
+                    opening.client_restart,
+                )
+            })
+            .ok_or("未找到可用的桌面播放器")?;
+        let mut target = super::client_restart::target(app)
             .filter(|target| Some(&target.platform) == selected.as_ref())
-            .ok_or("未找到可重启的桌面播放器")?;
-        tauri::async_runtime::spawn_blocking(move || super::client_restart::restart(target))
+            .ok_or("未找到可用的桌面播放器")?;
+        // Keep the displayed action: a player starting after "Open" must not be restarted.
+        target.restart = restart;
+        tauri::async_runtime::spawn_blocking(move || super::client_restart::activate(target))
             .await
-            .map_err(|_| "播放器重启任务未完成")??;
+            .map_err(|_| "播放器操作任务未完成")??;
         dismiss(app);
         return Ok(());
     }
@@ -450,6 +464,19 @@ pub async fn tray_menu_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_action_labels_follow_the_displayed_operation_in_all_languages() {
+        use crate::client_window::Client;
+        for (language, open, restart) in [
+            ("zh_CN", "打开Spotify", "重启Spotify"),
+            ("zh_TW", "開啟Spotify", "重新啟動Spotify"),
+            ("en_US", "Open Spotify", "Restart Spotify"),
+        ] {
+            assert_eq!(client_label(language, Client::Spotify, false), open);
+            assert_eq!(client_label(language, Client::Spotify, true), restart);
+        }
+    }
 
     #[test]
     fn reopening_disarms_old_blur_and_invalidates_old_presentation() {
