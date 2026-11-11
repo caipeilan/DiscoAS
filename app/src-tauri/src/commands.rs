@@ -394,3 +394,8 @@ pub async fn get_history_covers(
         .history_covers(&identities)
         .await
 }
+
+#[tauri::command]
+pub async fn get_history_cover_page(app: tauri::AppHandle, cache: tauri::State<'_, Arc<Cache>>, identities: Vec<HistoryIdentity>) -> Result<discoas_core::model::HistoryCoverPage, String> {
+    get_history_covers(app, cache, identities).await.map(Into::into)
+}

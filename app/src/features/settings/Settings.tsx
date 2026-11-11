@@ -17,6 +17,7 @@ import { KeyboardSettings } from "./KeyboardSettings";
 import { HandPlayShortcuts } from "./HandPlayShortcuts";
 import { HandSettings } from "./HandSettings";
 import { RenderingSettings } from "./RenderingSettings";
+import { CacheSettings } from "./CacheSettings";
 import { Reveal } from "../../components/Motion";
 import "./settingsDiscovery.css";
 import "./settingsLayout.css";
@@ -117,6 +118,7 @@ export function Settings({
         {panel("rendering", <>
         <RenderingSettings value={desktopDraft.renderingMode} onChange={renderingMode => setDesktopDraft(current => ({ ...current, renderingMode }))} />
         </>)}
+        {panel("cache", <CacheSettings value={desktopDraft} saved={state.desktopSettings} onChange={setDesktopDraft} />)}
         {panel("discovery", <>
         <section className="settings-section">
           <h2>{t("发现偏好")}</h2>

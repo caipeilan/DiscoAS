@@ -11,7 +11,7 @@ export const settingsSections = {
   appearance: "general", startup: "general", onboarding: "general",
   discovery: "discovery", discoveryAppearance: "discovery", exclusion: "discovery", weighting: "discovery", cover: "discovery",
   hand: "hand", window: "playback", spotify: "playback", browser: "playback",
-  keyboard: "keyboard", rendering: "advanced", data: "advanced",
+  keyboard: "keyboard", rendering: "advanced", cache: "advanced", data: "advanced",
 } as const;
 export type SettingsSectionId = keyof typeof settingsSections;
 export function isSettingsCategory(value: string | null): value is SettingsCategory {

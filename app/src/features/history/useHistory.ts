@@ -4,7 +4,7 @@ import { platforms } from "../../types";
 import { call, getDiscoveryHistory, getHistoryCovers, mutateDiscoveryHistory, onDesktopEvent } from "../../services/desktop";
 import { currentLocale, errorText, t } from "../../i18n";
 import { prepareHistoryCovers } from "../../prepareCovers";
-import { cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata,
+import { historyArtworkCache, cacheHistoryCovers, filterHistory, historySearchIndex, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata,
   retainedHistorySelection, type HistoryFilter } from "./historyModel";
 
 type Identity = { platform: string; songId: string };
@@ -24,7 +24,7 @@ export function useHistory() {
   const [confirming, setConfirming] = useState<Confirmation | null>(null);
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
-  const [covers, setCovers] = useState<Map<string, string | null>>(new Map());
+  const [covers, setCovers] = useState<Map<string, string | null>>(historyArtworkCache.snapshot());
   const [snapshotVersion, setSnapshotVersion] = useState(0);
   const revision = useRef(0);
   const mounted = useRef(true);
@@ -37,7 +37,7 @@ export function useHistory() {
   const selectAll = useRef<HTMLInputElement>(null);
   const locale = currentLocale();
   const labels = useMemo(() => Object.fromEntries(platforms.map((platform) => [platform.id, t(platform.label)])), [locale]);
-  const searchIndex = useMemo(() => new Map(entries.map((entry) => [entry, historySearchText(entry, labels)])), [entries, labels]);
+  const searchIndex = useMemo(() => historySearchIndex(entries, labels), [entries, labels]);
   const visible = useMemo(() => filterHistory(entries, query, filter, labels, searchIndex), [entries, query, filter, labels, searchIndex]);
   const { pageCount, currentPage, rows } = useMemo(() => historyPage(visible, page), [visible, page]);
   const selectedEntries = useMemo(() => selected.size ? entries.filter((entry) => selected.has(historyKey(entry))) : [], [entries, selected]);
@@ -48,7 +48,8 @@ export function useHistory() {
     setEntries(records);
     setSelected((previous) => retainedHistorySelection(records, previous));
     const keys = new Set(records.map(historyCoverKey));
-    setCovers((previous) => new Map([...previous].filter(([key]) => keys.has(key))));
+    historyArtworkCache.retain(keys);
+    setCovers((previous) => new Map([...historyArtworkCache.snapshot(), ...previous].filter(([key]) => keys.has(key))));
     // Even unchanged rows need a new cover effect after an older request is invalidated.
     setSnapshotVersion((previous) => previous + 1);
   }, []);
@@ -57,6 +58,7 @@ export function useHistory() {
     // An event from this page's own edit may arrive before its command response.
     // Read the latest snapshot only once that edit has finished committing.
     if (busy.current || reading.current) { refreshPending.current = true; return; }
+    historyArtworkCache.invalidateRequests();
     const stamp = ++revision.current;
     reading.current = stamp;
     request.current++;
@@ -101,6 +103,16 @@ export function useHistory() {
     return () => { active = false; mounted.current = false; unlisten?.(); revision.current++; request.current++; };
   }, [applyRecords, refresh]);
   useEffect(() => {
+    let active = true, stop = () => {};
+    void onDesktopEvent("cache-cleared", () => {
+      if (!active) return;
+      request.current++;
+      setCovers(new Map());
+      void refresh();
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten(); });
+    return () => { active = false; stop(); };
+  }, [refresh]);
+  useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || busy.current || !confirming) return;
       event.preventDefault(); setConfirming(null);
@@ -115,18 +127,19 @@ export function useHistory() {
   const pageCoverSignature = rows.map(historyCoverKey).join("\n");
   useEffect(() => {
     const visibleKeys = new Set(rows.map(historyCoverKey));
-    setCovers((previous) => cacheHistoryCovers(previous, new Map(), visibleKeys));
-    const uncached = rows.filter((entry) => !covers.has(historyCoverKey(entry)));
+    const available = new Map([...historyArtworkCache.snapshot(), ...covers]);
+    setCovers(cacheHistoryCovers(available, new Map(), visibleKeys, 0));
+    const uncached = rows.filter((entry) => !available.has(historyCoverKey(entry)));
     if (!uncached.length || loading || mutating) return;
     const stamp = revision.current;
     const current = ++request.current;
     let active = true;
-    getHistoryCovers(uncached.map(historyIdentity)).then(prepareHistoryCovers).then((results) => {
+    historyArtworkCache.load(uncached, identities => getHistoryCovers(identities).then(prepareHistoryCovers)).then((results) => {
       if (!active || !mounted.current || stamp !== revision.current || current !== request.current) return;
       const resolved = new Map(results.map((result) => [historyKey(result), result.coverDataUri]));
       setCovers((previous) => {
         const incoming = new Map(uncached.map((entry) => [historyCoverKey(entry), resolved.get(historyKey(entry)) ?? null]));
-        return cacheHistoryCovers(previous, incoming, visibleKeys);
+        return cacheHistoryCovers(previous, incoming, visibleKeys, 0);
       });
     }).catch((failure) => {
       if (active && mounted.current && stamp === revision.current && current === request.current) setError(errorText(failure));
@@ -136,6 +149,7 @@ export function useHistory() {
 
   const mutate = async (identities: Identity[], action: "delete" | "discovered" | "selected", value?: boolean) => {
     if (busy.current || !identities.length) return;
+    historyArtworkCache.invalidateRequests();
     busy.current = true;
     const stamp = ++revision.current;
     request.current++;
@@ -156,6 +170,7 @@ export function useHistory() {
   };
   const clear = async () => {
     if (busy.current) return;
+    historyArtworkCache.invalidateRequests();
     busy.current = true;
     const stamp = ++revision.current;
     request.current++;
@@ -163,6 +178,7 @@ export function useHistory() {
     try {
       await call("clear_discovery_history", { source: changeSource.current });
       if (!mounted.current || stamp !== revision.current) return;
+      historyArtworkCache.retain(new Set());
       setEntries([]); setSelected(new Set()); setCovers(new Map()); setPage(0); setConfirming(null);
     } catch (failure) {
       if (mounted.current && stamp === revision.current) setError(errorText(failure));

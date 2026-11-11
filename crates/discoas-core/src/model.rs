@@ -116,6 +116,31 @@ pub struct HistoryCoverDto {
     pub cover_data_uri: Option<std::sync::Arc<str>>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCoverReference {
+    pub platform: String,
+    pub song_id: String,
+    pub image_index: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HistoryCoverPage {
+    pub items: Vec<HistoryCoverReference>,
+    pub images: Vec<std::sync::Arc<str>>,
+}
+impl From<Vec<HistoryCoverDto>> for HistoryCoverPage {
+    fn from(covers: Vec<HistoryCoverDto>) -> Self {
+        let mut images = Vec::new();
+        let mut indices = std::collections::HashMap::new();
+        let items = covers.into_iter().map(|cover| {
+            let image_index = cover.cover_data_uri.map(|image| *indices.entry(image.clone()).or_insert_with(|| { let index = images.len(); images.push(image); index }));
+            HistoryCoverReference { platform: cover.platform, song_id: cover.song_id, image_index }
+        }).collect();
+        Self { items, images }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaySongArgs {
@@ -134,6 +159,29 @@ pub struct PlaySongArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_history_covers_share_equal_content_and_preserve_legacy_records() {
+        let covers = vec![
+            HistoryCoverDto { platform: "Spotify".into(), song_id: "a".into(), cover_data_uri: Some(String::from("same").into()) },
+            HistoryCoverDto { platform: "Spotify".into(), song_id: "b".into(), cover_data_uri: Some(String::from("same").into()) },
+            HistoryCoverDto { platform: "QQMusic".into(), song_id: "a".into(), cover_data_uri: None },
+        ];
+        let legacy = serde_json::to_value(&covers).unwrap();
+        assert_eq!(legacy[0]["coverDataUri"], "same");
+        let page = HistoryCoverPage::from(covers);
+        assert_eq!(page.images.len(), 1);
+        assert_eq!(page.items[0].image_index, Some(0));
+        assert_eq!(page.items[1].image_index, Some(0));
+        assert_eq!(page.items[2].image_index, None);
+        for (item, old) in page.items.iter().zip(legacy.as_array().unwrap()) {
+            assert_eq!(item.platform, old["platform"]);
+            assert_eq!(item.song_id, old["songId"]);
+        }
+        let encoded = serde_json::to_string(&page).unwrap();
+        let decoded: HistoryCoverPage = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.images, page.images);
+    }
     use serde_json::json;
 
     #[test]

@@ -26,9 +26,15 @@
 
 2.0.14 增加 `DiscoveryService::history_snapshot(known_revision)`：返回 `HistoryRead { revision, entries }`，相同版本的 `entries` 为 `None`。共享 `Cache` 最多保留一个数据目录的一份列表；文件长度、修改时间或进程内写入代次变化时重读，真实列表相同时复用版本。旧 `history()` 继续返回完整记录，磁盘 JSON 与采样、排除、权重语义不变。`image_cache::library_cover_revision` 为本地来源封面提供长度与修改时间标识，供宿主减少重复传输。
 
+2.0.15 的历史封面查询复用同一版本化列表及身份索引；`image_cache::read_library_cover_cached` 按文件版本复用编码结果。`image_cache::disk::CoverDiskCache::open(directory, limit_bytes)` 创建可清理的持久歌曲封面缓存；调用 `Cache::configure_images(Some(Arc<CoverDiskCache>), memory_bytes).await` 将其绑定到共享资源，独立批次缓存同时生效。传入 `None` 时只配置内存预算。`Cache::clear_caches().await` 清理派生缓存并作废旧图片写回，保留已显示批次和历史读取的单调版本；宿主另行处理自己的独立预加载队列及前端事件。
+
+磁盘存储只使用指定目录下带所有权标记的 `covers-v1` 子目录和哈希文件，逐项淘汰及清理，不递归删除指定目录或未知文件。未配置时核心仍只有内存图片缓存；渲染读取入口保持无远程下载回退。普通 URL 在批次准备时先读磁盘，本地文件以长度和修改时间区分版本。
+
+`HistoryCoverPage::from(Vec<HistoryCoverDto>)` 将相同编码图片合并为 `images` 数组，`items` 保留平台、歌曲身份和可空的 `imageIndex`。宿主可减少重复传输；原 `HistoryCoverDto` 与历史磁盘数据格式保持兼容。
+
 本地音频通过 `LocalSource::new(paths)` 和 `scan(progress, cancelled)` 返回兼容来源快照，以 `LocalMusic` / `playlist` 保存在 `LibraryStore`。更新使用 `LocalSource::from_snapshot` 恢复目录、文件和播放列表路径以及已知丢失文件。导入跳过内嵌图片数据，抽到歌曲时由共用图片缓存读取封面；无标签用文件名，无封面返回默认占位。`build_scheme_url` 对可信卡片中的 `filename` 验证绝对音频路径、身份和文件存在性，返回文件路径。
 
-详情请求并发最多 4 个，共享缓存会合并相同请求，并保留最近 256 项成功详情（5 分钟）；来源快照参与缓存标识，缓存真实详情后在卡片投影时隐藏神秘信息。完整批次准备的 45 秒期限涵盖详情与封面，超时不发布半批卡片。图片字节缓存按最近使用顺序逐项淘汰，总预算为 32 MiB；单张只受这个总预算约束（超过 32 MiB 的图片会被跳过），不再有单独的 5 MiB 上限。此预算不包含批次中的 Base64 字符串、前端解码图片或整个应用的内存。
+详情请求并发最多 4 个，共享缓存会合并相同请求，并保留最近 256 项成功详情（5 分钟）；来源快照参与缓存标识，缓存真实详情后在卡片投影时隐藏神秘信息。完整批次准备的 45 秒期限涵盖详情与封面，超时不发布半批卡片。图片缓存按最近使用顺序逐项淘汰，默认预算 32 MiB，同时计入原始字节和预编码 data URI；单张超过预算时只供当前调用使用，不保留到缓存。宿主可配置预算，独立批次共享同一份资源；当前批次持有的引用、前端解码图片和整个应用内存不等于这项预算。
 
 `SongDetailLoader` 可通过 `supports_batch_details` / `load_batch_details` 提供批量详情；默认仍走单曲入口，已有实现不必改动。网易云合并同批未缓存的歌曲为一次请求，按歌曲 ID 对应响应，不能依赖返回顺序；批量缺失一首不会污染其他成功结果。共享请求锁按完整缓存标识排序后取得，重查成功缓存再占用并发额度，重叠批次不重复请求。连接、超时及临时服务错误最多重试一次，间隔 250 毫秒；明确的访问限制、来源不存在、限流或无效平台数据不自动重试，失败不存入详情缓存。
 

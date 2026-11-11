@@ -212,6 +212,11 @@ pub fn run() {
             let setting = settings::music_setting::MusicSetting::load(app.handle())?;
             let (options, preferences_warning) =
                 desktop_preferences::DesktopPreferences::load_with_warning(app.handle())?;
+            let image_cache = match desktop::cache::prepare(app.handle(), &options) {
+                Ok(disk) => Some(disk),
+                Err(_) => { desktop::diagnostics::log_event(app.handle(), "cache", "configuration_failed"); None }
+            };
+            tauri::async_runtime::block_on(desktop::cache::apply(app.state::<std::sync::Arc<core::cache::Cache>>().inner(), &options, image_cache));
             app.manage(desktop::rendering::ActiveRendering(options.rendering_mode.clone()));
             for configuration in &app.config().app.windows {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), configuration)?
@@ -357,6 +362,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            desktop::cache::get_cache_status,
+            desktop::cache::choose_cache_directory,
+            desktop::cache::clear_cache,
             desktop::console::console_execute,
             desktop::console::console_catalog,
             desktop::console::console_ui_reply,
@@ -415,6 +423,7 @@ pub fn run() {
             commands::replace_discovery_song,
             commands::mutate_discovery_history,
             commands::get_history_covers,
+            commands::get_history_cover_page,
             desktop::discovery_preview::end_discovery_preview,
             desktop::discovery_preview::set_preview_close_rect,
             commands::init_preload,

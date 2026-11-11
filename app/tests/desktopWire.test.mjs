@@ -101,3 +101,11 @@ test("source summaries, settings sources and mutation source arrays keep distinc
   assert.deepEqual(model.updatedSources, []);
   assert.deepEqual(encodeDesktopArgs("snapshot", model), wire);
 });
+
+
+test("cache preferences keep the on-disk names and roundtrip the desktop draft", () => {
+  const wire = { cache_directory: "D:/DiscoAS/cache", cache_limit_mb: 1024, memory_cache_limit_mb: 64 };
+  const value = decodeDesktopValue(wire);
+  assert.deepEqual(value, { cacheDirectory: wire.cache_directory, cacheLimitMb: 1024, memoryCacheLimitMb: 64 });
+  assert.deepEqual(encodeDesktopArgs("save_desktop_preferences", { settings: value }), { settings: wire });
+});

@@ -12,6 +12,7 @@ import { handSurfaceWaiting } from "./handSurface";
 import { useHandController } from "./useHandController";
 import { isHandRegionAnimation, isHandRegionTransition } from "./handRegionEvents";
 import { useAppearance } from "../settings/useAppearance";
+import { useRetainedHandCards } from "./useRetainedHandCards";
 import "../../App.css";
 import "./hand.css";
 
@@ -23,6 +24,7 @@ export function HandWindow() {
     endDrag, cancelDrag, lostPointerCapture, errorPosition, clearError, discoveryPhase, replacingId, refreshDiscovery, restPoses, layoutDiscoveryCount, ordinaryCount,
     retiringById, entering, finishCardTransition, layoutTransition, arrivalReady } = useHandController();
   useAppearance(snapshot.gui);
+  const renderCards = useRetainedHandCards(cardsMounted, hidden, stage, snapshot.generation);
   const layoutPending = !!layoutTransition?.pending;
   const liquid = snapshot.discoverySettings?.liquidStrength ?? 100;
   const liquidMode = snapshot.discoverySettings?.liquidMode ?? "static";
@@ -50,7 +52,7 @@ export function HandWindow() {
       move={moveDock} toggle={toggleDock} clear={clearDock} />}
     {error && <div className="hand-error" role="alert" data-hand-hit style={errorPosition} onClick={clearError}>{error}</div>}
     {cardsMounted && snapshot.expanded && boundary && <div className="hand-intake-boundary" data-vertical={vertical || undefined} style={boundary} aria-label={t("加入手牌分界")} />}
-    {cardsMounted && visibleCards.map((card) => {
+    {renderCards && visibleCards.map((card) => {
       const removing = discardById.get(card.id);
       const retiring = retiringById.get(card.id);
       const flyingCard = flying?.card.id === card.id ? flying : null;
@@ -84,7 +86,7 @@ export function HandWindow() {
         "--hand-card-scale": held ? 1.12 : pose.scale, "--hand-order": i, "--discard-delay": `${removing?.delay ?? 0}ms`,
         "--refill-x": settings.side === "left" ? "-42px" : settings.side === "right" ? "42px" : "0px", "--refill-y": settings.side === "bottom" ? "42px" : "0px",
       } as CSSProperties;
-      return <div key={card.id} data-hand-id={card.id} data-auto-locked={visuallyLocked || undefined} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${surfaceWaiting ? " hand-surface-waiting" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && (outgoing || busy === card.id) && !held && !card.discovery ? " hand-pending" : ""}`}
+      return <div key={card.id} data-hand-id={card.id} data-auto-locked={visuallyLocked || undefined} data-side={settings.side} data-hand-hit={retiring || !cardsMounted ? undefined : true} inert={!!retiring || !cardsMounted} aria-hidden={!!retiring || !cardsMounted || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${surfaceWaiting ? " hand-surface-waiting" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && (outgoing || busy === card.id) && !held && !card.discovery ? " hand-pending" : ""}`}
         role="button" tabIndex={-1} data-auto-next={autoNext || undefined} aria-label={`${card.song.mysteryMode ? t("神秘歌曲") : card.song.title}${autoNext ? ` · ${t("下一张自动打出")}` : ""}`} title={autoNext ? t("下一张自动打出") : undefined} aria-disabled={snapshot.preview || !!busy || autoLocked}
         style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); finishCardTransition(card.id); } }} onPointerDown={(e) => onCardPointerDown(card, e)} onPointerMove={(e) => onCardPointerMove(card, e)} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => lostPointerCapture(card.id)}>
         <div className="hand-flip" data-flippable={card.discovery || revealedArrival || undefined}><div className="hand-card-face">

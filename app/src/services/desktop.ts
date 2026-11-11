@@ -6,7 +6,7 @@ import { t } from "../i18n";
 import { decodeDesktopValue, encodeDesktopArgs } from "./desktopWire";
 import type { TrayMenuSnapshot } from "../features/tray/trayMenuModel";
 import type { LibraryProgress, DiscoveryState, DiscoveryStatus, PreferencePatch, GuiSettings,
-  HistoryEntry, HistoryMutation, HistoryIdentity, HistoryCover, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint,
+  HistoryEntry, HistoryMutation, HistoryIdentity, PreviewPointer, PreviewKey, PreviewCloseRect, HandSnapshot, HandKey, HandVisibility, HandSurface, HandDockSnapshot, HandPoint,
   HandDragSnapshot, HandDragIntent, HandDragEnd } from "../types";
 
 export interface PlaySongArgs { platform: string; songId: string; sourceId: string; sourceKind: string }
@@ -18,8 +18,13 @@ export const refreshMediaSession = () => call<MediaSessionState>("refresh_media_
 export const watchMediaSession = (enabled: boolean) => call<void>("watch_media_session", { enabled });
 export const controlMediaSession = (sessionId: string, action: MediaAction) => call<void>("control_media_session", { sessionId, action });
 export const setMainAttention = (active: boolean) => desktop ? call<void>("set_main_attention", { active }) : Promise.resolve();
+export interface CacheStatus { directory: string; diskBytes: number; memoryBytes: number }
+export const getCacheStatus = () => call<CacheStatus>("get_cache_status");
+export const chooseCacheDirectory = () => call<string | null>("choose_cache_directory");
+export const clearCache = () => call<void>("clear_cache");
 import type { OnboardingState } from "../features/onboarding/onboardingState";
-import { HistoryReadCache } from "../features/history/historyModel";
+import { HistoryReadCache, historyArtworkCache, expandHistoryCoverPage, type HistoryCoverPage } from "../features/history/historyModel";
+export const configureFrontendCache = (memoryMb: number) => historyArtworkCache.configure(memoryMb);
 
 const historyReadCache = new HistoryReadCache();
 export async function getDiscoveryHistory(): Promise<HistoryEntry[]> {
@@ -29,6 +34,7 @@ export async function getDiscoveryHistory(): Promise<HistoryEntry[]> {
 }
 
 export type DesktopCommand =
+  | "get_cache_status" | "choose_cache_directory" | "clear_cache"
   | "get_media_session" | "refresh_media_session" | "watch_media_session" | "control_media_session" | "set_main_attention"
   | "console_execute" | "console_catalog" | "console_ui_reply"
   | "get_onboarding_state" | "advance_onboarding" | "start_onboarding"
@@ -84,6 +90,7 @@ export type DesktopCommand =
   | "replace_discovery_song"
   | "mutate_discovery_history"
   | "get_history_covers"
+  | "get_history_cover_page"
   | "end_discovery_preview"
   | "set_preview_close_rect"
   | "report_cancelled"
@@ -139,6 +146,7 @@ export interface DisplayMonitor {
 export const getDisplayMonitors = () => call<DisplayMonitor[]>("get_display_monitors");
 
 export interface DesktopEvents {
+  "cache-cleared": null;
   "console-state-invalidated": void;
   "console-ui-request": { id: string; action: string; params: Record<string, unknown> };
   "console-api-changed": import("../features/console/consoleModel").ConsoleApi;
@@ -198,7 +206,7 @@ export const replaceDiscoverySong = (args: PlaySongArgs, batchEpoch: number) =>
 export const mutateDiscoveryHistory = (mutation: HistoryMutation, source?: string) =>
   call<HistoryEntry[]>("mutate_discovery_history", { mutation, source });
 export const getHistoryCovers = (identities: HistoryIdentity[]) =>
-  call<HistoryCover[]>("get_history_covers", { identities });
+  call<HistoryCoverPage>("get_history_cover_page", { identities }).then(expandHistoryCoverPage);
 export const endDiscoveryPreview = () => call<void>("end_discovery_preview");
 export const setPreviewCloseRect = (rect: PreviewCloseRect) => call<void>("set_preview_close_rect", { rect });
 export const listenDiscoveryState = (handler: (state: DiscoveryState) => void) =>
@@ -308,3 +316,5 @@ export async function copyText(text: string): Promise<void> {
     throw new Error(t("错误：无法复制，请手动复制"));
   }
 }
+
+if (desktop) void onDesktopEvent("cache-cleared", () => { historyArtworkCache.clear(); });

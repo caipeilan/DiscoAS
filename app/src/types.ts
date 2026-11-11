@@ -180,6 +180,9 @@ export interface DesktopPreferences {
   spotifyDefaultsVersion: number;
   browserPlaybackMode: "extension" | "direct";
   renderingMode: "auto" | "integrated" | "discrete" | "cpu";
+  cacheDirectory: string;
+  cacheLimitMb: number;
+  memoryCacheLimitMb: number;
 }
 export interface LibraryProgress {
   requestId: string;
@@ -364,6 +367,9 @@ export const emptyState: AppState = {
     spotifyDefaultsVersion: 1,
     browserPlaybackMode: "extension",
     renderingMode: "auto",
+    cacheDirectory: "",
+    cacheLimitMb: 1024,
+    memoryCacheLimitMb: 64,
   },
   guiSettings: defaultGuiSettings,
   settings: {

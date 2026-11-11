@@ -13,7 +13,7 @@ use crate::{
 };
 use discoas_core::{
     hand::{HandCard, HandDiscoverySettings, HandSettings, StoredHandCard},
-    image_cache::{library_key, read_library_cover},
+    image_cache::{library_key, read_library_cover_cached},
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -24,6 +24,9 @@ use std::sync::{
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "hand";
+pub(super) fn clear_prepared(app: &tauri::AppHandle) {
+    app.state::<HandState>().prepared.lock().unwrap().clear();
+}
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Arrival {
@@ -206,11 +209,12 @@ async fn cards(app: &tauri::AppHandle, music: &MusicSetting) -> Result<Vec<Arc<H
             continue;
         }
         if !card.song.mystery_mode {
-            card.song.cover_data_uri = read_library_cover(
+            card.song.cover_data_uri = read_library_cover_cached(
+                cache.inner(),
                 &root.join("history/covers"),
                 &library_key(&card.song.platform, "song", &card.song.song_id),
             )
-            .map(Into::into);
+            .await;
         }
         if card.song.cover_data_uri.is_none() {
             card.song.cover_data_uri = discoas_core::image_cache::read_cached_image(

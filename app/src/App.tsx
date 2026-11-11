@@ -16,7 +16,7 @@ import { useSettings } from "./features/settings/useSettings";
 import { useAppearance } from "./features/settings/useAppearance";
 import { useAppState } from "./hooks/useAppState";
 import { useNotice } from "./hooks/useNotice";
-import { call, onDesktopEvent, setMainAttention } from "./services/desktop";
+import { call, onDesktopEvent, setMainAttention, configureFrontendCache } from "./services/desktop";
 import { t, errorText } from "./i18n";
 import { CreateHandDialog } from "./features/hand/CreateHandDialog";
 import { Onboarding } from "./features/onboarding/Onboarding";
@@ -33,6 +33,7 @@ export default function App() {
   const { toast, notice, dismiss } = useNotice();
   const app = useAppState(false, notice);
   const { state, guiDraft, busy } = app;
+  useEffect(() => { configureFrontendCache(state.desktopSettings.memoryCacheLimitMb); }, [state.desktopSettings.memoryCacheLimitMb]);
   const [page, setPage] = useState<Page>("library");
   const consoleController = useConsole(page === "console");
   const previousPage = useRef<Page>("library");

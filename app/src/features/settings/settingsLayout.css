@@ -85,3 +85,8 @@
   .client-desktop-actions { margin-left: 0; width: 100%; }
 }
 .help-hint-content { white-space: pre-line; }
+.cache-directory-row .setting-control { flex: 0 1 460px; min-width: 0; }
+.cache-directory-control { display: flex; align-items: center; gap: 8px; width: 100%; }
+.cache-directory-control .input { flex: 1; width: 0; min-width: 100px; }
+.cache-directory-control .button { flex: 0 0 auto; }
+.settings-cache-status { color: var(--text-secondary); font-size: 12px; }

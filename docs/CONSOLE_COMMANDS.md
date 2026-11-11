@@ -2,7 +2,7 @@
 
 # DiscoAS 2.1.0 控制台与本机接口
 
-控制台位于主窗口左侧的「控制台」。本版提供 147 个命令、112 个设置键。命令目录、参数校验、补全和本表使用同一份登记数据。
+控制台位于主窗口左侧的「控制台」。本版提供 147 个命令、115 个设置键。命令目录、参数校验、补全和本表使用同一份登记数据。
 
 ## 开始使用
 
@@ -438,6 +438,9 @@ sources 由来源命令维护；兼容字段及旧颜色只读。请用 weightin
 | `desktop.renderingMode` | auto / integrated / discrete / cpu | 渲染方式，重启生效 | 读写 |
 | `desktop.spotifyDefaultsVersion` | 管理字段，只读 | 默认设置迁移版本 | 只读 |
 | `desktop.minimizeAfterPlayback` | 兼容读取 bool | 旧设置，新界面由 clientWindowMode 管理 | 只读 |
+| `desktop.cacheDirectory` | 绝对路径；空值为安装目录下 cache | 缓存地址 | 读写 |
+| `desktop.cacheLimitMb` | 0–1048576 MB | 磁盘缓存上限 | 读写 |
+| `desktop.memoryCacheLimitMb` | 8–1024 MB | 内存缓存上限 | 读写 |
 
 ## 常用测试流程
 

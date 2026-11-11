@@ -20,6 +20,9 @@ pub struct DesktopPreferences {
     pub spotify_defaults_version: u32,
     pub browser_playback_mode: String,
     pub rendering_mode: String,
+    pub cache_directory: String,
+    pub cache_limit_mb: u32,
+    pub memory_cache_limit_mb: u32,
 }
 impl Default for DesktopPreferences {
     fn default() -> Self {
@@ -37,11 +40,17 @@ impl Default for DesktopPreferences {
             spotify_defaults_version: 1,
             browser_playback_mode: "extension".into(),
             rendering_mode: "auto".into(),
+            cache_directory: String::new(),
+            cache_limit_mb: 1024,
+            memory_cache_limit_mb: 64,
         }
     }
 }
 impl DesktopPreferences {
     pub fn validate(&self) -> Result<(), String> {
+        if !self.cache_directory.is_empty() && !Path::new(&self.cache_directory).is_absolute() { return Err("缓存地址必须为绝对路径".into()); }
+        if self.cache_limit_mb > 1024 * 1024 { return Err("磁盘缓存上限应为 0–1048576 MB".into()); }
+        if !(8..=1024).contains(&self.memory_cache_limit_mb) { return Err("内存缓存上限应为 8–1024 MB".into()); }
         if !["auto", "integrated", "discrete", "cpu"].contains(&self.rendering_mode.as_str()) {
             return Err("错误：渲染方式无效".into());
         }
@@ -111,6 +120,21 @@ pub fn should_show_main(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_defaults_and_validation_preserve_old_desktop_settings() {
+        let old: DesktopPreferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.cache_directory, "");
+        assert_eq!(old.cache_limit_mb, 1024);
+        assert_eq!(old.memory_cache_limit_mb, 64);
+        assert!(old.validate().is_ok());
+        let mut invalid = old.clone(); invalid.cache_directory = "relative/cache".into();
+        assert!(invalid.validate().is_err());
+        invalid = old.clone(); invalid.memory_cache_limit_mb = 1;
+        assert!(invalid.validate().is_err());
+        invalid = old; invalid.cache_limit_mb = 0;
+        assert!(invalid.validate().is_ok());
+    }
     #[test]
     fn pause_before_playback_is_opt_in_and_roundtrips_for_every_connection_mode() {
         let legacy: DesktopPreferences = serde_json::from_str("{}").unwrap();

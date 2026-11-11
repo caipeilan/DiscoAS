@@ -146,6 +146,8 @@ pub(super) async fn update_desktop_preferences(
     let old = DesktopPreferences::load_from_path(&path)?;
     let settings = update(&old)?;
     settings.validate()?;
+    let cache_changed = old.cache_directory != settings.cache_directory || old.cache_limit_mb != settings.cache_limit_mb || old.memory_cache_limit_mb != settings.memory_cache_limit_mb;
+    let image_cache = if cache_changed { Some(super::cache::prepare(&app, &settings)?) } else { None };
     if settings.browser_playback_mode == "extension" {
         app.state::<crate::browser_playback::BrowserPlaybackService>()
             .start_bridge(&app)?;
@@ -174,6 +176,11 @@ pub(super) async fn update_desktop_preferences(
         desktop_settings: Some(settings.clone()),
         ..Default::default()
     };
+    if let Some(disk) = image_cache {
+        super::cache::apply(cache.inner(), &settings, Some(disk)).await;
+        super::hand::clear_prepared(&app);
+        let _ = app.emit("cache-cleared", ());
+    }
     let _ = app.emit("desktop-changed", &patch);
     if !settings.minimize_after_playback
         || old.temporary_hide_seconds != settings.temporary_hide_seconds

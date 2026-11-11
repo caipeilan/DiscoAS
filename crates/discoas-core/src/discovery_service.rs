@@ -10,7 +10,7 @@ use crate::{
     hand::{HandStore, StoredHandCard},
     history::{HistoryEntry, HistorySnapshot, HistoryStore},
     image_cache::{
-        library_key, prepare_batch_covers, prepare_song_cover, read_library_cover,
+        library_key, prepare_batch_covers, prepare_song_cover, read_library_cover_cached,
         save_library_covers,
     },
     model::{
@@ -1171,15 +1171,7 @@ impl DiscoveryService {
             return Err("发现记录请求无效".into());
         }
         if identities.is_empty() { return Ok(Vec::new()); }
-        let wanted_refs: HashSet<(&str, &str)> = identities
-            .iter()
-            .map(|id| (id.platform.as_str(), id.song_id.as_str()))
-            .collect();
-        // Capture the version before the network work; an unchanged history does
-        // not need a second full parse when the covers come back.
-        let version = self.history.version().map_err(|e| e.to_string())?;
-        let snapshot = self.history.load().map_err(|e| e.to_string())?;
-        let mut rows = snapshot.selected_entries(&wanted_refs);
+        let (version, rows) = self.cache.history_rows(&self.history, &wanted).map_err(|e| e.to_string())?;
         if wanted.iter().any(|id| !rows.contains_key(id)) {
             return Err("发现记录已改变，请刷新后重试".into());
         }
@@ -1236,13 +1228,11 @@ impl DiscoveryService {
         // lock cannot restore or change a history row.
         save_library_covers(&self.store.root().join("history/covers"), &covers)?;
         let _guard = self.cache.operation.lock().await;
-        let (mut current, current_rows) =
+        let current_rows =
             if self.history.version().map_err(|e| e.to_string())? == version {
-                (snapshot, rows)
+                rows
             } else {
-                let current = self.history.load().map_err(|e| e.to_string())?;
-                rows = current.selected_entries(&wanted_refs);
-                (current, rows)
+                self.cache.history_rows(&self.history, &wanted).map_err(|e| e.to_string())?.1
             };
         let mut repairs = Vec::new();
         let mut prepared_data = HashMap::new();
@@ -1263,9 +1253,17 @@ impl DiscoveryService {
             }
         }
         if !repairs.is_empty() {
+            let mut current = self.history.load().map_err(|e| e.to_string())?;
             self.history
                 .repair_cover_metadata(&mut current, &repairs)
                 .map_err(|e| e.to_string())?;
+        }
+        for id in identities {
+            let key = (id.platform.clone(), id.song_id.clone());
+            if !prepared_data.contains_key(&key) && current_rows.contains_key(&key) {
+                let data = read_library_cover_cached(&self.cache, &self.store.root().join("history/covers"), &library_key(&id.platform, "song", &id.song_id)).await;
+                prepared_data.insert(key, data);
+            }
         }
         let mut bytes = 0usize;
         Ok(identities
@@ -1274,11 +1272,6 @@ impl DiscoveryService {
                 let key = (id.platform.clone(), id.song_id.clone());
                 let data = match prepared_data.remove(&key) {
                     Some(data) => data,
-                    None if current_rows.contains_key(&key) => read_library_cover(
-                        &self.store.root().join("history/covers"),
-                        &library_key(&id.platform, "song", &id.song_id),
-                    )
-                    .map(Arc::from),
                     None => None,
                 };
                 let data = data.filter(|data| {
@@ -1304,12 +1297,12 @@ impl DiscoveryService {
             .get(&(identity.platform.clone(), identity.song_id.clone()))?
             .clone();
         let key = library_key(&row.platform, "song", &row.song_id);
-        if let Some(data) = read_library_cover(&self.store.root().join("history/covers"), &key) {
+        if let Some(data) = read_library_cover_cached(&self.cache, &self.store.root().join("history/covers"), &key).await {
             return Some(PreparedHistoryCover {
                 row,
                 detail: None,
                 bytes: None,
-                data: Some(Arc::from(data)),
+                data: Some(data),
             });
         }
         tokio::time::timeout(Duration::from_secs(8), async {

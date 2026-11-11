@@ -12,7 +12,7 @@
 //! - 状态机记录上次动作（Played/Cancelled），下次发现时消费
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -114,6 +114,9 @@ struct DetailCache {
 
 struct Resources {
     images: Mutex<ImageCache>,
+    image_budget: AtomicUsize,
+    image_epoch: AtomicU64,
+    image_disk: std::sync::RwLock<Option<Arc<crate::image_cache::disk::CoverDiskCache>>>,
     details: Mutex<DetailCache>,
     detail_requests: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     detail_slots: Semaphore,
@@ -125,6 +128,9 @@ impl Default for Resources {
     fn default() -> Self {
         Self {
             images: Mutex::new(ImageCache::default()),
+            image_budget: AtomicUsize::new(IMAGE_BUDGET),
+            image_epoch: AtomicU64::new(0),
+            image_disk: std::sync::RwLock::new(None),
             details: Mutex::new(DetailCache::default()),
             detail_requests: Mutex::new(HashMap::new()),
             detail_slots: Semaphore::new(4),
@@ -524,7 +530,7 @@ impl Cache {
 
     /// 缓存图片。对照旧版 `_image_cache[url] = data`。
     pub async fn cache_image(&self, url: String, data: Vec<u8>) {
-        self.cache_prepared_image(url, data).await;
+        self.cache_prepared_image(crate::image_cache::memory_key(&url), data).await;
     }
 
     pub(crate) async fn cache_prepared_image(
@@ -532,13 +538,49 @@ impl Cache {
         url: String,
         data: Vec<u8>,
     ) -> Arc<CachedImage> {
+        self.cache_prepared_image_at(url, data, self.image_epoch()).await
+    }
+
+    pub(crate) async fn cache_prepared_image_at(&self, url: String, data: Vec<u8>, epoch: u64) -> Arc<CachedImage> {
         let image = CachedImage::new(data);
-        self.resources
-            .images
-            .lock()
-            .await
-            .insert(url, image.clone(), IMAGE_BUDGET);
+        let mut images = self.resources.images.lock().await;
+        if epoch == self.image_epoch() { images.insert(url, image.clone(), self.resources.image_budget.load(Ordering::Acquire)); }
         image
+    }
+
+    pub(crate) fn image_epoch(&self) -> u64 { self.resources.image_epoch.load(Ordering::Acquire) }
+
+    pub fn image_disk(&self) -> Option<Arc<crate::image_cache::disk::CoverDiskCache>> {
+        self.resources.image_disk.read().unwrap().clone()
+    }
+
+    pub async fn configure_images(&self, disk: Option<Arc<crate::image_cache::disk::CoverDiskCache>>, memory_bytes: usize) {
+        let mut images = self.resources.images.lock().await;
+        self.resources.image_epoch.fetch_add(1, Ordering::AcqRel);
+        if let Some(old) = std::mem::replace(&mut *self.resources.image_disk.write().unwrap(), disk.clone()) {
+            if !disk.as_ref().is_some_and(|disk| Arc::ptr_eq(&old, disk)) { old.deactivate(); }
+        }
+        self.resources.image_budget.store(memory_bytes, Ordering::Release);
+        *images = ImageCache::default();
+    }
+
+    pub async fn clear_images(&self) -> Result<(), String> {
+        let mut images = self.resources.images.lock().await;
+        self.resources.image_epoch.fetch_add(1, Ordering::AcqRel);
+        if let Some(disk) = self.image_disk() {
+            tokio::task::spawn_blocking(move || disk.clear()).await.map_err(|_| "缓存清理失败")??;
+        }
+        *images = ImageCache::default();
+        Ok(())
+    }
+
+    pub async fn clear_caches(&self) -> Result<(), String> {
+        self.clear_images().await?;
+        *self.resources.details.lock().await = DetailCache::default();
+        self.resources.sources.clear();
+        self.resources.history.lock().unwrap().invalidate();
+        self.invalidate_preloads().await;
+        Ok(())
     }
 
     pub(crate) async fn get_prepared_image(&self, url: &str) -> Option<Arc<CachedImage>> {
@@ -568,9 +610,13 @@ impl Cache {
         self.resources.history.lock().unwrap().read(store, revision)
     }
 
+    pub(crate) fn history_rows(&self, store: &crate::history::HistoryStore, wanted: &HashSet<(String, String)>) -> crate::AppResult<(crate::history::HistoryVersion, HashMap<(String, String), crate::history::HistoryEntry>)> {
+        self.resources.history.lock().unwrap().select(store, wanted)
+    }
+
     /// 取缓存图片。对照旧版 `_image_cache.get(url)`。
     pub async fn get_image(&self, url: &str) -> Option<Arc<[u8]>> {
-        self.get_prepared_image(url)
+        self.get_prepared_image(&crate::image_cache::memory_key(url))
             .await
             .map(|image| image.bytes.clone())
     }
@@ -638,6 +684,18 @@ impl Cache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn memory_budget_applies_without_a_disk_cache() {
+        let cache = Cache::new();
+        cache.configure_images(None, 64).await;
+        cache.cache_image("cover".into(), b"\xff\xd8\xffimage".to_vec()).await;
+        assert!(cache.get_image("cover").await.is_some());
+        cache.configure_images(None, 0).await;
+        cache.cache_image("cover".into(), b"\xff\xd8\xffimage".to_vec()).await;
+        assert!(cache.get_image("cover").await.is_none());
+        assert_eq!(cache.image_cache_stats().await, (0, 0));
+    }
+
     #[tokio::test]
     async fn generation_wait_observes_changes_before_and_after_subscription() {
         let cache = Cache::new();

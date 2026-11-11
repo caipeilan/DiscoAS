@@ -43,7 +43,7 @@ test("finishing an animation hands its visible frame to the next CSS transition"
   try {
     const motion = animateHandMotion(f.element, [], { duration: 480 });
     motion.transform = "matrix(1,0,0,1,240,360)"; motion.finish();
-    await Promise.resolve();
+    await settle();
     assert.deepEqual(f.handoffs.find((item) => item.property === "transform"), { property: "transform", from: motion.transform });
     assert.equal(f.element.attributes.has("data-hand-motion"), false);
     assert.equal(motion.cancelled, true);

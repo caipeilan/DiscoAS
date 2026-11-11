@@ -79,6 +79,7 @@
 .hand-card[data-auto-locked] .hand-auto-next-label,
 .hand-card.hand-surface-waiting .hand-auto-next-label { opacity: 0 !important; }
 .hand-flip { position: relative; width: 100%; height: 100%; }
+.hand-card-face { contain: layout style; }
 /* Only two-sided cards need separate 3D surfaces. */
 .hand-flip[data-flippable] { transform-style: preserve-3d; }
 .hand-flip[data-flippable] .hand-card-face { backface-visibility: hidden; }

@@ -1,7 +1,9 @@
 //! Playlist application rules and persistence using an explicit data directory.
 use std::{
-    collections::HashSet,
+    collections::{HashSet, HashMap},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    time::SystemTime,
 };
 
 use crate::{
@@ -14,6 +16,18 @@ use crate::{
 use discoas_core::storage::LibraryStore;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+
+type Summary = (usize, String, usize);
+#[derive(Default)]
+struct Summaries {
+    clock: u64,
+    entries: HashMap<PathBuf, (u64, Option<SystemTime>, Summary, u64)>,
+}
+static SUMMARIES: OnceLock<Mutex<Summaries>> = OnceLock::new();
+
+pub fn clear_summaries(root: &Path) {
+    if let Some(summaries) = SUMMARIES.get() { summaries.lock().unwrap().entries.retain(|path, _| !path.starts_with(root)); }
+}
 
 /// Library snapshots need only IDs and the source cover. In particular, the
 /// complete track metadata in video / public-music caches must not be rebuilt
@@ -79,7 +93,7 @@ pub fn source_refresh_changes_discovery(
     previous != current || current.as_ref() == Some(refreshed)
 }
 
-/// The caller serializes mutations; this service has no window, event or runtime state.
+/// The caller serializes mutations; summaries are bounded and keyed by the explicit file path.
 pub struct LibraryRepository {
     root: PathBuf,
 }
@@ -139,7 +153,18 @@ impl LibraryRepository {
         let path = LibraryStore::new(&self.root)
             .playlist_path(&source.platform, &source.source_id, source_kind)
             .map_err(|e| e.to_string())?;
-        let bytes = std::fs::read(path).map_err(|_| "本地缓存缺失，请更新此歌单".to_string())?;
+        let metadata = std::fs::metadata(&path).map_err(|_| "本地缓存缺失，请更新此歌单".to_string())?;
+        let version = (metadata.len(), metadata.modified().ok());
+        let summaries = SUMMARIES.get_or_init(|| Mutex::new(Summaries::default()));
+        {
+            let mut summaries = summaries.lock().unwrap();
+            summaries.clock += 1;
+            let clock = summaries.clock;
+            if let Some((len, modified, summary, used)) = summaries.entries.get_mut(&path) {
+                if (*len, *modified) == version { *used = clock; return Ok(summary.clone()); }
+            }
+        }
+        let bytes = std::fs::read(&path).map_err(|_| "本地缓存缺失，请更新此歌单".to_string())?;
         let raw: CachedSourceSummary = serde_json::from_slice(&bytes)
             .map_err(|_| "本地缓存损坏，请更新此歌单".to_string())?;
         let ids = raw.song_ids.as_array().ok_or("本地缓存没有歌曲列表")?;
@@ -152,7 +177,7 @@ impl LibraryRepository {
             })
             .filter(|s| !s.is_empty())
             .collect();
-        Ok((
+        let summary = (
             unique.len(),
             raw.legacy_cover
                 .as_ref()
@@ -161,7 +186,16 @@ impl LibraryRepository {
                 .unwrap_or("")
                 .into(),
             raw.missing_count,
-        ))
+        );
+        let mut summaries = summaries.lock().unwrap();
+        if summaries.entries.len() >= 128 && !summaries.entries.contains_key(&path) {
+            if let Some(oldest) = summaries.entries.iter().min_by_key(|(_, (_, _, _, used))| used).map(|(path, _)| path.clone()) {
+                summaries.entries.remove(&oldest);
+            }
+        }
+        let clock = summaries.clock;
+        summaries.entries.insert(path, (version.0, version.1, summary.clone(), clock));
+        Ok(summary)
     }
 
     pub fn load_source(&self, platform: &str, source_id: &str, source_kind: SourceKind) -> Result<Value, String> {
@@ -374,6 +408,23 @@ mod tests {
 
     fn cache(source_id: &str) -> Value {
         serde_json::json!({"playlist_album_id": source_id, "playlist_album_type": "playlist", "playlist_album_name": format!("Playlist {source_id}"), "song_ids": [1, "1", 2], "coverUrl":"https://example.com/old.jpg", "cover_url":"https://example.com/new.jpg"})
+    }
+
+    #[test]
+    fn summary_cache_observes_external_replacements_missing_files_and_invalid_json() {
+        let fixture = TestData::new();
+        let repository = fixture.repository();
+        let source = entry("summary-cache", "");
+        repository.save_source(&source.platform, &source.source_id, SourceKind::Playlist, &cache(&source.source_id)).unwrap();
+        assert_eq!(repository.cache_summary(&source).unwrap().0, 2);
+        assert_eq!(repository.cache_summary(&source).unwrap().0, 2);
+        let path = LibraryStore::new(repository.root()).playlist_path(&source.platform, &source.source_id, SourceKind::Playlist).unwrap();
+        std::fs::write(&path, r#"{"song_ids":["new"],"coverUrl":"replacement"}"#).unwrap();
+        assert_eq!(repository.cache_summary(&source).unwrap(), (1, "replacement".into()));
+        std::fs::write(&path, "broken").unwrap();
+        assert!(repository.cache_summary(&source).is_err());
+        std::fs::remove_file(path).unwrap();
+        assert!(repository.cache_summary(&source).is_err());
     }
 
     #[test]

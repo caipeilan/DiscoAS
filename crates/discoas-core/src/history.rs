@@ -287,9 +287,15 @@ pub(crate) struct HistoryRowsCache {
     version: Option<HistoryVersion>,
     revision: u64,
     entries: Vec<HistoryEntry>,
+    indices: HashMap<(String, String), usize>,
 }
 impl HistoryRowsCache {
-    pub(crate) fn read(&mut self, store: &HistoryStore, known: Option<u64>) -> AppResult<HistoryRead> {
+    pub(crate) fn invalidate(&mut self) {
+        self.version = None;
+        self.entries.clear();
+        self.indices.clear();
+    }
+    fn refresh(&mut self, store: &HistoryStore) -> AppResult<HistoryVersion> {
         let version = store.version()?;
         if self.path != store.path || self.version != Some(version) {
             let entries = store.entries(MAX_HISTORY_LIMIT)?;
@@ -298,8 +304,20 @@ impl HistoryRowsCache {
             }
             self.path = store.path.clone();
             self.version = Some(version);
+            self.indices = entries.iter().enumerate().map(|(i, row)| ((row.platform.clone(), row.song_id.clone()), i)).collect();
             self.entries = entries;
         }
+        Ok(version)
+    }
+
+    pub(crate) fn select(&mut self, store: &HistoryStore, wanted: &HashSet<(String, String)>) -> AppResult<(HistoryVersion, HashMap<(String, String), HistoryEntry>)> {
+        let version = self.refresh(store)?;
+        let rows = wanted.iter().filter_map(|id| self.indices.get(id).map(|&i| (id.clone(), self.entries[i].clone()))).collect();
+        Ok((version, rows))
+    }
+
+    pub(crate) fn read(&mut self, store: &HistoryStore, known: Option<u64>) -> AppResult<HistoryRead> {
+        self.refresh(store)?;
         Ok(HistoryRead {
             revision: self.revision,
             entries: (known != Some(self.revision)).then(|| self.entries.clone()),
@@ -545,6 +563,7 @@ impl HistoryStore {
 impl HistorySnapshot {
     /// Merge only the identities a cover page asked for. The full page merge
     /// clones and sorts every retained row, which a 64-cover request does not need.
+    #[cfg(test)]
     pub(crate) fn selected_entries(
         &self,
         wanted: &HashSet<(&str, &str)>,
@@ -696,12 +715,20 @@ mod tests {
         let mut cache = HistoryRowsCache::default();
         store.record_discovered(&[song("a", "one", "Spotify")], 200).unwrap();
         let first = cache.read(&store, None).unwrap();
+        let wanted = HashSet::from([("Spotify".into(), "a".into())]);
+        let (_, selected) = cache.select(&store, &wanted).unwrap();
+        assert_eq!(selected, store.load().unwrap().selected_entries(&HashSet::from([("Spotify", "a")])));
         assert_eq!(first.entries.unwrap()[0].song_id, "a");
         assert!(cache.read(&store, Some(first.revision)).unwrap().entries.is_none());
+        cache.invalidate();
+        let renewed = cache.read(&store, Some(first.revision)).unwrap();
+        assert!(renewed.revision > first.revision);
+        assert!(renewed.entries.is_some());
         store.clear().unwrap();
         let cleared = cache.read(&store, Some(first.revision)).unwrap();
         assert!(cleared.revision > first.revision);
         assert!(cleared.entries.unwrap().is_empty());
+        assert!(cache.select(&store, &wanted).unwrap().1.is_empty());
         std::fs::write(store.path(), "broken").unwrap();
         assert!(cache.read(&store, Some(cleared.revision)).is_err());
         std::fs::write(store.path(), r#"{"discovered":[],"selected":[]}"#).unwrap();

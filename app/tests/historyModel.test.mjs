@@ -6,7 +6,7 @@ import ts from "typescript";
 const compiled = ts.transpileModule(fs.readFileSync(new URL("../src/features/history/historyModel.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { HistoryReadCache, cacheHistoryCovers, filterHistory, historySearchText, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
+const { HistoryReadCache, HistoryArtworkCache, historyArtworkCache, expandHistoryCoverPage, cacheHistoryCovers, filterHistory, historySearchIndex, historySearchText, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
   await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const record = (values = {}) => ({
   platform: "NeteaseCloudMusic", songId: "100", sourceId: "1", sourceKind: "playlist", title: "中文歌曲",
@@ -183,7 +183,7 @@ async function historyController() {
   });
   globalThis.__historyTest = { react, bridge, platforms: [{ id: "NeteaseCloudMusic", label: "网易云音乐" }],
     currentLocale: () => "zh-CN", t: (message) => message, errorText: String, prepareHistoryCovers: async results => results,
-    cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata, retainedHistorySelection };
+    historyArtworkCache: new HistoryArtworkCache(), cacheHistoryCovers, filterHistory, historySearchIndex, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata, retainedHistorySelection };
   const { useHistory } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   return {
     load, repair, covers, edits, clearCount: () => clearCount,
@@ -274,4 +274,50 @@ test("concurrent status edits submit one complete identity and preserve current 
   assert.equal(controller.render().entries[0].selectedAt, 2000);
   assert.equal(controller.render().mutating, false);
   controller.unmount();
+});
+
+
+test("history artwork survives remount, coalesces requests, and rejects cleared or replaced entries", async () => {
+  const cache = new HistoryArtworkCache(), entry = record();
+  cache.retain(new Set([historyCoverKey(entry)]));
+  let finish, reads = 0;
+  const read = () => { reads++; return new Promise(resolve => { finish = resolve; }); };
+  const first = cache.load([entry], read), second = cache.load([entry], read);
+  assert.equal(first, second); assert.equal(reads, 1);
+  finish([{ platform: entry.platform, songId: entry.songId, coverDataUri: "cover" }]);
+  await first;
+  assert.equal(cache.snapshot().get(historyCoverKey(entry)), "cover");
+  assert.notEqual(historyCoverKey(entry), historyCoverKey({ ...entry, coverUrl: "changed" }));
+  cache.retain(new Set()); assert.equal(cache.snapshot().size, 0);
+  cache.retain(new Set([historyCoverKey(entry)]));
+  const stale = cache.load([entry], read); cache.clear();
+  finish([{ platform: entry.platform, songId: entry.songId, coverDataUri: "late" }]);
+  await stale; assert.equal(cache.snapshot().size, 0);
+  cache.retain(new Set([historyCoverKey(entry)]));
+  await cache.load([entry], async () => [{ platform: entry.platform, songId: entry.songId, coverDataUri: null }]);
+  assert.equal(cache.snapshot().size, 0);
+  cache.configure(0.000001);
+  await cache.load([entry], async () => [{ platform: entry.platform, songId: entry.songId, coverDataUri: "large artwork" }]);
+  assert.equal(cache.snapshot().size, 0);
+});
+
+
+test("compact cover pages expand shared artwork without changing identity or null covers", () => {
+  const page = { images: ["same-cover"], items: [{platform:"Spotify",songId:"a",imageIndex:0},{platform:"Spotify",songId:"b",imageIndex:0},{platform:"QQMusic",songId:"a",imageIndex:null}] };
+  assert.deepEqual(expandHistoryCoverPage(page), [{platform:"Spotify",songId:"a",coverDataUri:"same-cover"},{platform:"Spotify",songId:"b",coverDataUri:"same-cover"},{platform:"QQMusic",songId:"a",coverDataUri:null}]);
+  assert.equal(expandHistoryCoverPage({images:[],items:[{platform:"Spotify",songId:"x",imageIndex:3}]})[0].coverDataUri, null);
+});
+
+
+test("history search indexes survive remount and invalidate on new rows, language, or clear", () => {
+  const rows = [record()], labels = {NeteaseCloudMusic:"网易云音乐"};
+  const first = historySearchIndex(rows, labels);
+  historySearchIndex([], labels);
+  assert.equal(historySearchIndex(rows, {...labels}), first);
+  const translated = historySearchIndex(rows, {NeteaseCloudMusic:"NetEase"});
+  assert.notEqual(translated, first);
+  assert.match(translated.get(rows[0]), /netease/);
+  assert.notEqual(historySearchIndex([...rows], labels), first);
+  historyArtworkCache.clear();
+  assert.notEqual(historySearchIndex(rows, labels), first);
 });

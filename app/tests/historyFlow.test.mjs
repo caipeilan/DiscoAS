@@ -14,6 +14,7 @@ const row = (songId, name = `Song ${songId}`) => ({ platform: "Spotify", songId,
   title: name, artistNames: ["Artist"], discoveredAt: 1000, selectedAt: null, coverUrl: "", coverKey: songId });
 
 async function controller(initial = [row("a")]) {
+  model.historyArtworkCache.clear();
   const slots = [], events = new Map(), calls = [], reads = [], mutations = [], covers = [], decodes = [];
   let records = initial, cursor = 0, effects = [], mutationSource;
   const React = {

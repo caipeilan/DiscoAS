@@ -1,5 +1,10 @@
 [
-  { "path": "gui.playbackCoverScale", "description": "浮窗播放栏封面大小；100% 为 44px，随界面字号缩放", "range": "0.5–2.0，默认 1.0", "readOnly": false },
+  {
+    "path": "gui.playbackCoverScale",
+    "description": "浮窗播放栏封面大小；100% 为 44px，随界面字号缩放",
+    "range": "0.5–2.0，默认 1.0",
+    "readOnly": false
+  },
   {
     "path": "music.normalSongCount",
     "description": "普通发现歌曲数",
@@ -665,5 +670,23 @@
     "description": "旧设置，新界面由 clientWindowMode 管理",
     "range": "兼容读取 bool",
     "readOnly": true
+  },
+  {
+    "path": "desktop.cacheDirectory",
+    "description": "缓存地址",
+    "range": "绝对路径；空值为安装目录下 cache",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.cacheLimitMb",
+    "description": "磁盘缓存上限",
+    "range": "0–1048576 MB",
+    "readOnly": false
+  },
+  {
+    "path": "desktop.memoryCacheLimitMb",
+    "description": "内存缓存上限",
+    "range": "8–1024 MB",
+    "readOnly": false
   }
 ]

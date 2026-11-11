@@ -1,5 +1,6 @@
 //! Images are downloaded while preparing batches or updating a source, never while rendering a page.
 use crate::core::cache::Cache;
+pub mod disk;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use once_cell::sync::Lazy;
 use std::{
@@ -112,21 +113,56 @@ pub async fn prepare_song_cover(cache: &Arc<Cache>, url: &str) -> Result<Option<
     if url.is_empty() {
         return Ok(None);
     }
-    if let Some(image) = cache.get_prepared_image(url).await {
+    let image_key = memory_key(url);
+    if let Some(image) = cache.get_prepared_image(&image_key).await {
         return Ok(image.data_uri.clone());
     }
+    let memory_epoch = cache.image_epoch();
     // A concurrent foreground batch and background batch share a URL request.
     let lock = cache.image_request_lock(url).await;
     let _guard = lock.lock().await;
-    if let Some(image) = cache.get_prepared_image(url).await {
+    if let Some(image) = cache.get_prepared_image(&image_key).await {
         return Ok(image.data_uri.clone());
     }
-    let bytes = download(url).await?;
+    let disk = cache.image_disk();
+    let disk_epoch = disk.as_ref().map(|disk| disk.epoch());
+    let disk_key = song_cache_key(url);
+    let cached = if let Some(disk) = disk.clone() {
+        let key = disk_key.clone();
+        tokio::task::spawn_blocking(move || disk.read(&key)).await.ok().flatten()
+    } else { None };
+    let bytes = match cached { Some(bytes) => bytes, None => {
+        let bytes = download(url).await?;
+        if let (Some(disk), Some(epoch)) = (disk.filter(|_| cache.image_epoch() == memory_epoch), disk_epoch) {
+            let data = bytes.clone();
+            let _ = tokio::task::spawn_blocking(move || disk.write(&disk_key, &data, epoch)).await;
+        }
+        bytes
+    }};
     if crate::platforms::local::is_cover_reference(url) && image_mime(&bytes).is_none() {
         return Ok(None);
     }
-    let image = cache.cache_prepared_image(url.to_string(), bytes).await;
+    let image = cache.cache_prepared_image_at(image_key, bytes, memory_epoch).await;
     Ok(image.data_uri.clone())
+}
+
+pub(crate) fn memory_key(url: &str) -> String {
+    // Local files can be replaced without changing their path.
+    let version = if !url.starts_with("http://") && !url.starts_with("https://") && !crate::platforms::local::is_cover_reference(url) {
+        std::fs::metadata(url).ok().map(|m| format!("{}-{:?}", m.len(), m.modified().ok())).unwrap_or_default()
+    } else { String::new() };
+    if version.is_empty() { url.into() } else { format!("{url}/{version}") }
+}
+
+fn song_cache_key(url: &str) -> String { format!("song/{}", memory_key(url)) }
+
+pub async fn read_library_cover_cached(cache: &Arc<Cache>, root: &Path, key: &str) -> Option<Arc<str>> {
+    let revision = library_cover_revision(root, key)?;
+    let image_key = format!("stored/{}/{key}/{revision}", root.display());
+    if let Some(image) = cache.get_prepared_image(&image_key).await { return image.data_uri.clone(); }
+    let epoch = cache.image_epoch();
+    let bytes = read_local(&disk_path(root, key)).ok()?;
+    cache.cache_prepared_image_at(image_key, bytes, epoch).await.data_uri.clone()
 }
 
 pub async fn refresh_library_cover(
@@ -214,15 +250,21 @@ fn prune(root: &Path, keep: &Path, budget: u64) -> std::io::Result<()> {
 }
 
 pub async fn read_cached_image(cache: &Arc<Cache>, url: &str) -> Option<Arc<str>> {
-    if let Some(image) = cache.get_prepared_image(url).await {
+    let key = memory_key(url);
+    if let Some(image) = cache.get_prepared_image(&key).await {
         return image.data_uri.clone();
+    }
+    let epoch = cache.image_epoch();
+    if let Some(disk) = cache.image_disk() {
+        let disk_key = song_cache_key(url);
+        if let Some(bytes) = tokio::task::spawn_blocking(move || disk.read(&disk_key)).await.ok().flatten() {
+            return cache.cache_prepared_image_at(key, bytes, epoch).await.data_uri.clone();
+        }
     }
     // get_image intentionally has no remote fallback.
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return read_local(Path::new(url))
-            .ok()
-            .and_then(|b| data_uri(&b))
-            .map(Arc::from);
+        let bytes = read_local(Path::new(url)).ok()?;
+        return cache.cache_prepared_image_at(key, bytes, epoch).await.data_uri.clone();
     }
     None
 }
@@ -230,6 +272,55 @@ pub async fn read_cached_image(cache: &Arc<Cache>, url: &str) -> Option<Arc<str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn song_cache_survives_restart_and_clear_does_not_fetch_while_rendering() {
+        use std::io::{Read, Write};
+        let root = std::env::temp_dir().join(format!("discoas-persistent-cover-{}", rand::random::<u64>()));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/cover", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|b| b == b"\r\n\r\n") {
+                let mut buffer = [0; 512]; let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0); request.extend_from_slice(&buffer[..count]);
+            }
+            let image = b"\xff\xd8\xffpersisted";
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", image.len()).unwrap();
+            stream.write_all(image).unwrap();
+        });
+        let first = Cache::new();
+        first.configure_images(Some(Arc::new(disk::CoverDiskCache::open(&root, 1024).unwrap())), 1024).await;
+        let expected = prepare_song_cover(&first, &url).await.unwrap().unwrap();
+        server.join().unwrap();
+        let reopened = Cache::new();
+        reopened.configure_images(Some(Arc::new(disk::CoverDiskCache::open(&root, 1024).unwrap())), 1024).await;
+        assert_eq!(prepare_song_cover(&reopened, &url).await.unwrap().unwrap(), expected);
+        reopened.clear_images().await.unwrap();
+        assert!(read_cached_image(&reopened, &url).await.is_none());
+        assert_eq!(reopened.image_cache_stats().await.1, 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn changed_local_cover_and_old_memory_epoch_do_not_restore_stale_data() {
+        let root = std::env::temp_dir().join(format!("discoas-local-cache-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&root).unwrap();
+        let image = root.join("image.jpg");
+        std::fs::write(&image, b"\xff\xd8\xfffirst").unwrap();
+        let cache = Cache::new();
+        let first = prepare_song_cover(&cache, image.to_str().unwrap()).await.unwrap().unwrap();
+        std::fs::write(&image, b"\xff\xd8\xffreplacement").unwrap();
+        let second = prepare_song_cover(&cache, image.to_str().unwrap()).await.unwrap().unwrap();
+        assert_ne!(first, second);
+        let epoch = cache.image_epoch();
+        cache.clear_images().await.unwrap();
+        cache.cache_prepared_image_at("late".into(), b"\xff\xd8\xffold".to_vec(), epoch).await;
+        assert_eq!(cache.image_cache_stats().await.1, 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn rejects_html_and_false_webp_and_keeps_valid_mime() {
         assert!(data_uri(b"<html>error</html>").is_none());
