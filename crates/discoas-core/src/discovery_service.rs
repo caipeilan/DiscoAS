@@ -18,7 +18,7 @@ use crate::{
         HistoryMutationDto, PlaySongArgs, SongCardDto,
     },
     settings::music_setting::{
-        DiscoveryWeightingMode, HistoryExclusion, MusicSetting, SourceConfig, MAX_HISTORY_LIMIT,
+        DiscoveryWeightingMode, HistoryExclusion, MusicSetting, SourceConfig,
     },
     storage::LibraryStore,
 };
@@ -1041,8 +1041,12 @@ impl DiscoveryService {
     }
 
     pub fn history(&self) -> Result<Vec<HistoryEntry>, String> {
-        self.history
-            .entries(MAX_HISTORY_LIMIT)
+        self.history_snapshot(None).map(|snapshot| snapshot.entries.unwrap())
+    }
+
+    pub fn history_snapshot(&self, revision: Option<u64>) -> Result<crate::history::HistoryRead, String> {
+        self.cache
+            .history_snapshot(&self.history, revision)
             .map_err(|error| error.to_string())
     }
 
@@ -1386,7 +1390,7 @@ fn play_args(batch: &[SongCardDto]) -> Vec<PlaySongArgs> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::music_setting::SourceConfig;
+    use crate::settings::music_setting::{SourceConfig, MAX_HISTORY_LIMIT};
     use serde_json::json;
     use std::path::PathBuf;
 

@@ -145,6 +145,7 @@ export interface SourceSummary {
   missingCount?: number;
   coverUrl: string;
   coverDataUri: string | null;
+  coverRevision?: string | null;
   updatedAt: string;
   cacheError: string | null;
 }

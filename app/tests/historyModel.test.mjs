@@ -6,12 +6,23 @@ import ts from "typescript";
 const compiled = ts.transpileModule(fs.readFileSync(new URL("../src/features/history/historyModel.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { cacheHistoryCovers, filterHistory, historySearchText, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
+const { HistoryReadCache, cacheHistoryCovers, filterHistory, historySearchText, historyPage, historyKey, historyIdentity, historyCoverKey, retainedHistorySelection, needsHistoryMetadata } =
   await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const record = (values = {}) => ({
   platform: "NeteaseCloudMusic", songId: "100", sourceId: "1", sourceKind: "playlist", title: "中文歌曲",
   artistNames: ["测试歌手", "Alice"], discoveredAt: 1000, selectedAt: null, coverKey: "cover-v1", coverUrl: "https://example.com/cover.jpg",
   ...values,
+});
+
+test("history snapshot reuse preserves row identity and late replies cannot replace current records", () => {
+  const cache = new HistoryReadCache(), first = [record()], second = [record({songId:"new"})];
+  assert.equal(cache.revision,undefined);
+  assert.equal(cache.accept({revision:1,entries:first}),first);
+  assert.equal(cache.accept({revision:1,entries:null}),first);
+  assert.equal(cache.accept({revision:2,entries:second}),second);
+  assert.equal(cache.accept({revision:1,entries:first}),second);
+  assert.equal(cache.revision,2);
+  assert.deepEqual(cache.accept({revision:3,entries:[]}),[]);
 });
 
 test("history searches Unicode names, artists, localized platforms and song IDs without changing the source array", () => {
@@ -146,6 +157,7 @@ async function historyController() {
     },
   };
   const bridge = {
+    getDiscoveryHistory: () => bridge.call("get_discovery_history"),
     call: async (command) => {
       if (command === "get_discovery_history") {
         if (readCount++ === 0) return load.promise.then((records) => { currentRecords = records; return records; });

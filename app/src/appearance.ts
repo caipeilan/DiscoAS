@@ -2,9 +2,12 @@ import type { GuiSettings } from "./types";
 import { discoveryThemePalette } from "./features/discovery/themePalette";
 import { effectiveNightMode } from "./theme";
 
+let applied = "";
 export function applyAppearance(gui: GuiSettings) {
   const root = document.documentElement;
   const night = effectiveNightMode(gui, window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const signature = JSON.stringify([gui, night]);
+  if (signature === applied) return;
   root.dataset.theme = night ? "dark" : "light";
   const family = gui.fontFamily.replace(/["\\]/g, "").trim();
   root.style.fontFamily = `${family ? `"${family}", ` : ""}"Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif`;
@@ -29,4 +32,5 @@ export function applyAppearance(gui: GuiSettings) {
       else root.style.removeProperty(property);
     }
   }
+  applied = signature;
 }

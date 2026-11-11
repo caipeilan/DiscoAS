@@ -4,7 +4,7 @@ import { emptyState } from "../types";
 import { call, desktop, onDesktopEvent, isCurrentWindowVisible } from "../services/desktop";
 import type { DesktopCommand, DesktopEvents } from "../services/desktop";
 import { samePreferences, sameGuiPreferences } from "../features/settings/preferences";
-import { mergeLibraryEntries } from "../features/library/libraryModel";
+import { mergeLibraryEntries, libraryCoverRevisions, mergeLibraryCovers } from "../features/library/libraryModel";
 import { t, errorText } from "../i18n";
 import type { Notice } from "./useNotice";
 
@@ -24,6 +24,7 @@ export function useAppState(floating: boolean, notice: Notice) {
   const savedLibrary = useRef(emptyState.sources);
   const snapshotVersion = useRef(0);
   const applySnapshot = useCallback((next: AppState) => {
+    next = { ...next, sources: mergeLibraryCovers(savedLibrary.current, next.sources) };
     ++snapshotVersion.current;
     const previous = savedSettings.current;
     const previousGui = savedGui.current;
@@ -76,7 +77,7 @@ export function useAppState(floating: boolean, notice: Notice) {
     applyPatch({ settings: patch.settings });
     // A source added before the first snapshot cannot be reconstructed from labels alone.
     if (!sources) {
-      const snapshot = await call<AppState>("get_app_state");
+      const snapshot = await call<AppState>("get_app_state", { coverRevisions: libraryCoverRevisions(savedLibrary.current) });
       if (snapshotVersion.current === version) applySnapshot(snapshot);
       return;
     }
@@ -91,7 +92,7 @@ export function useAppState(floating: boolean, notice: Notice) {
     if (!desktop) return;
     const version = ++snapshotVersion.current;
     const before = { settings: savedSettings.current, gui: savedGui.current, desktop: savedDesktop.current };
-    const snapshot = await call<AppState>("get_app_state");
+    const snapshot = await call<AppState>("get_app_state", { coverRevisions: libraryCoverRevisions(savedLibrary.current) });
     // Event refreshes can finish out of order or after an explicit source/settings mutation.
     if (version === snapshotVersion.current) applySnapshot({ ...snapshot,
       settings: savedSettings.current === before.settings ? snapshot.settings : savedSettings.current,

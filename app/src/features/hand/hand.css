@@ -45,7 +45,7 @@
 .hand-card[data-auto-next]::after { opacity: 1; }
 .hand-card.hand-discovery.hand-active::after, .hand-card.hand-discovery.hand-playable::after { opacity: 1; }
 .hand-card[data-hand-instant] { transition: none !important; }
-.hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease, border-color 220ms ease; backface-visibility: hidden; }
+.hand-card-face { width: 156px; height: var(--hand-card-height, 220px); transform: scale(var(--hand-base-scale, 1)); transform-origin: 0 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-popover); padding: 7px; display: flex; flex-direction: column; overflow: hidden; position: relative; transition: box-shadow 220ms ease, border-color 220ms ease; }
 .hand-art { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; flex-shrink: 0; position: relative; }
 /* Next-card status capsule: noninteractive, inside the real cover, following
    the same eligibility/lock/waiting lifecycle and 200ms fade as the ring. */
@@ -78,7 +78,10 @@
 .hand-card[data-auto-next] .hand-auto-next-label { opacity: 1; }
 .hand-card[data-auto-locked] .hand-auto-next-label,
 .hand-card.hand-surface-waiting .hand-auto-next-label { opacity: 0 !important; }
-.hand-flip { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
+.hand-flip { position: relative; width: 100%; height: 100%; }
+/* Only two-sided cards need separate 3D surfaces. */
+.hand-flip[data-flippable] { transform-style: preserve-3d; }
+.hand-flip[data-flippable] .hand-card-face { backface-visibility: hidden; }
 .hand-card-back { position: absolute; inset: 0; transform: rotateY(180deg); backface-visibility: hidden; }
 .hand-art .cover { width: 100%; height: 100%; }
 .hand-card strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; flex-shrink: 0; font-size: calc(12px * var(--font-scale)); line-height: 1.35; margin: 8px 4px 2px; }
@@ -94,6 +97,7 @@
 .hand-drag-stage .hand-card { left: 50%; top: 50%; pointer-events: none; }
 .hand-drag-stage .hand-card-face, .hand-drag-stage .hand-release-label { pointer-events: none; }
 .hand-card[data-hand-motion] { transition: none; will-change: transform, opacity; }
+.hand-stage[data-compositing] .hand-card { will-change: transform, opacity; }
 .hand-card:focus { outline: none; }
 .hand-pending { visibility: hidden; pointer-events: none; }
 .hand-playable .hand-card-face { border-color: var(--accent-focus); box-shadow: 0 0 0 2px var(--accent-focus), var(--shadow-floating); }

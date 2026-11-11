@@ -24,6 +24,8 @@
 
 歌曲详情只读取调用者传入的当前歌单/专辑快照，不扫描其他歌单。网易云和 QQ 的详情继续请求平台接口；酷狗、酷我、汽水、Spotify、Apple Music 与视频平台使用当前快照，酷狗缺封面时仍有原来的专辑元数据回退。
 
+2.0.14 增加 `DiscoveryService::history_snapshot(known_revision)`：返回 `HistoryRead { revision, entries }`，相同版本的 `entries` 为 `None`。共享 `Cache` 最多保留一个数据目录的一份列表；文件长度、修改时间或进程内写入代次变化时重读，真实列表相同时复用版本。旧 `history()` 继续返回完整记录，磁盘 JSON 与采样、排除、权重语义不变。`image_cache::library_cover_revision` 为本地来源封面提供长度与修改时间标识，供宿主减少重复传输。
+
 本地音频通过 `LocalSource::new(paths)` 和 `scan(progress, cancelled)` 返回兼容来源快照，以 `LocalMusic` / `playlist` 保存在 `LibraryStore`。更新使用 `LocalSource::from_snapshot` 恢复目录、文件和播放列表路径以及已知丢失文件。导入跳过内嵌图片数据，抽到歌曲时由共用图片缓存读取封面；无标签用文件名，无封面返回默认占位。`build_scheme_url` 对可信卡片中的 `filename` 验证绝对音频路径、身份和文件存在性，返回文件路径。
 
 详情请求并发最多 4 个，共享缓存会合并相同请求，并保留最近 256 项成功详情（5 分钟）；来源快照参与缓存标识，缓存真实详情后在卡片投影时隐藏神秘信息。完整批次准备的 45 秒期限涵盖详情与封面，超时不发布半批卡片。图片字节缓存按最近使用顺序逐项淘汰，总预算为 32 MiB；单张只受这个总预算约束（超过 32 MiB 的图片会被跳过），不再有单独的 5 MiB 上限。此预算不包含批次中的 Base64 字符串、前端解码图片或整个应用的内存。

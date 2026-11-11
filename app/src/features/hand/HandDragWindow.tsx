@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { HandDragIntent, HandDragSnapshot } from "../../types";
 import { defaultGuiSettings } from "../../types";
 import { call, onDesktopEvent } from "../../services/desktop";
@@ -15,7 +15,9 @@ export function HandDragWindow() {
   const [snapshot, setSnapshot] = useState<HandDragSnapshot | null>(null);
   const [intent, setIntent] = useState<HandDragIntent>({ playable: false, collecting: false, dx: 0, dy: 0 });
   const [dropping, setDropping] = useState(false);
-  useAppearance(snapshot?.gui ?? defaultGuiSettings);
+  const appearance = useRef(defaultGuiSettings);
+  if (snapshot) appearance.current = snapshot.gui;
+  useAppearance(appearance.current);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +65,11 @@ export function HandDragWindow() {
     zIndex: 1000,
   } as CSSProperties;
   return <div className="hand-stage hand-drag-stage" data-liquid-mode={liquidMode}>
-    <div data-side={group.side} style={style}
+    <div data-side={group.side} style={style} onAnimationEnd={event => {
+      if (dropping && event.target === event.currentTarget && event.animationName === "hand-drag-drop") {
+        setSnapshot(null); setDropping(false);
+      }
+    }}
       className={`hand-card hand-dragging hand-active${card.discovery ? " hand-discovery" : ""}${intent.playable || intent.collecting ? " hand-playable" : ""}${dropping ? " hand-drag-dropping" : ""}`}>
       <div className="hand-card-face">
         <HandCardContent card={card} />

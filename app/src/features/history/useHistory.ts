@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HistoryEntry } from "../../types";
 import { platforms } from "../../types";
-import { call, getHistoryCovers, mutateDiscoveryHistory, onDesktopEvent } from "../../services/desktop";
+import { call, getDiscoveryHistory, getHistoryCovers, mutateDiscoveryHistory, onDesktopEvent } from "../../services/desktop";
 import { currentLocale, errorText, t } from "../../i18n";
 import { prepareHistoryCovers } from "../../prepareCovers";
 import { cacheHistoryCovers, filterHistory, historySearchText, historyCoverKey, historyIdentity, historyKey, historyPage, needsHistoryMetadata,
@@ -61,7 +61,7 @@ export function useHistory() {
     reading.current = stamp;
     request.current++;
     try {
-      const records = await call<HistoryEntry[]>("get_discovery_history");
+      const records = await getDiscoveryHistory();
       if (reading.current === stamp) reading.current = 0;
       if (!mounted.current || stamp !== revision.current) return;
       if (refreshPending.current) { refreshPending.current = false; void refresh(); return; }

@@ -13,6 +13,10 @@ pub fn read_library_cover(app: &tauri::AppHandle, key: &str) -> Option<String> {
     discoas_core::image_cache::read_library_cover(&cover_root(app).ok()?, key)
 }
 
+pub fn library_cover_revision(app: &tauri::AppHandle, key: &str) -> Option<String> {
+    discoas_core::image_cache::library_cover_revision(&cover_root(app).ok()?, key)
+}
+
 pub async fn read_cached_image(
     _app: &tauri::AppHandle,
     cache: &Arc<Cache>,

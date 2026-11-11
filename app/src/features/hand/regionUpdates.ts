@@ -1,3 +1,13 @@
+/** Geometry follows a 60 Hz budget independently of the display refresh rate. */
+export class RegionFrameBudget {
+  private last = -Infinity;
+  take(now: number): boolean {
+    if (now - this.last < 1000 / 60 - 0.01) return false;
+    this.last = now;
+    return true;
+  }
+}
+
 /** One in-flight update, followed by the latest requested state. Callers await the flush. */
 export class LatestRegionUpdate {
   private pending: Promise<void> | null = null;

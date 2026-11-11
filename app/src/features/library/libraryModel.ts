@@ -7,6 +7,25 @@ export function sourceKey(entry: Pick<SourceSummary, "platform" | "sourceKind" |
   return JSON.stringify([entry.platform, entry.sourceKind, entry.sourceId]);
 }
 
+export function libraryCoverRevisions(entries: SourceSummary[]): Record<string, string> {
+  return Object.fromEntries(entries.filter(entry => entry.coverRevision && entry.coverDataUri)
+    .map(entry => [`${entry.platform}/${entry.sourceKind}/${entry.sourceId}`, entry.coverRevision!]));
+}
+
+export function mergeLibraryCovers(previous: SourceSummary[], incoming: SourceSummary[]): SourceSummary[] {
+  const covers = new Map(previous.map(entry => [sourceKey(entry), entry]));
+  let changed = false;
+  const merged = incoming.map(entry => {
+    const old = covers.get(sourceKey(entry));
+    if (!entry.coverDataUri && entry.coverRevision && entry.coverRevision === old?.coverRevision && old.coverDataUri) {
+      changed = true;
+      return { ...entry, coverDataUri: old.coverDataUri };
+    }
+    return entry;
+  });
+  return changed ? merged : incoming;
+}
+
 /** Source settings own order and labels; unchanged summaries keep their prepared covers. */
 export function mergeLibraryEntries(previous: SourceSummary[], patch: LibraryPatch): SourceSummary[] | null {
   const entries = new Map(previous.map(entry => [sourceKey(entry), entry]));

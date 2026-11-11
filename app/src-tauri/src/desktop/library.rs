@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use serde::Serialize;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tauri::{Emitter, Manager};
 
 pub(crate) fn repository(app: &tauri::AppHandle) -> Result<LibraryRepository, String> {
@@ -44,6 +44,7 @@ pub struct SourceSummary {
     missing_count: usize,
     cover_url: String,
     cover_data_uri: Option<String>,
+    cover_revision: Option<String>,
     updated_at: String,
     cache_error: Option<String>,
 }
@@ -57,18 +58,21 @@ pub struct LibraryPatch {
     startup_refresh_error: Option<String>,
 }
 
-fn source_summary(app: &tauri::AppHandle, repository: &LibraryRepository, p: &SourceConfig) -> SourceSummary {
+fn source_summary(app: &tauri::AppHandle, repository: &LibraryRepository, p: &SourceConfig, known_covers: Option<&HashMap<String, String>>) -> SourceSummary {
     let (count, cover, missing, error) = match repository.cache_summary_with_missing(p) {
         Ok((c, u, m)) => (c, u, m, None),
         Err(e) => (0, String::new(), 0, Some(e)),
     };
+    let key = crate::image_cache::library_key(&p.platform, &p.source_kind, &p.source_id);
+    let cover_revision = crate::image_cache::library_cover_revision(app, &key);
+    let unchanged = cover_revision.as_ref().is_some_and(|revision| known_covers.and_then(|known| known.get(&key)) == Some(revision));
     SourceSummary {
         platform: p.platform.clone(), source_id: p.source_id.clone(), source_kind: p.source_kind.clone(),
         title: if p.title.is_empty() { p.source_id.clone() } else { p.title.clone() },
         remark: p.remark.clone(), enabled: p.enabled,
         song_count: count, missing_count: missing,
-        cover_data_uri: crate::image_cache::read_library_cover(app,
-            &crate::image_cache::library_key(&p.platform, &p.source_kind, &p.source_id)),
+        cover_data_uri: if unchanged { None } else { crate::image_cache::read_library_cover(app, &key) },
+        cover_revision,
         cover_url: cover, updated_at: p.updated_at.clone(), cache_error: error,
     }
 }
@@ -77,7 +81,7 @@ fn library_patch(app: &tauri::AppHandle, repository: &LibraryRepository, updated
     let settings = repository.load_settings()?;
     let updated_sources = settings.sources.iter()
         .filter(|p| updated.is_some_and(|source| source.platform == p.platform && source.source_kind == p.source_kind && source.source_id == p.source_id))
-        .map(|p| source_summary(app, repository, p)).collect();
+        .map(|p| source_summary(app, repository, p, None)).collect();
     Ok(LibraryPatch { settings, updated_sources,
         startup_refresh_error: app.state::<DesktopStatus>().startup_refresh_error.lock().unwrap().clone() })
 }
@@ -98,13 +102,13 @@ pub struct Snapshot {
     version: String,
 }
 
-pub fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
+pub fn get_app_state(app: tauri::AppHandle, known_covers: Option<HashMap<String, String>>) -> Result<Snapshot, String> {
     let repository = repository(&app)?;
     let settings = repository.load_settings()?;
     let sources = settings
         .sources
         .iter()
-        .map(|p| source_summary(&app, &repository, p))
+        .map(|p| source_summary(&app, &repository, p, known_covers.as_ref()))
         .collect();
     let (desktop_settings, desktop_settings_error) =
         crate::desktop_preferences::DesktopPreferences::snapshot(&app)?;
@@ -592,5 +596,5 @@ pub(super) async fn console_import_legacy(
         let _ = app.emit("gui-changed", ());
     }
     changed(&app, cache.inner()).await;
-    get_app_state(app)
+    get_app_state(app, None)
 }

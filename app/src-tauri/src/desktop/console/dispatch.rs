@@ -144,7 +144,7 @@ pub async fn execute(
         "api.start" => api::start(app),
         "api.stop" => api::stop(app),
         "app.state" => {
-            let mut value = model::to_value(crate::library::get_app_state(app.clone()).await?)?;
+            let mut value = model::to_value(crate::library::get_app_state(app.clone(), None).await?)?;
             if params.get("includeCovers") != Some(&Value::Bool(true)) {
                 model::wire::without_covers(&mut value);
             }
@@ -402,7 +402,7 @@ async fn diagnostic(app: &tauri::AppHandle, target: &str) -> Result<Value> {
             .state::<super::super::auto_hand::AutoHandService>()
             .diagnostics()),
         "app" => {
-            let mut v = model::to_value(crate::library::get_app_state(app.clone()).await?)?;
+            let mut v = model::to_value(crate::library::get_app_state(app.clone(), None).await?)?;
             model::wire::without_covers(&mut v);
             Ok(v)
         }

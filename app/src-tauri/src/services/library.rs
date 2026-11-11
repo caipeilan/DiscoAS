@@ -1,7 +1,6 @@
 //! Playlist application rules and persistence using an explicit data directory.
 use std::{
     collections::HashSet,
-    io::BufReader,
     path::{Path, PathBuf},
 };
 
@@ -140,9 +139,8 @@ impl LibraryRepository {
         let path = LibraryStore::new(&self.root)
             .playlist_path(&source.platform, &source.source_id, source_kind)
             .map_err(|e| e.to_string())?;
-        let file =
-            std::fs::File::open(path).map_err(|_| "本地缓存缺失，请更新此歌单".to_string())?;
-        let raw: CachedSourceSummary = serde_json::from_reader(BufReader::new(file))
+        let bytes = std::fs::read(path).map_err(|_| "本地缓存缺失，请更新此歌单".to_string())?;
+        let raw: CachedSourceSummary = serde_json::from_slice(&bytes)
             .map_err(|_| "本地缓存损坏，请更新此歌单".to_string())?;
         let ids = raw.song_ids.as_array().ok_or("本地缓存没有歌曲列表")?;
         let unique: std::collections::HashSet<String> = ids

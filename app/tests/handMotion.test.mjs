@@ -64,7 +64,8 @@ async function motionHarness({ folded = false, revealed = false, reduced = false
     settings:{ side:"left" }, arrival: folded ? null : {id:"one", rect:{left:300,top:400,width:245,height:330}} };
   const pose = { x:80,y:250,width:156,height:220,angle:5,scale:1 };
   const context = { snapshot, phase:"closed", hidden:false,cardsMounted:true,showCardWindow:true,busy:"",flying:null,poses:[pose],posesRef:{current:[pose]},
-    stage:{current:{ querySelector:()=>f.element, getAnimations:()=>folded ? [{finished:closing.promise}] : [] }},
+    stage:{current:{ setAttribute:name=>f.element.attributes.add(name),removeAttribute:name=>f.element.attributes.delete(name),
+      querySelector:()=>f.element, getAnimations:()=>folded ? [{finished:closing.promise}] : [] }},
     setCardsMounted:value=>calls.push(["mounted",value]),setPhase:value=>calls.push(["phase",value]),setError:value=>assert.fail(value),
     commitRegions:{current:()=>{ calls.push("regions"); return regions.promise; }},scheduleRegions:{current:()=>calls.push("schedule")},
     arrivalReady:null,markArrivalReady:(id,generation)=>calls.push(["ready",id,generation]),
@@ -99,6 +100,18 @@ test("arrival waits for native layout and cover decoding, then paints before rel
     assert.ok(h.calls.includes("hand_arrival_ready")); assert.equal(motion.played,true);
     assert.equal(h.calls.at(-1),"schedule");
   } finally { h.restore(); }
+});
+
+test("temporary compositor layers survive a closing animation and are released when it finishes", async () => {
+  const h = await motionHarness({folded:true});
+  try {
+    assert.equal(h.element.attributes.has("data-compositing"),true);
+    h.frame(); await settle();
+    assert.equal(h.element.attributes.has("data-compositing"),true);
+    h.closing.resolve(); await settle();
+    assert.equal(h.element.attributes.has("data-compositing"),false);
+    assert.ok(h.calls.some(call=>Array.isArray(call)&&call[0]==="mounted"&&call[1]===false));
+  } finally {h.restore();}
 });
 
 test("a cancelled fold completion cannot unmount a newly expanded hand", async () => {

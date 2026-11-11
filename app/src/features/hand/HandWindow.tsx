@@ -63,6 +63,7 @@ export function HandWindow() {
       const collecting = !!held && card.discovery && held.intake !== null;
       const settings = retiring ? { side: retiring.side } : groupSettings(card, snapshot.settings, snapshot.discoverySettings);
       const refreshing = !!card.discovery && !flyingCard && (!!discoveryPhase || card.placeholder || replacingId === card.id);
+      const revealedArrival = card.mysteryRevealed && snapshot.arrival?.id === card.id;
       // Do not paint the next-card ring or the active face highlight while the
       // real arrival/refill/flip surface is still moving. The collected-card
       // arrival is gated by the exact generation, native presentation, cover
@@ -86,12 +87,12 @@ export function HandWindow() {
       return <div key={card.id} data-hand-id={card.id} data-auto-locked={visuallyLocked || undefined} data-side={settings.side} data-hand-hit={retiring ? undefined : true} inert={!!retiring} aria-hidden={!!retiring || undefined} className={`hand-card${card.discovery ? " hand-discovery" : ""}${card.placeholder ? " hand-refill" : ""}${!layoutPending && retiring ? " hand-leaving" : !layoutPending && entering.has(card.id) ? " hand-entering" : ""}${layoutPending && !frozen && !retiring ? " hand-pending" : ""}${refreshing ? " hand-refreshing" : ""}${surfaceWaiting ? " hand-surface-waiting" : ""}${active === card.id ? " hand-active" : ""}${held ? " hand-dragging" : ""}${drag?.presented && drag.id === card.id ? " hand-drag-source" : ""}${playing || collecting ? " hand-playable" : ""}${removing ? " hand-discarding" : ""}${flyingCard ? flyingCard.collecting ? " hand-transferring" : " hand-flying" : ""}${!removing && !flyingCard && (outgoing || busy === card.id) && !held && !card.discovery ? " hand-pending" : ""}`}
         role="button" tabIndex={-1} data-auto-next={autoNext || undefined} aria-label={`${card.song.mysteryMode ? t("神秘歌曲") : card.song.title}${autoNext ? ` · ${t("下一张自动打出")}` : ""}`} title={autoNext ? t("下一张自动打出") : undefined} aria-disabled={snapshot.preview || !!busy || autoLocked}
         style={style} onAnimationEnd={(event) => { if (event.target === event.currentTarget) { removing?.complete(); if (flyingCard) finishFlight(); finishCardTransition(card.id); } }} onPointerDown={(e) => onCardPointerDown(card, e)} onPointerMove={(e) => onCardPointerMove(card, e)} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => lostPointerCapture(card.id)}>
-        <div className="hand-flip"><div className="hand-card-face">
+        <div className="hand-flip" data-flippable={card.discovery || revealedArrival || undefined}><div className="hand-card-face">
           <HandCardContent card={card} />
           {!snapshot.preview && !card.placeholder && (!card.discovery || snapshot.discovery?.replacementEnabled) && <button className="hand-discard" aria-label={card.discovery ? t("替换这张迷你发现卡") : t("弃掉此牌")} disabled={!!busy || !!card.discovery && !snapshot.discovery?.replacementsRemaining}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void operation("discard_hand_card", card); }}><Icon name={card.discovery ? "refresh" : "close"} size={14} /></button>}
           {(playing || collecting) && <div className="hand-release-label"><Icon name={collecting ? "hand" : "play"} size={10} />{t(collecting ? "松开以加入手牌" : "松开以播放")}</div>}
-        </div>{card.discovery ? <div className="hand-card-back hand-discovery-back"><div className="hand-card-face"><img src={appLogo} draggable={false} alt="DiscoAS" /></div></div> : card.mysteryRevealed && snapshot.arrival?.id === card.id && <div className="hand-card-back"><div className="hand-card-face"><div className="hand-art"><Cover url="" data={snapshot.arrival.mysteryCover} prepared mystery label={t("神秘歌曲")} /></div><strong>???</strong><span>???</span></div></div>}</div>
+        </div>{card.discovery ? <div className="hand-card-back hand-discovery-back"><div className="hand-card-face"><img src={appLogo} draggable={false} alt="DiscoAS" /></div></div> : revealedArrival && <div className="hand-card-back"><div className="hand-card-face"><div className="hand-art"><Cover url="" data={snapshot.arrival!.mysteryCover} prepared mystery label={t("神秘歌曲")} /></div><strong>???</strong><span>???</span></div></div>}</div>
         <HandAutoPlayLock locked={visuallyLocked} />
       </div>;
     })}

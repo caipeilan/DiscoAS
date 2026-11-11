@@ -50,3 +50,27 @@ test("old day and night close controls adopt distinct opaque theme colors", () =
   assert.equal(discoveryThemePalette("cancel", true, night).fontColor, themePalettes.cancel_night.fontColor);
   assert.strictEqual(discoveryThemePalette("cancel", true, day), day);
 });
+
+test("unchanged appearance snapshots skip root writes while real appearance and system-theme changes apply", async () => {
+  const saved = {document:globalThis.document,window:globalThis.window,CSS:globalThis.CSS};
+  let writes=0, systemDark=false;
+  const values=new Map();
+  const root={dataset:new Proxy({}, {set(target,key,value){writes++;target[key]=value;return true;}}),
+    style:{setProperty(key,value){writes++;values.set(key,value);},removeProperty(key){writes++;values.delete(key);},set fontFamily(value){writes++;}}};
+  globalThis.document={documentElement:root};
+  globalThis.window={matchMedia:()=>({matches:systemDark})};
+  globalThis.CSS={supports:()=>true};
+  globalThis.__appearanceTest={discoveryThemePalette,effectiveNightMode};
+  try {
+    const output=ts.transpileModule(fs.readFileSync(new URL("../src/appearance.ts",import.meta.url),"utf8"),{
+      compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext},
+    }).outputText.replace(/import\s+\{([^}]+)\}\s+from\s+"[^"]+";/g,(_,names)=>`const {${names}}=globalThis.__appearanceTest;`);
+    const {applyAppearance}=await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
+    const gui={fontFamily:"",fontSize:14,mainWindowScale:1,discoveryCardScale:1,cancelButtonScale:1,replacementButtonScale:1,discoveryBarScale:1,
+      followSystemTheme:true,nightMode:false,card:{},cancelButton:{},cardNightMode:{},cancelButtonNightMode:{}};
+    applyAppearance(gui);const firstWrites=writes;
+    applyAppearance(structuredClone(gui));assert.equal(writes,firstWrites);
+    applyAppearance({...gui,fontSize:16});assert.equal(values.get("--font-scale"),String(16/14));
+    systemDark=true;applyAppearance(gui);assert.equal(root.dataset.theme,"dark");
+  } finally {Object.assign(globalThis,saved);delete globalThis.__appearanceTest;}
+});

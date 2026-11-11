@@ -22,16 +22,20 @@ export function useHandMotion(context: MotionContext) {
     setCardsMounted, setPhase, setError, commitRegions, scheduleRegions, accepted, unfolding,
     arrivalPlayed, arrivalMotion, arrivalDrawing, returning, markArrivalReady } = context;
   useLayoutEffect(() => {
-    if (phase !== "closed" || !cardsMounted || (!hidden && snapshot.expanded)) return;
+    if (!cardsMounted) return;
+    const node = stage.current;
+    node?.setAttribute("data-compositing", "");
     let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      const animations = stage.current?.getAnimations({ subtree: true }) ?? [];
+      const animations = node?.getAnimations({ subtree: true }) ?? [];
       void Promise.all(animations.map((a) => a.finished.catch(() => {}))).then(() => {
-        if (!cancelled) setCardsMounted(false);
+        if (cancelled) return;
+        node?.removeAttribute("data-compositing");
+        if (phase === "closed" && (hidden || !snapshot.expanded)) setCardsMounted(false);
       });
     });
-    return () => { cancelled = true; cancelAnimationFrame(frame); };
-  }, [phase, snapshot.expanded, hidden, cardsMounted]);
+    return () => { cancelled = true; cancelAnimationFrame(frame); node?.removeAttribute("data-compositing"); };
+  }, [phase, snapshot.expanded, hidden, cardsMounted, poses]);
 
   useEffect(() => {
     if (!snapshot.generation || hidden) return;

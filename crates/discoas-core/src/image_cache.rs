@@ -49,6 +49,12 @@ pub fn read_library_cover(root: &Path, key: &str) -> Option<String> {
     let path = disk_path(root, key);
     read_local(&path).ok().and_then(|bytes| data_uri(&bytes))
 }
+
+pub fn library_cover_revision(root: &Path, key: &str) -> Option<String> {
+    let metadata = std::fs::metadata(disk_path(root, key)).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!("{}-{}", metadata.len(), modified.as_nanos()))
+}
 fn read_local(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|_| "本地封面不可读取".into())
 }
@@ -259,6 +265,21 @@ mod tests {
         std::fs::write(root.join("keep.txt"), "unrelated").unwrap();
         assert!(save_library_covers::<Vec<u8>>(&root, &[]).is_ok());
         assert!(root.join("keep.txt").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cover_revisions_change_after_replace_and_disappear_after_delete() {
+        let root = std::env::temp_dir().join(format!("discoas-cover-version-{}", rand::random::<u64>()));
+        assert!(library_cover_revision(&root, "key").is_none());
+        let bytes = b"\x89PNG\r\n\x1a\nfixture";
+        save_library_cover(&root, "key", bytes).unwrap();
+        let first = library_cover_revision(&root, "key").unwrap();
+        assert_eq!(library_cover_revision(&root, "key").as_ref(), Some(&first));
+        save_library_cover(&root, "key", &[bytes.as_slice(), b"more"].concat()).unwrap();
+        assert_ne!(library_cover_revision(&root, "key").as_ref(), Some(&first));
+        std::fs::remove_file(disk_path(&root, "key")).unwrap();
+        assert!(library_cover_revision(&root, "key").is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]

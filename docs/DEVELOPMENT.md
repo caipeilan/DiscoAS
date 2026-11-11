@@ -112,6 +112,36 @@ $env:DISCOAS_TEST_ROOT = "D:\some\existing\absolute\dir"
 - 托盘重启项分别检查平台图标、真实路径、无目标禁用、重启失败反馈。网易云独立桌面规避步骤需在真实桌面切换场景验证，并单独记录其他客户端效果。
 - 平台图标的 mask 样式由 `PlatformIcon.css` 随组件加载；检查独立托盘入口，不依赖主窗口 `App.css` 的副作用。
 
+## 性能复测
+
+固定同一机器、显示器刷新率、DPI、渲染模式和测试数据；采用优化编译及正式前端。原生 QA 构建使用独立应用标识，避免与已安装版本的单实例互相唤起。除 `DISCOAS_TEST_ROOT` 外，同时设置 `WEBVIEW2_USER_DATA_FOLDER` 到测试目录，隔离 WebView 缓存。
+
+在仓库根准备已有的专用数据目录后，可编译优化 QA 实例：
+
+```powershell
+$env:TAURI_CONFIG = '{"identifier":"com.caipeilan.discoas.performance-qa","productName":"DiscoAS Performance QA"}'
+cargo build --manifest-path app/src-tauri/Cargo.toml --release --features tauri/custom-protocol --offline --config 'profile.release.package.discoas.debug-assertions=true'
+Remove-Item Env:TAURI_CONFIG
+$env:DISCOAS_TEST_ROOT = "D:\some\existing\absolute\qa"
+$env:WEBVIEW2_USER_DATA_FOLDER = "$env:DISCOAS_TEST_ROOT\webview"
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9234"
+Start-Process app/src-tauri/target/release/discoas.exe -WindowStyle Hidden
+```
+
+先按上面的前端构建步骤准备 `app/dist`。该 QA 构建仅为应用包启用调试隔离入口，核心仍优化编译；实际发布执行正常 NSIS 流程，正式包不读取 `DISCOAS_TEST_ROOT`。
+
+- 测试数据：10/100 张普通手牌、10,000 条历史、10,000 首本地来源快照、10 张不同封面；另保留真实数据副本作对照。关闭 AUTO、全局快捷键、启动联网更新及预加载，抽歌使用本地元数据和封面。
+- 每次连续开合 20 次，操作间隔 300ms；记录实际总时长、WebView rAF 间隔 P95/最大值、超过 33.4ms 的次数、长任务、布局时间，以及区域 IPC 请求数。静止时检查没有持续几何扫描，结束后检查最终命中范围和穿透。
+- 完整与带版本的状态/历史各读 30 次，分别记录首次、后续耗时和序列化大小；历史页首访与再次进入分开，文字出现与封面完成分开。原有完整接口和新接口都要验证。
+- 内存按应用及其 WebView 子进程组统计私有提交内存；工作集之和会重复计入共享页，不能当作独占内存。对比同一实例的卡牌动画结束、收起、拖动结束与隐藏状态，检查临时合成提示及拖拽 DOM 已释放。手工 GC 结果单列。
+- CPU、内存与耗时采样依次进行，避免构建、自动测试和截图同时干扰。rAF 表示渲染线程调度间隔，不能直接替代 GPU 实际呈现统计。
+
+2026-11-11 的 2.1.1 基线：Windows 11 build 26300、Ryzen 7 7840H、RTX 4050 Laptop、165Hz、175% DPI。100 张手牌开合 P95 42.4ms、最大 127.3ms；浮窗开合 20 次约 621 个区域请求；10,000 条历史完整读取 P95 64.4ms、3.15MB。测试记录及本机数据副本保留在本地 `.local-qa/`，不进入公开源码。
+
+2.1.2 同机复测：未变化的来源状态回包约 9.9KB，未变化的历史回包 29 字节、P95 约 2ms；浮窗开合 20 次约 267 个区域请求。十张手牌实际拖动 P95 约 6.2ms，未出现超过 33.4ms 的间隔；百张压力场景的一轮 P95 为 36.4ms、最大 78.9ms，仍有长帧。松手后原生拖拽窗口的卡牌 DOM 为零，动画结束后的临时合成提示已清除。
+
+回归目标：100 卡开合 P95 尽量控制在 16.7ms 内，超过 33.4ms 的比例低于 1%；区域请求至少减半；相同版本历史不重传数组。按实际结果报告达到情况，不能用目标代替测量。
+
 ## 发布
 
 在 `app/` 执行：

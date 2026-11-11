@@ -2,7 +2,7 @@
 
 本文档描述当前实现的架构、边界和不能随意改变的行为。只记录当前事实；版本历史见 [CHANGELOG](../CHANGELOG.md)，历史设计与旧验证记录已归档到 `.local-docs/archive/`，不作为当前规格。
 
-版本以 [app/package.json](../app/package.json)、[crates/discoas-core/Cargo.toml](../crates/discoas-core/Cargo.toml) 和 [extensions/browser/manifest.json](../extensions/browser/manifest.json) 为准。本文基线：应用 2.1.1、core 2.0.13、浏览器扩展 0.5.1（2026-11-08）。
+版本以 [app/package.json](../app/package.json)、[crates/discoas-core/Cargo.toml](../crates/discoas-core/Cargo.toml) 和 [extensions/browser/manifest.json](../extensions/browser/manifest.json) 为准。本文基线：应用 2.1.2、core 2.0.14、浏览器扩展 0.5.1（2026-11-11）。
 
 ## 文档分工
 
@@ -161,6 +161,8 @@ user_data/
 - 轮换模式：周期 C=ceil(N/min(N,K))；入选按 C 轮恢复，选择按 2C 轮恢复，权重 `1 + 99 × p²`；未出现歌曲为 100。
 - 只有真实展示的新批次推进轮次；替换、未展示预加载和取消复用不推进。
 - 历史封面按页加载，最多 64 项、4 并发、20 秒总期限；缓存目标 100 项 / 16 MiB 编码字符，当前可见页受保护。
+- 同一共享发现缓存保留一份历史列表，以路径、文件长度、修改时间和进程内写入代次校验。读取错误原样返回；写入、外部替换和切换数据目录会重新读取。列表内容不变时保留读取版本，权重变动不强制重传相同记录。
+- 旧 `get_discovery_history` 继续返回完整数组；主窗口使用 `get_discovery_history_snapshot(revision)`，相同版本返回 `entries: null`，在窗口内复用上一份记录。搜索、筛选、跨页全选和编辑仍使用完整身份集合；磁盘 JSON 不变。
 
 ## 手牌、迷你发现与自动出牌
 
@@ -231,6 +233,10 @@ user_data/
 - 设置使用三组草稿（music / gui / desktop）；保存只提交变化的组，失败保留草稿。外观草稿即时应用到当前窗口，保存后同步其他窗口。
 - 发现浮窗按真实 DOM 列宽键盘导航；方向键不循环，Enter 确认需要键盘选中，R 可替换鼠标悬停卡。
 - 手牌/迷你发现/拖拽层使用独立窗口；命中区域只在实际布局/动画变化时提交，颜色和阴影变化不触发扫描。
+- 普通单面手牌使用平面渲染；迷你发现和神秘揭晓的双面卡保留 3D 翻面。卡牌位移期间临时提升合成图层，实际动画完成或取消后释放提示；收起完成后卸载卡牌 DOM。
+- 浮窗几何测量与区域提交最多跟随 60Hz，视觉动画继续按显示器刷新率绘制；每次布局代次先立即测量，过渡结束后提交最终区域。拖动结束、代次和 DPI 变化仍使旧区域失效。
+- 拖拽窗口继续预热；正常松手的淡出动画结束及取消时清除上一张卡片的前端快照和 DOM，保留窗口以便下一次拖动。相同外观值与有效主题不重复改写根样式。
+- `get_app_state` 可选接收 `coverRevisions`（键为 `platform/kind/id`）。来源摘要附带 `coverRevision`；调用者已有同版本封面时省略其 Base64 内容，由前端按完整来源身份合并。封面替换或删除会失效；不传版本的旧调用仍获得完整封面。
 - 前端持久化字段通过 `services/desktopWire.ts` 转换；Rust 用 Serde 保留旧字段名。改接口必须同时改 Rust、TypeScript 和兼容测试。
 - 默认本地选歌键：`W/A/S/D/Enter/R`；默认发现全局快捷键 `Alt+D`；默认手牌 `Alt+H`；默认位置键 `Alt+1`–`Alt+9`。
 

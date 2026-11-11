@@ -119,6 +119,7 @@ struct Resources {
     detail_slots: Semaphore,
     image_requests: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     sources: SourceSnapshots,
+    history: std::sync::Mutex<crate::history::HistoryRowsCache>,
 }
 impl Default for Resources {
     fn default() -> Self {
@@ -129,6 +130,7 @@ impl Default for Resources {
             detail_slots: Semaphore::new(4),
             image_requests: Mutex::new(HashMap::new()),
             sources: SourceSnapshots::default(),
+            history: std::sync::Mutex::new(crate::history::HistoryRowsCache::default()),
         }
     }
 }
@@ -556,6 +558,14 @@ impl Cache {
     /// Call after committing an active source refresh; settings keep the parsed source.
     pub fn invalidate_source_snapshot(&self) {
         self.resources.sources.clear();
+    }
+
+    pub(crate) fn history_snapshot(
+        &self,
+        store: &crate::history::HistoryStore,
+        revision: Option<u64>,
+    ) -> crate::AppResult<crate::history::HistoryRead> {
+        self.resources.history.lock().unwrap().read(store, revision)
     }
 
     /// 取缓存图片。对照旧版 `_image_cache.get(url)`。

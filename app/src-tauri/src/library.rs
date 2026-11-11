@@ -8,10 +8,10 @@ use crate::{
 use std::sync::Arc;
 
 #[tauri::command]
-pub async fn get_app_state(app: tauri::AppHandle) -> Result<Snapshot, String> {
+pub async fn get_app_state(app: tauri::AppHandle, cover_revisions: Option<std::collections::HashMap<String, String>>) -> Result<Snapshot, String> {
     // Snapshot reads scan local source files and covers. A synchronous command
     // would perform that work on the UI thread, delaying native window events.
-    tauri::async_runtime::spawn_blocking(move || crate::desktop::library::get_app_state(app))
+    tauri::async_runtime::spawn_blocking(move || crate::desktop::library::get_app_state(app, cover_revisions))
         .await
         .map_err(|_| "错误：无法读取本地歌单".to_string())?
 }

@@ -19,6 +19,14 @@ export const watchMediaSession = (enabled: boolean) => call<void>("watch_media_s
 export const controlMediaSession = (sessionId: string, action: MediaAction) => call<void>("control_media_session", { sessionId, action });
 export const setMainAttention = (active: boolean) => desktop ? call<void>("set_main_attention", { active }) : Promise.resolve();
 import type { OnboardingState } from "../features/onboarding/onboardingState";
+import { HistoryReadCache } from "../features/history/historyModel";
+
+const historyReadCache = new HistoryReadCache();
+export async function getDiscoveryHistory(): Promise<HistoryEntry[]> {
+  const snapshot = await call<{ revision: number; entries: HistoryEntry[] | null }>(
+    "get_discovery_history_snapshot", { revision: historyReadCache.revision });
+  return historyReadCache.accept(snapshot);
+}
 
 export type DesktopCommand =
   | "get_media_session" | "refresh_media_session" | "watch_media_session" | "control_media_session" | "set_main_attention"
@@ -46,6 +54,7 @@ export type DesktopCommand =
   | "cancel_library_operation"
   | "edit_playlist_remark"
   | "get_discovery_history"
+  | "get_discovery_history_snapshot"
   | "repair_discovery_history_metadata"
   | "clear_discovery_history"
   | "record_discovery_displayed"

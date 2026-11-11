@@ -273,6 +273,40 @@ pub(crate) struct HistoryVersion {
     writes: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRead {
+    pub revision: u64,
+    pub entries: Option<Vec<HistoryEntry>>,
+}
+
+/// One retained view per shared discovery cache; disk JSON remains the source of truth.
+#[derive(Default)]
+pub(crate) struct HistoryRowsCache {
+    path: PathBuf,
+    version: Option<HistoryVersion>,
+    revision: u64,
+    entries: Vec<HistoryEntry>,
+}
+impl HistoryRowsCache {
+    pub(crate) fn read(&mut self, store: &HistoryStore, known: Option<u64>) -> AppResult<HistoryRead> {
+        let version = store.version()?;
+        if self.path != store.path || self.version != Some(version) {
+            let entries = store.entries(MAX_HISTORY_LIMIT)?;
+            if self.path != store.path || self.version.is_none() || self.entries != entries {
+                self.revision += 1;
+            }
+            self.path = store.path.clone();
+            self.version = Some(version);
+            self.entries = entries;
+        }
+        Ok(HistoryRead {
+            revision: self.revision,
+            entries: (known != Some(self.revision)).then(|| self.entries.clone()),
+        })
+    }
+}
+
 impl HistoryStore {
     pub fn new(user_data: impl AsRef<Path>) -> Self {
         Self {
@@ -653,6 +687,36 @@ mod tests {
             title: format!("Song {id}"),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn view_cache_reuses_rows_and_observes_writes_external_replacements_and_other_roots() {
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let mut cache = HistoryRowsCache::default();
+        store.record_discovered(&[song("a", "one", "Spotify")], 200).unwrap();
+        let first = cache.read(&store, None).unwrap();
+        assert_eq!(first.entries.unwrap()[0].song_id, "a");
+        assert!(cache.read(&store, Some(first.revision)).unwrap().entries.is_none());
+        store.clear().unwrap();
+        let cleared = cache.read(&store, Some(first.revision)).unwrap();
+        assert!(cleared.revision > first.revision);
+        assert!(cleared.entries.unwrap().is_empty());
+        std::fs::write(store.path(), "broken").unwrap();
+        assert!(cache.read(&store, Some(cleared.revision)).is_err());
+        std::fs::write(store.path(), r#"{"discovered":[],"selected":[]}"#).unwrap();
+        assert!(cache.read(&store, Some(cleared.revision)).unwrap().entries.is_none());
+        let mut replacement = HistorySnapshot::default();
+        let mut row = HistoryEntry::from_song(&song("external", "one", "Spotify"));
+        row.discovered_at = Some(1);
+        replacement.discovered.push(row);
+        std::fs::write(store.path(), serde_json::to_vec(&replacement).unwrap()).unwrap();
+        let replaced = cache.read(&store, Some(cleared.revision)).unwrap();
+        assert!(replaced.revision > cleared.revision);
+        assert_eq!(replaced.entries.unwrap()[0].song_id, "external");
+        let other = Fixture::new();
+        assert!(cache.read(&other.store(), None).unwrap().entries.unwrap().is_empty());
+        assert_ne!(cache.path, store.path);
     }
     #[test]
     fn exclusions_cross_sources_but_not_platforms_and_persist_between_callers() {

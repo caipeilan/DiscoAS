@@ -9,6 +9,19 @@ const compile = (path) => ts.transpileModule(fs.readFileSync(new URL(path, impor
 const model = await import(`data:text/javascript;base64,${Buffer.from(compile("../src/features/library/libraryModel.ts")).toString("base64")}`);
 const hookSource = compile("../src/features/library/useLibrary.ts");
 
+test("versioned snapshots reuse unchanged covers and discard removed or replaced artwork", () => {
+  const original = {platform:"LocalMusic",sourceKind:"playlist",sourceId:"one",coverDataUri:"image",coverRevision:"v1"};
+  assert.deepEqual(model.libraryCoverRevisions([original]), {"LocalMusic/playlist/one":"v1"});
+  const incoming = {...original,coverDataUri:null};
+  assert.equal(model.mergeLibraryCovers([original],[incoming])[0].coverDataUri,"image");
+  for (const coverRevision of [null,undefined,"v2"]) {
+    assert.equal(model.mergeLibraryCovers([original],[{...incoming,coverRevision}])[0].coverDataUri,null);
+  }
+  assert.deepEqual(model.libraryCoverRevisions([{...original,coverDataUri:null}]),{});
+  assert.deepEqual(model.mergeLibraryCovers([original],[]),[]);
+  assert.equal(model.mergeLibraryCovers([original],[{...incoming,coverDataUri:"new"}])[0].coverDataUri,"new");
+});
+
 async function controller(entries) {
   const slots = [];
   const requests = [];

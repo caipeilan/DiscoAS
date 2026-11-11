@@ -27,6 +27,7 @@ async function controller(initial = [row("a")]) {
       const old = slots[i]; slots[i] = { deps }; effects.push(() => { old?.cleanup?.(); slots[i].cleanup = effect(); }); } },
   };
   const bridge = {
+    getDiscoveryHistory: () => bridge.call("get_discovery_history"),
     call: async (name, args) => { calls.push(name);
       if (name === "get_discovery_history") return reads.length ? reads.shift().promise : records;
       if (name === "repair_discovery_history_metadata") return repair.promise;

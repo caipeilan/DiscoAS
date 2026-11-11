@@ -286,6 +286,18 @@ async fn read_history(
 }
 
 #[tauri::command]
+pub async fn get_discovery_history_snapshot(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, Arc<Cache>>,
+    revision: Option<u64>,
+) -> Result<discoas_core::history::HistoryRead, String> {
+    let service = discovery_service(&app, cache.inner())?;
+    tauri::async_runtime::spawn_blocking(move || service.history_snapshot(revision))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub async fn repair_discovery_history_metadata(
     app: tauri::AppHandle,
     cache: tauri::State<'_, Arc<Cache>>,

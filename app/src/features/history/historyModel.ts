@@ -1,6 +1,18 @@
 import type { HistoryEntry } from "../../types";
 
 export type HistoryFilter = "all" | "discovered" | "selected";
+export class HistoryReadCache {
+  revision: number | undefined;
+  private entries: HistoryEntry[] = [];
+  accept(snapshot: { revision: number; entries: HistoryEntry[] | null }): HistoryEntry[] {
+    if (this.revision === undefined || snapshot.revision >= this.revision) {
+      this.revision = snapshot.revision;
+      if (snapshot.entries !== null) this.entries = snapshot.entries;
+    }
+    return this.entries;
+  }
+}
+
 export const HISTORY_PAGE_SIZE = 25;
 const HISTORY_COVER_CACHE_SIZE = 100;
 const HISTORY_COVER_CACHE_CHARACTERS = 16 * 1024 * 1024;

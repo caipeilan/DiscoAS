@@ -230,7 +230,7 @@ pub async fn execute(
                 .collect::<Vec<_>>()))
         }
         "source.list" | "source.get" => {
-            let mut snapshot = model::to_value(crate::library::get_app_state(app.clone()).await?)?;
+            let mut snapshot = model::to_value(crate::library::get_app_state(app.clone(), None).await?)?;
             let mut rows = snapshot["sources"].as_array_mut().unwrap().clone();
             if method == "source.get" {
                 let id = identity(

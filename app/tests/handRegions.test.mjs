@@ -157,6 +157,22 @@ const hookSource = () => compile("../src/features/hand/useHandInput.ts")
     "./handMotion": "motion", "./handControllerTypes": "types",
   })[path]};`);
 
+test("dock geometry has a 60 Hz budget on high refresh screens and each generation starts immediately", async () => {
+  const { RegionFrameBudget } = await import(`data:text/javascript;base64,${Buffer.from(compile("../src/features/hand/regionUpdates.ts")).toString("base64")}`);
+  for (const refresh of [60, 120, 165, 240]) {
+    const budget = new RegionFrameBudget(), accepted = [];
+    for (let frame=0; frame<refresh; frame++) {
+      const at=1000*frame/refresh;
+      if(budget.take(at)) accepted.push(at);
+    }
+    assert.equal(accepted[0],0);
+    assert.ok(accepted.length<=60, `${refresh} Hz: ${accepted.length}`);
+    assert.ok(accepted.length>=30);
+    assert.equal(new RegionFrameBudget().take(1),true);
+    assert.equal(budget.take(1100),true);
+  }
+});
+
 test("a fast drag starts the native drag surface and drops without painting the hand card", async () => {
   const layout = await import(`data:text/javascript;base64,${Buffer.from(compile("../src/features/hand/handLayout.ts")).toString("base64")}`);
   const calls = [], operations = [], dragStates = [], values = new Map();

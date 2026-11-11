@@ -13,6 +13,7 @@ import { defaultGuiSettings } from "../../types";
 import { useMediaSession } from "./useMediaSession";
 import { useAutoHandControl } from "./useAutoHandControl";
 import { changesDockBounds } from "./handRegionEvents";
+import { RegionFrameBudget } from "./regionUpdates";
 
 export function HandDockWindow() {
   const [snapshot, setSnapshot] = useState<HandDockSnapshot | null>(null);
@@ -95,9 +96,16 @@ export function HandDockWindow() {
     if (moving) previousRegions.current = "";
     if (!snapshot || !surface || hidden || moving) return;
     let cancelled = false, frame = 0, measuring = false, dirty = false;
+    const budget = new RegionFrameBudget();
+    const tick = (now: number) => {
+      frame = 0;
+      if (cancelled) return;
+      if (!budget.take(now)) { frame = requestAnimationFrame(tick); return; }
+      void measure();
+    };
     const schedule = () => {
       dirty = true;
-      if (!cancelled && !frame && !measuring) frame = requestAnimationFrame(measure);
+      if (!cancelled && !frame && !measuring) frame = requestAnimationFrame(tick);
     };
     const measure = async () => {
       frame = 0;

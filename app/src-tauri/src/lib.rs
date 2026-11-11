@@ -434,6 +434,7 @@ pub fn run() {
             library::cancel_library_operation,
             library::edit_playlist_remark,
             commands::get_discovery_history,
+            commands::get_discovery_history_snapshot,
             commands::repair_discovery_history_metadata,
             commands::clear_discovery_history,
             commands::record_discovery_displayed,
