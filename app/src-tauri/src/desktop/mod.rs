@@ -9,6 +9,7 @@ pub mod client_isolation;
 pub mod client_restart;
 pub mod dialogs;
 pub mod discovery_preview;
+pub mod discovery_window;
 pub(crate) mod virtual_desktop;
 pub mod floating_window;
 pub mod fonts;

@@ -63,6 +63,7 @@ pub(super) async fn update_preferences(
     let settings = update(&old)?;
     let settings = preferences::prepare_music_preferences(&old, settings)?;
     shortcuts::save_preferences(&app, &repository, &old, &settings)?;
+    super::discovery_window::update_keys(&app, &settings.discovery_keybindings);
     app.state::<super::auto_hand::AutoHandService>()
         .configure(&settings);
     app.state::<super::media_session::MediaSessionService>()

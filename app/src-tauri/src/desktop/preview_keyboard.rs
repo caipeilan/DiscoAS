@@ -34,6 +34,7 @@ pub(super) struct InputReceiver {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum InputMode {
     Preview,
+    Discovery,
     Hand,
     HandDiscovery,
 }
@@ -106,7 +107,7 @@ impl KeyModel {
         mut down: impl FnMut(i32) -> bool,
     ) -> Self {
         let mut model = Self::new(keys, &mut down);
-        if mode != InputMode::Preview {
+        if matches!(mode, InputMode::Hand | InputMode::HandDiscovery) {
             if mode == InputMode::Hand {
                 model.bindings.retain(|binding| binding.action != "replace");
             }
@@ -340,6 +341,13 @@ pub(super) fn update(app: &tauri::AppHandle, generation: u64, keys: DiscoveryKey
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn regular_discovery_supports_replace_and_does_not_consume_the_hands_delete_command() {
+        let mut model = KeyModel::for_mode(&DiscoveryKeybindings::default(), InputMode::Discovery, |_| false);
+        assert!(model.input(0x2e, true).is_none());
+        assert!(matches!(model.input(0x52, true), Some(Input::Key(k)) if k.event.action == "replace"));
+        assert!(matches!(model.input(0x1b, true), Some(Input::Exit)));
+    }
     #[test]
     fn tray_escape_is_not_forwarded_to_preview_and_held_repeat_stays_suppressed() {
         let mut model = KeyModel::new(&DiscoveryKeybindings::default(), |_| false);

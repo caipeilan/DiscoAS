@@ -297,3 +297,29 @@ test("native preview navigation works without window focus and never confirms or
   assert.deepEqual(harness.focus, []);
   globalThis.document.visibilityState = "visible";
 });
+
+test("native fullscreen discovery navigates, replaces and confirms without moving DOM focus", async () => {
+  const harness = await keyboardHarness();
+  harness.render();
+  globalThis.document.visibilityState = "hidden";
+  let sequence = 0;
+  const native = (code, action, values = {}) => {
+    harness.update({ previewKey: { event: { ...event(code, values), source: "native", action }, sequence: ++sequence } });
+    return harness.render();
+  };
+  native("Enter", "select");
+  assert.deepEqual(harness.plays, []);
+  native("KeyS", "down"); native("KeyD", "right");
+  assert.equal(harness.render().selectedIndex, 1);
+  native("KeyR", "replace");
+  assert.deepEqual(harness.replacements, ["track-1"]);
+  native("Enter", "select", { repeat: true });
+  assert.deepEqual(harness.plays, []);
+  native("Enter", "select");
+  assert.deepEqual(harness.plays, ["track-1"]);
+  assert.deepEqual(harness.focus, []);
+  harness.update({ active: false }); harness.render();
+  native("Enter", "select");
+  assert.deepEqual(harness.plays, ["track-1"]);
+  globalThis.document.visibilityState = "visible";
+});

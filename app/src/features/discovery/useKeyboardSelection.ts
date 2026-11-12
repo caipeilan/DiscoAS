@@ -132,7 +132,7 @@ export function useKeyboardSelection({ songs, keybindings, grid, active, batchRe
       refresh();
       const card = grid.current?.querySelectorAll<HTMLButtonElement>(".song-card")[index];
       if (!card || !grid.current) return;
-      if (!latest.preview) card.focus({ preventScroll: true });
+      if (!latest.preview && !native) card.focus({ preventScroll: true });
       const rect = card.getBoundingClientRect();
       const frame = grid.current.getBoundingClientRect();
       if (rect.top < Math.max(0, frame.top) || rect.bottom > Math.min(window.innerHeight, frame.bottom)
@@ -149,7 +149,7 @@ export function useKeyboardSelection({ songs, keybindings, grid, active, batchRe
     return () => window.removeEventListener("keydown", key, true);
   }, [handleKey]);
   useEffect(() => {
-    if (!preview || !previewKey) return;
+    if (!previewKey) return;
     handleKey({ ...previewKey.event, target: null, defaultPrevented: false,
       preventDefault() {}, stopPropagation() {} } as unknown as KeyboardEvent, true);
   }, [handleKey, preview, previewKey]);

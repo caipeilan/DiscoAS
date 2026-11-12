@@ -99,9 +99,7 @@ pub async fn discovery(
             Ok(json!({"requested":true}))
         }
         "discovery.cancel" => {
-            if let Some(window) = app.get_webview_window("overlay") {
-                super::super::floating_window::show(&window, false)?;
-            }
+            super::super::discovery_window::hide_discovery_window(app.clone())?;
             crate::commands::report_cancelled(app.clone(), cache()).await?;
             Ok(json!({"cancelled":true}))
         }

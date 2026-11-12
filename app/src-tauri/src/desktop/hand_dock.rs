@@ -45,6 +45,7 @@ pub struct DockState {
     dragging: AtomicBool,
     snapshot: Mutex<Option<Snapshot>>,
     canvas: Mutex<Option<Canvas>>,
+    preferred_point: Mutex<Option<Point>>,
     layout: Mutex<Option<Layout>>,
     bounds: Mutex<Option<(PhysicalPosition<i32>, PhysicalSize<u32>)>>,
     region: Mutex<Option<(u64, Vec<Rect>, Vec<Rect>)>>,
@@ -203,10 +204,13 @@ pub(super) async fn sync(
         .as_ref()
         .and_then(|s| s.dock_point);
     let previous_canvas = state.canvas.lock().unwrap().clone();
-    snapshot.dock_point = previous_point
-        .zip(previous_canvas)
-        .map(|(point, old)| visible_point(canvas, canvas.point(old.physical(point))))
-        .or_else(|| saved_point(app, canvas));
+    {
+        let mut preferred = state.preferred_point.lock().unwrap();
+        if preferred.is_none() {
+            *preferred = previous_point.zip(previous_canvas).map(|(point, old)| old.physical(point));
+        }
+    }
+    snapshot.dock_point = saved_point(app, canvas, snapshot.gui.font_size);
     state
         .generation
         .store(snapshot.generation, Ordering::Release);
@@ -504,25 +508,27 @@ fn dock_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
         .map_err(|e| e.to_string())?
         .join("hand/dock.json"))
 }
-pub(super) fn saved_point(app: &tauri::AppHandle, canvas: &Canvas) -> Option<Point> {
-    let path = dock_path(app).ok()?;
-    let physical: Point = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+pub(super) fn saved_point(app: &tauri::AppHandle, canvas: &Canvas, font_size: f64) -> Option<Point> {
+    let state = app.state::<DockState>();
+    let mut preferred = state.preferred_point.lock().unwrap();
+    let physical = if let Some(point) = *preferred { point } else {
+        let path = dock_path(app).ok()?;
+        let point = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+        *preferred = Some(point);
+        point
+    };
     let point = canvas.point(physical);
-    Some(visible_point(canvas, point))
+    Some(visible_point(canvas, point, 22.0 * font_size / 14.0 + 14.0))
 }
-fn visible_point(canvas: &Canvas, point: Point) -> Point {
-    if canvas
-        .work_areas
-        .iter()
-        .any(|area| area.contains(point.x, point.y))
-    {
+fn visible_point(canvas: &Canvas, point: Point, radius: f64) -> Point {
+    if canvas.work_areas.iter().chain(std::iter::once(&canvas.work_area)).any(|area| area.contains(point.x, point.y)) {
         return point;
     }
-    // A disconnected monitor should not leave the control outside the remaining desktop.
     let area = canvas.work_area;
+    let inset = radius.min(area.width / 2.0).min(area.height / 2.0);
     Point {
-        x: point.x.clamp(area.left + 8.0, area.left + area.width - 8.0),
-        y: point.y.clamp(area.top + 8.0, area.top + area.height - 8.0),
+        x: point.x.clamp(area.left + inset, area.left + area.width - inset),
+        y: point.y.clamp(area.top + inset, area.top + area.height - inset),
     }
 }
 
@@ -546,9 +552,33 @@ pub async fn save_hand_dock(
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     let bytes = serde_json::to_vec(&canvas.physical(point)).map_err(|e| e.to_string())?;
     discoas_core::storage::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
+    *state.preferred_point.lock().unwrap() = Some(canvas.physical(point));
     if let Some(snapshot) = state.snapshot.lock().unwrap().as_mut() {
         snapshot.dock_point = Some(point);
     }
     moved(&app, generation, point);
     Ok(())
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+    #[test]
+    fn reduced_resolution_keeps_the_whole_logo_visible_without_losing_its_desktop_anchor() {
+        let desktop = Canvas { origin: PhysicalPosition::new(0,0), size: PhysicalSize::new(3620,2036), scale: 1.75,
+            work_area: Rect { left:0.0,top:0.0,width:2068.5714285714284,height:1115.4285714285713 }, work_areas: vec![] };
+        let smaller = Canvas { origin: desktop.origin, size: PhysicalSize::new(1920,1080), scale:1.0,
+            work_area:Rect {left:0.0,top:0.0,width:1920.0,height:1032.0},work_areas:vec![] };
+        let preferred = Point { x:1925.0,y:1487.5 };
+        let limited = visible_point(&smaller,smaller.point(preferred),36.0);
+        assert_eq!((limited.x,limited.y),(1884.0,996.0));
+        let restored = visible_point(&desktop,desktop.point(preferred),36.0);
+        assert_eq!((restored.x,restored.y),(1100.0,850.0));
+        let edge = visible_point(&smaller,Point{x:8.0,y:200.0},36.0);
+        assert_eq!((edge.x,edge.y),(8.0,200.0));
+    }
+}
+
+pub(super) fn dragging(app: &tauri::AppHandle) -> bool {
+    app.state::<DockState>().dragging.load(Ordering::Acquire)
 }

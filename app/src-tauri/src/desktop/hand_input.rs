@@ -157,7 +157,7 @@ pub(super) async fn activate_keyboard(app: &tauri::AppHandle) -> Result<(), Stri
     else {
         return Ok(());
     };
-    if !is_preview && super::discovery_preview::active(app) {
+    if !is_preview && (super::discovery_preview::active(app) || super::discovery_window::active(app)) {
         return Ok(());
     }
     let token = state.keyboard_counter.fetch_add(1, Ordering::SeqCst) + 1 | (1 << 63);

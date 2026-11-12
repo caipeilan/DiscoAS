@@ -132,23 +132,10 @@ fn show_main_now(app: &tauri::AppHandle, activate: bool) {
 pub fn show_overlay(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        show_overlay_now(&app);
-    });
-}
-fn show_overlay_now(app: &tauri::AppHandle) {
-    desktop::tray_menu::dismiss(app);
-    desktop::discovery_preview::with_regular_window(app, false, || {
-        dismiss_splash(app);
-        if let Some(window) = app.get_webview_window("overlay") {
-            if let Err(error) = desktop::monitors::position_overlay(app) {
-                desktop_preferences::log_event(app, "overlay_monitor", "placement_failed");
-                let _ = error;
-            }
-            let _ = window.unminimize();
-            let _ = desktop::floating_window::show(&window, true);
-            let _ = window.set_focus();
-            desktop::floating_window::raise_discovery(app);
-            let _ = app.emit_to("overlay", "show-overlay", ());
+        desktop::tray_menu::dismiss(&app);
+        dismiss_splash(&app);
+        if desktop::discovery_window::open(&app).await.is_err() {
+            desktop_preferences::log_event(&app, "overlay", "presentation_failed");
         }
     });
 }
@@ -193,6 +180,8 @@ pub fn run() {
         .manage(core::cache::Cache::new())
         .manage(commands::DiscoveryPublication::default())
         .manage(desktop::discovery_preview::PreviewState::default())
+        .manage(desktop::discovery_window::DiscoveryWindow::default())
+        .manage(desktop::monitors::DisplayChanges::default())
         .manage(desktop::onboarding::OnboardingService::default())
         .manage(library::DesktopStatus::default())
         .manage(services::library_jobs::LibraryJobs::default())
@@ -385,6 +374,8 @@ pub fn run() {
             desktop::tray_menu::dismiss_tray_menu,
             desktop::tray_menu::tray_menu_action,
             commands::play_song,
+            desktop::discovery_window::present_discovery_window,
+            desktop::discovery_window::hide_discovery_window,
             desktop::hand::hand_ready,
             desktop::auto_hand::get_auto_hand_state,
             desktop::onboarding::get_onboarding_state,

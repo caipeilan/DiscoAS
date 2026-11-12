@@ -96,6 +96,8 @@ export type DesktopCommand =
   | "report_cancelled"
   | "play_song"
   | "show_discover"
+  | "present_discovery_window"
+  | "hide_discovery_window"
   | "show_main"
   | "show_local_client"
   | "get_client_desktop_status"
@@ -288,13 +290,12 @@ export function onDesktopEvent<E extends keyof DesktopEvents>(
 }
 
 export async function hideCurrentWindow() {
-  if (desktop) await getCurrentWindow().hide();
+  if (desktop) await call("hide_discovery_window");
 }
 
 export async function showCurrentWindow() {
   if (!desktop) return;
-  await getCurrentWindow().show();
-  await getCurrentWindow().setFocus();
+  await call("present_discovery_window");
 }
 
 export async function isCurrentWindowVisible(): Promise<boolean> {

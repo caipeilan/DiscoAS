@@ -479,6 +479,7 @@ async fn open(
         &app.get_webview_window(LABEL)
             .ok_or("错误：手牌窗口不可用")?,
     )?;
+    let font_size = gui.font_size;
     let snapshot = HandSnapshot {
         generation,
         cards: held,
@@ -491,7 +492,7 @@ async fn open(
         work_area: canvas.work_area,
         work_areas: canvas.work_areas.clone(),
         dock_point: if is_preview {
-            super::hand_dock::saved_point(app, &canvas)
+            super::hand_dock::saved_point(app, &canvas, font_size)
         } else {
             None
         },
@@ -711,6 +712,14 @@ pub fn hide(app: &tauri::AppHandle) {
         }
     });
 }
+pub(super) async fn refresh_display(app: &tauri::AppHandle) -> Result<(), String> {
+    if preview(app) { return Ok(()); }
+    let state = app.state::<HandState>();
+    state.canvas.lock().unwrap().take();
+    if !visible(app) { return Ok(()); }
+    refresh(app).await
+}
+
 pub async fn refresh(app: &tauri::AppHandle) -> Result<(), String> {
     if preview(app) {
         return Ok(());

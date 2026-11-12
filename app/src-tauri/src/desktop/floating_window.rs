@@ -14,7 +14,7 @@ use windows_sys::Win32::{
             SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, UnhookWindowsHookEx, GWL_EXSTYLE,
             GWL_STYLE, HCBT_ACTIVATE, HHOOK, HWND_NOTOPMOST, HWND_TOPMOST, MA_NOACTIVATE,
             STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-            WH_CBT, WM_DWMCOMPOSITIONCHANGED, WM_MOUSEACTIVATE, WM_NCACTIVATE, WM_NCCALCSIZE,
+            WH_CBT, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_SETTINGCHANGE, SPI_SETWORKAREA, WM_DWMCOMPOSITIONCHANGED, WM_MOUSEACTIVATE, WM_NCACTIVATE, WM_NCCALCSIZE,
             WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION, WS_EX_CLIENTEDGE,
             WS_EX_DLGMODALFRAME, WS_EX_NOACTIVATE, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE,
             WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
@@ -144,7 +144,7 @@ fn install_activation_hook() -> Result<(), String> {
     })
 }
 
-fn dispatch(
+pub(super) fn dispatch(
     window: &WebviewWindow,
     action: impl FnOnce(&WebviewWindow) -> Result<(), String> + Send + 'static,
 ) -> Result<Completion, String> {
@@ -201,6 +201,8 @@ unsafe extern "system" fn floating_proc(
 ) -> LRESULT {
     let passive = reference != 0;
     match message {
+        WM_DISPLAYCHANGE | WM_DPICHANGED => super::monitors::display_changed(),
+        WM_SETTINGCHANGE if wparam == SPI_SETWORKAREA as usize => super::monitors::display_changed(),
         WM_STYLECHANGING => {
             // Tao reconstructs its complete style on visibility/cursor changes.
             // Filter that write instead of removing the caption again after painting.
@@ -236,6 +238,7 @@ fn queue_install(window: &WebviewWindow, passive: bool) -> Result<Completion, St
     let handle = window.hwnd().map_err(|_| "错误：浮窗窗口不可用")?.0 as usize;
     dispatch(window, move |w| {
         let hwnd = handle as HWND;
+        super::monitors::observe(w.app_handle());
         if passive {
             install_activation_hook()?;
         }

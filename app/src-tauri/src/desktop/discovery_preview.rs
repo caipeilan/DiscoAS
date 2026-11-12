@@ -115,6 +115,7 @@ pub fn with_regular_window(app: &tauri::AppHandle, hide: bool, action: impl FnOn
     let state = app.state::<PreviewState>();
     let _lifecycle = state.lifecycle.lock().unwrap();
     stop_in_lifecycle(app, hide);
+    super::discovery_window::stop(app);
     state.closing.store(false, Ordering::SeqCst);
     action();
 }
@@ -122,6 +123,7 @@ pub fn dismiss_for_window_close(app: &tauri::AppHandle) -> bool {
     let state = app.state::<PreviewState>();
     let _lifecycle = state.lifecycle.lock().unwrap();
     let was_preview = isolated(app);
+    super::discovery_window::stop(app);
     stop_in_lifecycle(app, true);
     if let Some(window) = app.get_webview_window("overlay") {
         let _ = window.hide();
