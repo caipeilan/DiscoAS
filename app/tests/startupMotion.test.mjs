@@ -7,6 +7,16 @@ const source = ts.transpileModule(fs.readFileSync(new URL('../src/startupMotion.
 }).outputText;
 const motion = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
+test('initial windows do not request focus and the splash cannot accept it',()=>{
+  const config=JSON.parse(fs.readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url),'utf8'));
+  for(const label of ['main','overlay','splash']){
+    const window=config.app.windows.find(window=>window.label===label);
+    assert.equal(window.visible,false,label);
+    assert.equal(window.focus,false,label);
+    assert.equal(window.focusable??true,label!=='splash',label);
+  }
+});
+
 test('startup easing reaches exact endpoints and remains monotonic with a faster middle',()=>{
   const progress = Array.from({length:101},(_,i)=>motion.startupProgress(i/100));
   assert.equal(progress[0],0); assert.equal(progress.at(-1),1);

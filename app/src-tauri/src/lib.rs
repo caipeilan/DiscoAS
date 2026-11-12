@@ -61,7 +61,10 @@ async fn startup_ready(app: tauri::AppHandle) -> Result<(), String> {
     if app.state::<StartupPending>().0.load(Ordering::Relaxed) {
         desktop::monitors::position_splash(&app)?;
         if let Some(window) = app.get_webview_window("splash") {
-            desktop::floating_window::show(&window, true)?;
+            desktop::floating_window::install_confirmed(&window, true).await?;
+            if app.state::<StartupPending>().0.load(Ordering::Relaxed) {
+                desktop::floating_window::show(&window, true)?;
+            }
         }
     }
     Ok(())
@@ -75,7 +78,7 @@ fn finish_startup(app: tauri::AppHandle) {
         .swap(false, Ordering::Relaxed)
     {
         if app.state::<StartupShowMain>().0.load(Ordering::Relaxed) {
-            show_main(&app);
+            show_main_with_focus(&app, false);
         } else {
             dismiss_splash(&app);
         }
@@ -95,13 +98,16 @@ fn finish_startup(app: tauri::AppHandle) {
 }
 
 pub fn show_main(app: &tauri::AppHandle) {
+    show_main_with_focus(app, true);
+}
+fn show_main_with_focus(app: &tauri::AppHandle, activate: bool) {
     let app = app.clone();
     // Native window getters can wait on the UI thread. Never wait for the preview lock there.
     tauri::async_runtime::spawn(async move {
-        show_main_now(&app);
+        show_main_now(&app, activate);
     });
 }
-fn show_main_now(app: &tauri::AppHandle) {
+fn show_main_now(app: &tauri::AppHandle, activate: bool) {
     desktop::tray_menu::dismiss(app);
     desktop::discovery_preview::with_regular_window(app, true, || {
         dismiss_splash(app);
@@ -112,9 +118,13 @@ fn show_main_now(app: &tauri::AppHandle) {
             }
         }
         if let Some(window) = app.get_webview_window("main") {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
+            if activate {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            } else {
+                let _ = desktop::floating_window::show_without_activation(&window);
+            }
         }
     });
 }

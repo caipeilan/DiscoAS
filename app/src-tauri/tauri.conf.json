@@ -26,6 +26,7 @@
         "resizable": true,
         "shadow": true,
         "center": true,
+        "focus": false,
         "visible": false
       },
       {
@@ -42,6 +43,7 @@
         "skipTaskbar": true,
         "resizable": false,
         "center": true,
+        "focus": false,
         "visible": false
       },
       {
@@ -55,6 +57,8 @@
         "fullscreen": false,
         "skipTaskbar": true,
         "resizable": false,
+        "focus": false,
+        "focusable": false,
         "visible": false
       }
     ],

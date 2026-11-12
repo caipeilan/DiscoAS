@@ -1,5 +1,5 @@
 //! Frameless floating windows: framework visibility and native drawing share one lifecycle.
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use tokio::sync::oneshot;
@@ -98,10 +98,14 @@ impl Drop for ActivationHook {
 
 thread_local! {
     static ACTIVATION_HOOK: RefCell<Option<ActivationHook>> = const { RefCell::new(None) };
+    static NON_ACTIVATING_SHOW: Cell<usize> = const { Cell::new(0) };
 }
 
 unsafe extern "system" fn activation_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HCBT_ACTIVATE as i32 {
+        if NON_ACTIVATING_SHOW.with(|window| window.get() == wparam) {
+            return 1;
+        }
         let mut passive = 0;
         if GetWindowSubclass(
             wparam as HWND,
@@ -284,6 +288,21 @@ pub fn show(window: &WebviewWindow, visible: bool) -> Result<(), String> {
         let result = if visible { w.show() } else { w.hide() };
         result.map_err(|_| "错误：无法更新浮窗显示".to_string())?;
         refresh_main_attention(w.app_handle())
+    })
+    .map(|_| ())
+}
+
+/// Keep framework visibility in sync while rejecting activation only for this show call.
+pub fn show_without_activation(window: &WebviewWindow) -> Result<(), String> {
+    let handle = window.hwnd().map_err(|_| "错误：窗口不可用")?.0 as usize;
+    dispatch(window, move |w| {
+        install_activation_hook()?;
+        NON_ACTIVATING_SHOW.with(|window| {
+            let previous = window.replace(handle);
+            let result = w.show().map_err(|_| "错误：无法显示窗口".to_string());
+            window.set(previous);
+            result
+        })
     })
     .map(|_| ())
 }
