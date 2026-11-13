@@ -15,6 +15,9 @@ pub fn normalize_source(platform: &str, kind: SourceKind, input: &str) -> Result
     if platform == platforms::names::BILIBILI {
         return platforms::bilibili::normalize(kind, extracted).map_err(|e| e.to_string());
     }
+    if platform == platforms::names::NICONICO {
+        return platforms::niconico::normalize(kind, extracted).map_err(|e| e.to_string());
+    }
     if platform == platforms::names::KUWO {
         return platforms::kuwo::normalize(kind, extracted).map_err(|e| e.to_string());
     }

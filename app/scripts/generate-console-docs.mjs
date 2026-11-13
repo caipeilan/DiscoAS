@@ -27,7 +27,7 @@ const lines = [
   "| `requestId` / `libraryRequestId` | 歌单网络／扫描任务的取消标识。未指定时自动分配；同一时间须保持唯一。TaskRecord 中会返回实际使用的 libraryRequestId。 |",
   "| `token` | 现有手牌播放与确认流程的标识；用于诊断，不替代 operationId。 |",
   "| `subscriptionId` / `after` | 订阅标识与事件序号。第三方通过 `event.poll` 取得事件。 |", "",
-  "平台标识可由 `platform list` 查询：NeteaseCloudMusic、QQMusic、KugouMusic、KuwoMusic、QishuiMusic、Spotify、AppleMusic、YouTube、Bilibili、LocalMusic。所有 ID 保持字符串，包括带前导零的 ID。来源类型由 `source kinds <platform>` 查询。", "",
+  "平台标识可由 `platform list` 查询：NeteaseCloudMusic、QQMusic、KugouMusic、KuwoMusic、QishuiMusic、Spotify、AppleMusic、YouTube、Bilibili、Niconico、LocalMusic。所有 ID 保持字符串，包括带前导零的 ID。来源类型由 `source kinds <platform>` 查询。", "",
   "默认省略歌单、发现、手牌、历史及事件中的封面 data URI。需要封面时使用 `cover get`、`history covers`，或命令支持的 `--include-covers true`。", "",
   "播放类命令返回 `status: accepted` 与 `confirmed: false` 表示已派发。实际结果通过 `playback-result`、`auto-hand-state-changed` 或 `playback state` 查询。`auto on/off/toggle` 调整临时 AUTO 状态；保存的开关使用 `settings set music.hand.autoPlayEnabled ...`。自动与手动出牌共用原有锁，忙时返回错误。创建手牌沿用设置、容量与已启用来源平台的限制。", "",
   "托盘的 `pause` 暂停全局快捷键；音乐暂停使用 `playback pause`。不带 platform 时暂停当前 Windows 媒体会话，再回退至已绑定的浏览器或 Spotify 扩展；指定 platform 时按对应会话或扩展定向暂停。`discovery choose` 按当前模式播放或收牌，`discovery play` 直接走播放流程，`discovery collect` 走收牌流程。`mini play` 与迷你发现现有操作一致，派发后准备下一批。", "",

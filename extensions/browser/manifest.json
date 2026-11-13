@@ -1,16 +1,16 @@
 {
   "manifest_version": 3,
   "name": "DiscoAS",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "DiscoAS的浏览器扩展",
   "minimum_chrome_version": "116",
   "icons": { "32": "icons/32x32.png", "128": "icons/128x128.png" },
   "permissions": ["storage", "alarms"],
-  "host_permissions": ["https://www.youtube.com/*", "https://www.bilibili.com/*", "https://music.apple.com/*"],
+  "host_permissions": ["https://www.youtube.com/*", "https://www.bilibili.com/*", "https://music.apple.com/*", "https://www.nicovideo.jp/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*", "https://www.bilibili.com/video/*"],
+      "matches": ["https://www.youtube.com/*", "https://www.bilibili.com/video/*", "https://www.nicovideo.jp/watch/*"],
       "js": ["protocol.js", "content.js"],
       "run_at": "document_idle"
     },

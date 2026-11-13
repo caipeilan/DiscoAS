@@ -5,7 +5,7 @@ use discoas_core::{core::playlist::SourceKind, platforms::fetcher_for, storage::
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<_> = std::env::args().skip(1).collect();
     if !(3..=4).contains(&arguments.len()) {
-        return Err("用法：fetch_source <NeteaseCloudMusic|QQMusic|KugouMusic|KuwoMusic|QishuiMusic|Spotify|YouTube|Bilibili> <来源类型> <ID> [user_data目录]".into());
+        return Err("用法：fetch_source <平台标识> <来源类型> <ID> [user_data目录]；例如 Niconico playlist 12682175".into());
     }
     let kind = SourceKind::parse(&arguments[1])?;
     let data = fetcher_for(&arguments[0])?

@@ -349,6 +349,7 @@ export const platforms = [
   { id: "AppleMusic", label: "Apple Music", color: "#fa243c", hint: "https://music.apple.com/… 公开歌单或专辑链接" },
   { id: "YouTube", label: "YouTube", color: "#c83f48", hint: "https://www.youtube.com/playlist?list=… 或视频链接" },
   { id: "Bilibili", label: "Bilibili", color: "#388ea8", hint: "公开视频、收藏夹、合集或系列链接" },
+  { id: "Niconico", label: "niconico", color: "#72828c", hint: "niconico 公开视频或 mylist 分享链接、ID" },
   { id: "LocalMusic", label: "本地音频", color: "#758c8f", hint: "" },
 ];
 export const emptyState: AppState = {

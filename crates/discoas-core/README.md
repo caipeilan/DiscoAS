@@ -9,7 +9,7 @@
 | 模块 | 职责 |
 |---|---|
 | `model` | 共用歌曲卡片和播放参数；保持桌面端 JSON 字段不变 |
-| `platforms` | 九个平台与本地音频的元数据、歌曲详情和播放目标；返回数据，播放器由调用者打开 |
+| `platforms` | 十个平台与本地音频的元数据、歌曲详情和播放目标；返回数据，播放器由调用者打开 |
 | `platforms::local` | 只读扫描音频路径、目录和 UTF-8 M3U/M3U8，读取标签与内嵌封面，按路径保持歌曲身份 |
 | `platforms::source` | 分享文本、链接和 ID 规范化；校验平台与歌单/专辑/视频来源类型 |
 | `storage::LibraryStore` | 用调用者传入的 `user_data` 目录读取、原子保存平台缓存 |
@@ -96,6 +96,10 @@ let batch = service.discover(false).await?;
 ## 视频与秘密信息
 
 YouTube 支持 `playlist` / `video`；Bilibili 支持 `video` / `favorites` / `collection` / `series`。使用 `supported_kinds(platform)` 检查能力，`normalize_source` 规范化分享来源。公开视频来源缓存 `tracks_info`，发现详情不再读取网络；Bilibili 曲目身份是 `BV号_pN`。核心只生成 HTTPS 播放地址，绑定浏览器标签页、续播和播放确认由宿主负责。
+
+`Niconico` 支持 `playlist`（公开 mylist）和 `video`。例如 `normalize_source("Niconico", SourceKind::Video, "https://nico.ms/sm9")` 返回 `sm9`；mylist 使用数字 ID，可输入 `https://www.nicovideo.jp/mylist/<ID>`。支持 `sm`、`nm`、`so` 及数字频道视频 ID，单视频从公开 watch 页读取 `server-response` / `$watchV4`，mylist 从公开分页接口读取，每页 100 项，最多 50,000 项。分页完整性验证通过后才返回快照；重复视频合并，删除、不可见及需付费条目记入 `unavailable_count`。只返回标题、投稿者、封面和时长等元数据；使用共用 `VideoDetailLoader` 读取本地详情，频道数字别名以页面返回的视频 ID 作为歌曲身份。
+
+读取公开 mylist 的示例：`cargo run --example fetch_source -- Niconico playlist 12682175`。网络示例默认只输出结果，只有显式传入第四个参数才写入指定目录。
 
 `SongCardDto.real_metadata` 保存内部真实名称 / 作者，Serde 序列化与反序列化都跳过；浮窗字段保持隐藏，`record_discovery_displayed` / `record_selection` 写入真实历史。宿主可在读出历史后后台调用 `repair_history_metadata(100).await` 补全旧问号行；该函数自行加锁合并，不能在外部持有操作锁时调用。最多 4 并发、单条 8 秒、总计 20 秒，失败行保留原值，清空或修改过的记录不会被恢复。
 

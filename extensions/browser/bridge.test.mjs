@@ -10,6 +10,7 @@ const backgroundSource = readFileSync(new URL("./background.js", import.meta.url
 const A = "abcdefghijk", B = "lmnopqrstuv", C = "ABCDEFGHIJK";
 const youtube = (id) => `https://www.youtube.com/watch?v=${id}`;
 const bili = (part) => `https://www.bilibili.com/video/BV1234567890/?p=${part}`;
+const niconico = (id) => `https://www.nicovideo.jp/watch/${id}`;
 const copy = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
 const flush = () => new Promise(setImmediate);
 function deferred() {
@@ -90,6 +91,51 @@ test("targets and sender identities reject injected URLs and invalid video parts
   assert.equal(api.target("AppleMusic", "573839785").url, "https://music.apple.com/");
   assert.throws(() => api.target("AppleMusic", "not-a-song"));
   assert.deepEqual(copy(api.identity("https://music.apple.com/cn/new")), { platform: "AppleMusic" });
+});
+
+test("niconico targets accept official video IDs and keep channel aliases bounded", () => {
+  const api = protocol();
+  for (const songId of ["sm9", "nm12", "so123", "1234567890"]) {
+    assert.equal(api.target("Niconico", songId).url, niconico(songId));
+    assert.deepEqual(copy(api.identity(niconico(songId))), { platform: "Niconico", songId });
+  }
+  for (const songId of ["sm0", "sm01", "sm9/extra", "sm9?x=1", "SM9", "not-video"])
+    assert.throws(() => api.target("Niconico", songId));
+  for (const url of ["https://www.nicovideo.jp.evil/watch/sm9", "http://www.nicovideo.jp/watch/sm9",
+    "https://www.nicovideo.jp:8443/watch/sm9", "https://user@www.nicovideo.jp/watch/sm9", "https://www.nicovideo.jp/mylist/123"])
+    assert.equal(api.identity(url), null);
+  assert.equal(api.identity(niconico("1234567890"), "so12").songId, "so12");
+  assert.equal(api.identity(niconico("sm9"), "sm10").songId, "sm9");
+  assert.equal(api.identity(niconico("sm9"), "so12").songId, "sm9");
+});
+
+test("niconico reuses the controlled tab and confirms a channel's canonical identity", async () => {
+  const f = setup();
+  await f.request(1, "sm9", "Niconico");
+  const id = f.stored().tabId;
+  await f.player.handle({ type: "discoas-state", requestId: 1, playing: true, songId: "sm9" }, f.sender(id));
+  assert.equal(f.reports.at(-1).songId, "sm9");
+  await f.request(2, "so12", "Niconico");
+  assert.equal(f.stored().tabId, id);
+  f.pages.set(id, { id, url: niconico("1234567890") });
+  await f.player.handle({ type: "discoas-state", requestId: 1, playing: true, songId: "so12" }, f.sender(id));
+  assert.equal(f.reports.length, 1);
+  await f.player.handle({ type: "discoas-state", requestId: 2, playing: true, songId: "so12" }, f.sender(id));
+  assert.equal(f.reports.at(-1).songId, "so12");
+  await f.player.handle({ type: "discoas-observation", requestId: 2, songId: "so12", ended: true, duration: 100, position: 100 }, f.sender(id));
+  assert.equal(f.reports.at(-1).ended, true);
+  assert.equal(f.reports.at(-1).songId, "so12");
+  assert.equal(f.operations.filter((op) => op.type === "create").length, 1);
+});
+
+test("both extension manifests grant niconico watch access", () => {
+  const manifests = ["manifest.json", "manifest.firefox.json"].map((name) =>
+    JSON.parse(readFileSync(new URL(`./${name}`, import.meta.url), "utf8")));
+  assert.equal(manifests[0].version, manifests[1].version);
+  for (const manifest of manifests) {
+    assert.ok((manifest.host_permissions || manifest.permissions).includes("https://www.nicovideo.jp/*"));
+    assert.ok(manifest.content_scripts.some((script) => script.matches.includes("https://www.nicovideo.jp/watch/*") && script.js.includes("content.js")));
+  }
 });
 
 test("Apple Music reuses the web player tab and carries the source song list", async () => {
@@ -417,7 +463,7 @@ test("the runtime listener keeps the response channel alive until its asynchrono
   assert.deepEqual(replies, ["binding"]);
 });
 
-function setupContent({ songId = A, platform = "YouTube", paused = false, ad = false, play = null, preview = false, error = null, namespace = "chromium", autoPlay = false } = {}) {
+function setupContent({ songId = A, platform = "YouTube", paused = false, ad = false, play = null, preview = false, error = null, namespace = "chromium", autoPlay = false, canonicalId = songId, metadataDuration = 100, missingMetadata = false } = {}) {
   const messages = [], handlers = new Map(), intervals = [], ready = deferred();
   const activeIntervals = new Map(), queries = { count: 0 };
   const readyQueue = [ready], pageHandlers = new Map();
@@ -437,7 +483,7 @@ function setupContent({ songId = A, platform = "YouTube", paused = false, ad = f
     },
   };
   const previewVideo = { ...video, paused: false };
-  const location = { href: platform === "Bilibili" ? bili(Number(songId.split("_p")[1])) : youtube(songId) };
+  const location = { href: platform === "Niconico" ? niconico(songId) : platform === "Bilibili" ? bili(Number(songId.split("_p")[1])) : youtube(songId) };
   const extensionApi = { runtime: {
     sendMessage(message) { messages.push(copy(message)); return message.type === "discoas-ready" ? (readyQueue.shift()?.promise ?? Promise.resolve(null)) : Promise.resolve(null); },
     onMessage: { addListener(callback) { listener = callback; } },
@@ -447,7 +493,11 @@ function setupContent({ songId = A, platform = "YouTube", paused = false, ad = f
     window: { addEventListener(type, callback) { pageHandlers.set(type, callback); } },
     document: { querySelector(selector) {
       queries.count++;
+      if (selector === 'meta[name="server-response"]') return missingMetadata ? null : {
+        content: JSON.stringify({ data: { response: { $watchV4: { data: { video: { id: canonicalId, duration: metadataDuration } } } } } }),
+      };
       if (selector === "video") return preview ? previewVideo : video;
+      if (selector.includes("#MainVideoPlayer")) return video;
       if (selector.startsWith("#movie_player video") || selector.includes("bpx-player-video-wrap") || selector.includes("bilibili-player-video")) return video;
       return selector.includes("ad-showing") && site.ad ? {} : null;
     } },
@@ -468,6 +518,47 @@ function setupContent({ songId = A, platform = "YouTube", paused = false, ad = f
     async event(type) { await Promise.all((handlers.get(type) || []).map((callback) => callback())); },
   };
 }
+
+test("niconico confirms its main player, observes end and acknowledges pause in both browsers", async () => {
+  for (const namespace of ["chromium", "firefox"]) {
+    const f = setupContent({ platform: "Niconico", songId: "sm9", preview: true, paused: true, autoPlay: true, namespace });
+    f.ready.resolve(f.binding(1, "sm9")); await flush();
+    assert.equal(f.video.playCalls, 1);
+    assert.ok(f.messages.some((message) => message.playing && message.songId === "sm9"));
+    f.video.ended = true; f.video.currentTime = 100; await f.event("ended");
+    assert.ok(f.messages.some((message) => message.type === "discoas-observation" && message.ended && message.songId === "sm9"));
+    assert.deepEqual(f.pause(1), { paused: true });
+    assert.equal(f.activeIntervals.size, 0);
+  }
+});
+
+test("niconico waits for the main duration and rejects unavailable or mismatched page metadata", async () => {
+  const f = setupContent({ platform: "Niconico", songId: "sm9" });
+  f.video.duration = 15;
+  f.ready.resolve(f.binding(1, "sm9")); await flush();
+  assert.ok(f.messages.some((message) => message.ad === true));
+  assert.equal(f.messages.some((message) => message.playing), false);
+  f.video.duration = 100; await f.intervals[0]();
+  assert.ok(f.messages.some((message) => message.playing));
+  for (const options of [{ missingMetadata: true }, { canonicalId: "sm10" }]) {
+    const unavailable = setupContent({ platform: "Niconico", songId: "sm9", ...options });
+    unavailable.ready.resolve(unavailable.binding(1, "sm9")); await flush();
+    assert.equal(unavailable.messages.some((message) => message.playing), false);
+    assert.ok(unavailable.messages.some((message) => message.error));
+  }
+});
+
+test("niconico channel aliases confirm once and stale metadata does not follow site navigation", async () => {
+  const f = setupContent({ platform: "Niconico", songId: "1234567890", canonicalId: "so12", autoPlay: true });
+  f.ready.resolve(f.binding(1, "so12")); await flush();
+  assert.ok(f.messages.some((message) => message.playing && message.songId === "so12"));
+  f.location.href = niconico("sm10"); await f.intervals[0]();
+  assert.ok(f.messages.some((message) => message.type === "discoas-observation" && message.songId === "sm10"));
+  const changed = setupContent({ platform: "Niconico", songId: "sm9" });
+  changed.location.href = niconico("sm10");
+  changed.ready.resolve(changed.binding(2, "sm10")); await flush();
+  assert.equal(changed.messages.some((message) => message.playing), false);
+});
 
 test("content confirms a playing chosen video once and leaves subsequent website autoplay alone", async () => {
   const f = setupContent();

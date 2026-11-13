@@ -95,7 +95,7 @@ export function HistoryView() {
           <div className="history-cover">{cover ? <img src={cover} alt="" draggable={false} onError={() => history.failCover(entry)} /> : <Icon name="music" size={22} />}</div>
           <div className="history-record-content">
             <strong>{!entry.title || /^[?？]+$/.test(entry.title) || entry.title === "神秘歌曲" ? t("信息暂不可用") : entry.title}</strong>
-            <span className="history-artists">{["YouTube", "Bilibili"].includes(entry.platform) ? t("频道 / UP 主：") : ""}{entry.artistNames.filter((name) => !/^[?？]+$/.test(name)).join(" / ")}</span>
+            <span className="history-artists">{entry.platform === "Niconico" ? t("投稿者：") : ["YouTube", "Bilibili"].includes(entry.platform) ? t("频道 / UP 主：") : ""}{entry.artistNames.filter((name) => !/^[?？]+$/.test(name)).join(" / ")}</span>
             <div className="row-meta"><PlatformTag id={entry.platform} /><span className="history-song-id">{entry.songId}</span>
               {stamp && hasStamp && <time dateTime={stamp.toISOString()}>{historyTimeFormatter(currentLocale()).format(stamp)}</time>}</div>
           </div>

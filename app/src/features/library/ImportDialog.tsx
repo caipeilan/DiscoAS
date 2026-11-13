@@ -108,10 +108,10 @@ export function ImportDialog({
             <PlatformIcon id={p.id} /><span>{t(p.label)}</span>{platform === p.id && <Icon name="check" size={13} className="platform-check" />}
           </button>)}</div>
         </fieldset>
-        {["AppleMusic", "YouTube", "Bilibili"].includes(platform) && (
+        {["AppleMusic", "YouTube", "Bilibili", "Niconico"].includes(platform) && (
           <div className="import-platform-note" role="note">
             <Icon name="info" size={16} />
-            <span>{t("由于软件限制，Apple Music、YouTube、Bilibili 只可在网页端运行，请在设置中进行调整。")}</span>
+            <span>{t("此平台通过网页播放器播放，请在设置中连接浏览器。")}</span>
           </div>
         )}
         <fieldset className="motion-fields" disabled={busy || platform === "LocalMusic"}>

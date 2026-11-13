@@ -1,6 +1,6 @@
 export const sourceKinds = (platform: string): string[] =>
   platform === "LocalMusic" ? ["playlist"] :
-  platform === "YouTube" ? ["playlist", "video"] :
+  ["YouTube", "Niconico"].includes(platform) ? ["playlist", "video"] :
     platform === "Bilibili" ? ["video", "favorites", "collection", "series"] : ["playlist", "album"];
 
 /** Share sheets often append a title and instructions around the actual URL. */
@@ -12,11 +12,21 @@ export function extractSourceLink(value: string): string {
 
 export function identifySource(value: string): { platform: string; sourceKind: string } | null {
   const source = extractSourceLink(value);
+  if (/^(sm|nm|so)[1-9]\d{0,19}$/.test(source)) return { platform: "Niconico", sourceKind: "video" };
   if (/^BV[A-Za-z0-9]{10}(?:_p[1-9]\d*)?$/.test(source)) return { platform: "Bilibili", sourceKind: "video" };
   if (source.startsWith("spotify:")) return { platform: "Spotify", sourceKind: source.includes(":album:") ? "album" : "playlist" };
   let url: URL;
   try { url = new URL(source.match(/https?:\/\/[^\s<>"，。]+/)?.[0] || source); } catch { return null; }
   const host = url.hostname.toLowerCase();
+  if (["www.nicovideo.jp", "nicovideo.jp", "sp.nicovideo.jp", "nico.ms"].includes(host)) {
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port) return null;
+    if (/^\/watch\/(?:(?:sm|nm|so))?[1-9]\d{0,19}\/?$/.test(url.pathname) ||
+      (host === "nico.ms" && /^\/(?:(?:sm|nm|so))?[1-9]\d{0,19}\/?$/.test(url.pathname)))
+      return { platform: "Niconico", sourceKind: "video" };
+    if (/^\/(?:user\/[1-9]\d{0,19}\/)?mylist\/[1-9]\d{0,19}\/?$/.test(url.pathname))
+      return { platform: "Niconico", sourceKind: "playlist" };
+    return null;
+  }
   if (host === "kuwo.cn" || host.endsWith(".kuwo.cn"))
     return { platform: "KuwoMusic", sourceKind: /album/i.test(url.pathname + url.hash) || url.searchParams.has("albumId") || url.searchParams.has("albumid") ? "album" : "playlist" };
   if (["www.qishui.com", "qishui.com", "music.douyin.com", "www.douyin.com", "douyin.com"].includes(host) && /\/(playlist|album)(\/|$)/.test(url.pathname))

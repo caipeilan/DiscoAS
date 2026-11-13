@@ -6,12 +6,13 @@ import qq from "../assets/platforms/qq-music.svg";
 import spotify from "../assets/platforms/spotify.svg";
 import youtube from "../assets/platforms/youtube.svg";
 import bilibili from "../assets/platforms/bilibili.svg";
+import niconico from "../assets/platforms/niconico.svg";
 import kugou from "../assets/platforms/kugou.svg";
 import kuwo from "../assets/platforms/kuwo.svg";
 import qishui from "../assets/platforms/qishui.svg";
 import appleMusic from "../assets/platforms/apple-music.svg";
 
-const logos: Record<string, string> = { NeteaseCloudMusic: netease, QQMusic: qq, Spotify: spotify, YouTube: youtube, Bilibili: bilibili,
+const logos: Record<string, string> = { NeteaseCloudMusic: netease, QQMusic: qq, Spotify: spotify, YouTube: youtube, Bilibili: bilibili, Niconico: niconico,
   KugouMusic: kugou, KuwoMusic: kuwo, QishuiMusic: qishui, AppleMusic: appleMusic };
 export function PlatformIcon({ id, size = 24 }: { id: string; size?: number }) {
   if (id === "LocalMusic") return <Icon name="folder" size={size} />;

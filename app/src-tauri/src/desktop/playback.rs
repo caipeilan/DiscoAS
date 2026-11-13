@@ -76,7 +76,7 @@ async fn dispatch_to_platform(
             .map_err(|e| format!("错误：无法打开音频文件，请检查默认播放器：{e}"))?;
     } else if matches!(
         args.platform.as_str(),
-        "YouTube" | "Bilibili" | "AppleMusic"
+        "YouTube" | "Bilibili" | "AppleMusic" | "Niconico"
     ) {
         crate::client_window::cancel_pending();
         app.state::<crate::spotify_playback::PlaybackService>()

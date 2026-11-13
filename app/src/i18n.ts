@@ -20,7 +20,7 @@ export function sourceKindLabel(kind: string): string {
       : "歌单";
 }
 export function itemCountUnit(platform: string, detailed = false): string {
-  return ["YouTube", "Bilibili"].includes(platform) ? t("个视频") : t(detailed ? "首歌曲" : "首");
+  return ["YouTube", "Bilibili", "Niconico"].includes(platform) ? t("个视频") : t(detailed ? "首歌曲" : "首");
 }
 export function t(
   source: string,

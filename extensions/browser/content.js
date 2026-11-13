@@ -8,12 +8,37 @@
   let pollTimer = null;
   // DiscoAS switches by a full tab navigation. A site's later SPA navigation
   // must not let an old media element confirm the requested new URL.
-  const loadedIdentity = DiscoASBrowser.identity(location.href);
+  const loadedUrlIdentity = DiscoASBrowser.identity(location.href);
+  const niconicoVideo = (() => {
+    if (loadedUrlIdentity?.platform !== "Niconico") return null;
+    try {
+      const root = JSON.parse(document.querySelector('meta[name="server-response"]')?.content || "null");
+      const video = (root?.data?.response?.$watchV4?.data || root?.data?.response)?.video;
+      return video && DiscoASBrowser.identity(location.href, video.id)?.songId === video.id &&
+        Number.isFinite(video.duration) && video.duration > 0 ? video : null;
+    } catch { return null; }
+  })();
+  const pageIdentity = () => {
+    const url = DiscoASBrowser.identity(location.href);
+    return DiscoASBrowser.identity(location.href, url?.songId === loadedUrlIdentity?.songId ? niconicoVideo?.id : undefined);
+  };
+  const loadedIdentity = pageIdentity();
   const mainVideo = () => loadedIdentity?.platform === "YouTube"
     ? document.querySelector("#movie_player video.html5-main-video, #movie_player video")
-    : document.querySelector(".bpx-player-video-wrap video, .bilibili-player-video video");
-  const inAd = () => loadedIdentity?.platform === "YouTube" && !!document.querySelector(".html5-video-player.ad-showing, .html5-video-player.ad-interrupting");
-  const send = (data) => extensionApi.runtime.sendMessage(data).catch(() => null);
+    : loadedIdentity?.platform === "Niconico"
+      ? document.querySelector("#MainVideoPlayer video, .VideoPlayer video") || document.querySelector("video")
+      : document.querySelector(".bpx-player-video-wrap video, .bilibili-player-video video");
+  const inAd = () => {
+    if (loadedIdentity?.platform === "YouTube") return !!document.querySelector(".html5-video-player.ad-showing, .html5-video-player.ad-interrupting");
+    if (loadedIdentity?.platform !== "Niconico") return false;
+    const video = mainVideo();
+    // shortcut: niconico prerolls are distinguished by metadata duration; revisit when a stable ad marker is verified.
+    return pageIdentity()?.songId === loadedIdentity.songId &&
+      Number.isFinite(niconicoVideo?.duration) && niconicoVideo.duration > 0 &&
+      (!Number.isFinite(video?.duration) || Math.abs(video.duration - niconicoVideo.duration) > 2);
+  };
+  const send = (data) => extensionApi.runtime.sendMessage({ ...data,
+    ...(loadedIdentity?.platform === "Niconico" ? { songId: pageIdentity()?.songId } : {}) }).catch(() => null);
   function unwatchVideo() {
     if (observedVideo) mediaEvents.forEach((event) => observedVideo.removeEventListener(event, tick));
     observedVideo = null;
@@ -37,9 +62,13 @@
   }
   async function tick() {
     if (!pageActive || !binding || pausedByDiscoAS) return;
+    if (loadedIdentity?.platform === "Niconico" && !niconicoVideo) {
+      if (!tried) { tried = true; await send({ type: "discoas-state", requestId: binding.requestId, error: "错误：视频无法播放" }); }
+      return;
+    }
     if (confirmed) {
       if ((!AUTO_PLAY_AVAILABLE || binding?.observing !== true)) { stopWatching(); return; }
-      const actual = DiscoASBrowser.identity(location.href), video = mainVideo();
+      const actual = pageIdentity(), video = mainVideo();
       if (!actual || !video || inAd() || video.error || video.readyState < 2) return;
       if (observedVideo !== video) { unwatchVideo(); observedVideo = video; mediaEvents.forEach(event => video.addEventListener(event, tick)); }
       await send({ type: "discoas-observation", requestId: binding.requestId,
@@ -50,11 +79,11 @@
     const request = binding;
     const epoch = pageEpoch;
     const current = () => pageActive && pageEpoch === epoch && binding === request && !confirmed && (() => {
-      const now = DiscoASBrowser.identity(location.href);
+      const now = pageIdentity();
       return now && loadedIdentity && now.platform === request.platform && now.songId === request.songId &&
         loadedIdentity.platform === now.platform && loadedIdentity.songId === now.songId;
     })();
-    const actual = DiscoASBrowser.identity(location.href);
+    const actual = pageIdentity();
     if (!actual || actual.platform !== binding.platform || actual.songId !== binding.songId) return;
     if (!loadedIdentity || loadedIdentity.platform !== actual.platform || loadedIdentity.songId !== actual.songId) return;
     const video = mainVideo();

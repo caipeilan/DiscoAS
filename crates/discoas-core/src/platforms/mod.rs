@@ -15,6 +15,7 @@ pub mod kugou;
 pub mod kuwo;
 pub mod local;
 pub mod netease;
+pub mod niconico;
 mod public_music;
 pub mod qishui;
 pub mod qq;
@@ -36,6 +37,7 @@ pub mod names {
     pub const SPOTIFY: &str = "Spotify";
     pub const YOUTUBE: &str = "YouTube";
     pub const BILIBILI: &str = "Bilibili";
+    pub const NICONICO: &str = "Niconico";
     pub const LOCAL: &str = "LocalMusic";
 }
 
@@ -63,7 +65,7 @@ pub fn supported_kinds(platform: &str) -> AppResult<&'static [SourceKind]> {
         | names::KUWO
         | names::QISHUI
         | names::APPLE_MUSIC => Ok(&[SourceKind::Playlist, SourceKind::Album]),
-        names::YOUTUBE => Ok(&[SourceKind::Playlist, SourceKind::Video]),
+        names::YOUTUBE | names::NICONICO => Ok(&[SourceKind::Playlist, SourceKind::Video]),
         names::BILIBILI => Ok(&[
             SourceKind::Favorites,
             SourceKind::Collection,
@@ -129,6 +131,7 @@ pub fn fetcher_for(platform: &str) -> AppResult<Box<dyn PlaylistFetcher>> {
         names::SPOTIFY => Ok(Box::new(spotify::SpotifyFetcher)),
         names::YOUTUBE => Ok(Box::new(youtube::YoutubeFetcher)),
         names::BILIBILI => Ok(Box::new(bilibili::BilibiliFetcher)),
+        names::NICONICO => Ok(Box::new(niconico::NiconicoFetcher)),
         other => Err(AppError::UnsupportedPlatform(other.to_string())),
     }
 }
@@ -208,7 +211,9 @@ pub fn detail_loader_for(platform: &str) -> AppResult<Box<dyn SongDetailLoader>>
         names::QISHUI => Ok(Box::new(qishui::QishuiDetailLoader)),
         names::APPLE_MUSIC => Ok(Box::new(apple_music::AppleMusicDetailLoader)),
         names::SPOTIFY => Ok(Box::new(spotify::SpotifyDetailLoader)),
-        names::YOUTUBE | names::BILIBILI => Ok(Box::new(video::VideoDetailLoader)),
+        names::YOUTUBE | names::BILIBILI | names::NICONICO => {
+            Ok(Box::new(video::VideoDetailLoader))
+        }
         other => Err(AppError::UnsupportedPlatform(other.to_string())),
     }
 }
@@ -241,6 +246,7 @@ pub fn build_scheme_url(args: &crate::model::PlaySongArgs) -> AppResult<String> 
         names::SPOTIFY => spotify::card::scheme_url(&args.song_id, &args.source_id),
         names::YOUTUBE => youtube::playback_url(&args.song_id)?,
         names::BILIBILI => bilibili::playback_url(&args.song_id)?,
+        names::NICONICO => niconico::playback_url(&args.song_id)?,
         other => return Err(AppError::UnsupportedPlatform(other.into())),
     })
 }
@@ -252,6 +258,11 @@ mod playback_tests {
 
     #[test]
     fn source_capabilities_keep_video_kinds_out_of_music_platforms() {
+        assert_eq!(
+            supported_kinds(names::NICONICO).unwrap(),
+            &[SourceKind::Playlist, SourceKind::Video]
+        );
+        assert!(validate_kind(names::NICONICO, SourceKind::Album).is_err());
         assert_eq!(
             supported_kinds(names::YOUTUBE).unwrap(),
             &[SourceKind::Playlist, SourceKind::Video]
@@ -278,6 +289,12 @@ mod playback_tests {
             assert!(validate_kind(platform, SourceKind::Album).is_ok());
         }
         for (platform, song, kind, expected) in [
+            (
+                names::NICONICO,
+                "sm9",
+                "playlist",
+                "https://www.nicovideo.jp/watch/sm9",
+            ),
             (
                 names::YOUTUBE,
                 "dQw4w9WgXcQ",

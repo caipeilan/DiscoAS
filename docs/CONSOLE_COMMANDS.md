@@ -47,7 +47,7 @@ history get NeteaseCloudMusic 00123
 | `token` | 现有手牌播放与确认流程的标识；用于诊断，不替代 operationId。 |
 | `subscriptionId` / `after` | 订阅标识与事件序号。第三方通过 `event.poll` 取得事件。 |
 
-平台标识可由 `platform list` 查询：NeteaseCloudMusic、QQMusic、KugouMusic、KuwoMusic、QishuiMusic、Spotify、AppleMusic、YouTube、Bilibili、LocalMusic。所有 ID 保持字符串，包括带前导零的 ID。来源类型由 `source kinds <platform>` 查询。
+平台标识可由 `platform list` 查询：NeteaseCloudMusic、QQMusic、KugouMusic、KuwoMusic、QishuiMusic、Spotify、AppleMusic、YouTube、Bilibili、Niconico、LocalMusic。所有 ID 保持字符串，包括带前导零的 ID。来源类型由 `source kinds <platform>` 查询。
 
 默认省略歌单、发现、手牌、历史及事件中的封面 data URI。需要封面时使用 `cover get`、`history covers`，或命令支持的 `--include-covers true`。
 

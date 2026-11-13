@@ -355,7 +355,7 @@ async fn pause(app: &tauri::AppHandle, params: &Map<String, Value>) -> Result<Va
     if !matches!(result, Ok(true))
         && platform
             .as_deref()
-            .is_none_or(|p| matches!(p, "YouTube" | "Bilibili" | "AppleMusic"))
+            .is_none_or(|p| matches!(p, "YouTube" | "Bilibili" | "AppleMusic" | "Niconico"))
         && app
             .state::<crate::browser_playback::BrowserPlaybackService>()
             .has_controlled_session()

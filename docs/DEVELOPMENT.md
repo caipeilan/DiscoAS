@@ -77,6 +77,7 @@ cargo fmt   --manifest-path src-tauri/Cargo.toml -- --check
 | 使用引导/创建手牌 | `npm run test:onboarding`；核心 `platforms::track_input`、`hand`，桌面 `desktop::onboarding` |
 | 托盘、更新、安装器 | `npm run test:tray`、`test:updates`、`test:installer` |
 | 浏览器/Spotify 扩展 | `npm run test:browser` / `npm run test:spotify` |
+| niconico 来源与网页播放 | `test:source`、`test:browser`、`test:connections`、`test:library`、`test:history`、`test:auto-hand`、`test:transport`；核心 `platforms::niconico`、`platforms::source`、`platforms::track_input`、`core::discover`；桌面 `services::browser_bridge`、`desktop::console::sources` |
 | 启动动画 | `npm run test:startup` |
 
 启动焦点修改需在隔离 Windows 实例覆盖普通启动、仅托盘启动和 `--background`：启动前在其他程序输入，连续记录从窗口创建、开屏出现与消失到 6 秒兜底之后的前台窗口，确认无瞬时激活或键盘输入转移。检查开屏鼠标穿透、托盘和单实例二次启动主动唤起、主窗口点击输入；前端动画测试只覆盖配置及动画完成逻辑，不能替代原生焦点验收。
@@ -90,6 +91,15 @@ cargo fmt   --manifest-path src-tauri/Cargo.toml -- --check
 - 样式/动画先做可交互预览或截图确认，再进入打包；浏览器预览不等于原生验收。
 
 ## 原生 QA
+
+niconico 验收使用独立 `DISCOAS_TEST_ROOT`，真实网页操作、响应样本和截图保存在 Git 忽略的 `.local-qa/`：
+
+- 检查公开视频链接、`nico.ms`、视频 ID、公开 mylist 的导入、刷新、来源互斥、封面、历史、发现及手动收牌；分页失败必须保留之前的来源文件。常规单元测试使用人工构造的最小元数据，不依赖真实列表内容。
+- 扩展更新至 0.5.2 后重新加载现有 Chrome/Edge 或 Firefox 扩展，确认允许访问 `www.nicovideo.jp`，再刷新播放页。测试复用受控标签页、播放确认、暂停、进度/结束与 AUTO，检查快速切歌、断线、数字频道别名、站内自动续播、浏览器禁止自动播放以及无关标签页隔离。`direct` 模式只验证打开官方播放地址。
+- 广告识别目前按页面声明时长与实际媒体时长比较；广告与正片时长相近时可能无法区分，需真实站点验收后再调整。2026-11-13 的浏览器站点安全策略阻止访问 niconico 播放页，本轮记录扩展模拟验证结果，真实网页实播保留为待验收项。
+
+2026-11-13 niconico 接入验证：前端相关测试 147 项、核心测试 268 项通过（原有公网测试等 15 项忽略），类型检查、前端构建及控制台文档一致性检查通过。公开 mylist `12682175` 实测返回 23 项，导入 21 个公开视频，2 项记为不可用，投稿者和封面可读。Windows 后端 `cargo check --lib` 通过；完整桌面测试编译因系统提交内存不足、页面文件太小而中断。独立本地测试入口直接引用实际 `services/browser_bridge.rs`，6 项本机通道测试通过，包含两类浏览器扩展来源的 niconico 派发与播放确认。该入口、响应样本和截图均在 `.local-qa/niconico-20261113/`，不进入 Git。本轮按用户要求仅本地提交、不打包；真实网页实播保留为待验收项。
+
 
 调试构建可把应用根和 `user_data` 指向隔离目录：
 

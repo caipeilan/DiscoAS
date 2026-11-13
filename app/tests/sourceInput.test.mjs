@@ -17,6 +17,19 @@ test("share text extracts one usable link while preserving IDs and URL query fie
   assert.deepEqual(identifySource('https://i.y.qq.com/n2/m/share/details/album.html?albummid=abc'), { platform: 'QQMusic', sourceKind: 'album' });
 });
 
+test("niconico recognizes video IDs, short links and public mylists", () => {
+  assert.deepEqual(sourceKinds("Niconico"), ["playlist", "video"]);
+  for (const input of ["sm9", "nm123", "so123", "https://www.nicovideo.jp/watch/sm9?from=share",
+    "https://nico.ms/sm9", "https://sp.nicovideo.jp/watch/nm123", "https://www.nicovideo.jp/watch/1234567890"])
+    assert.deepEqual(identifySource(input), { platform: "Niconico", sourceKind: "video" });
+  for (const input of ["https://www.nicovideo.jp/mylist/123", "https://nico.ms/mylist/123",
+    "分享 https://www.nicovideo.jp/user/7/mylist/123。"])
+    assert.deepEqual(identifySource(input), { platform: "Niconico", sourceKind: "playlist" });
+  for (const input of ["sm0", "sm01", "https://www.nicovideo.jp.evil/watch/sm9", "https://user@www.nicovideo.jp/watch/sm9",
+    "https://www.nicovideo.jp:8443/watch/sm9", "https://www.nicovideo.jp/watch/sm9/extra", "https://www.nicovideo.jp/series/123"])
+    assert.equal(identifySource(input), null);
+});
+
 test("new platform controls expose only the source kinds the backend supports", () => {
   assert.deepEqual(sourceKinds("LocalMusic"), ["playlist"]);
   assert.deepEqual(sourceKinds("YouTube"), ["playlist", "video"]);

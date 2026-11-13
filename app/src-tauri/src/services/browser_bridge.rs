@@ -813,6 +813,17 @@ mod tests {
             std::thread::sleep(Duration::from_millis(150));
             assert_eq!(bridge.outcome(2), None);
             assert!(bridge.observation(2).is_none());
+            newest.store(3, Ordering::SeqCst);
+            bridge.dispatch(3, "Niconico", "sm9", &[]).unwrap();
+            let command: serde_json::Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(command["platform"], "Niconico");
+            assert_eq!(command["songId"], "sm9");
+            socket.send(Message::Text("{\"requestId\":3,\"platform\":\"Niconico\",\"songId\":\"sm9\",\"playing\":true}".into())).unwrap();
+            for _ in 0..50 {
+                if bridge.outcome(3).is_some() { break; }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert_eq!(bridge.outcome(3), Some(Ok(())));
             let _ = socket.close(None);
             drop(socket);
             drop(bridge);

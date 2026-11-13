@@ -109,16 +109,6 @@ fn validate_raw(kind: SourceKind, raw: &str) -> AppResult<()> {
     }
 }
 
-fn decode_html(value: &str) -> String {
-    value
-        .replace("&quot;", "\"")
-        .replace("&#x27;", "'")
-        .replace("&#39;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-}
-
 fn artwork(raw: &str) -> String {
     if raw.trim().is_empty() {
         return String::new();
@@ -140,7 +130,7 @@ fn parse_page(html: &str, kind: SourceKind, canonical_id: &str, raw_id: &str) ->
     let capture = SERIALIZED
         .captures(html)
         .ok_or_else(|| music::error("Apple Music 页面数据不可用"))?;
-    let root: Value = serde_json::from_str(&decode_html(&capture[1]))
+    let root: Value = serde_json::from_str(&music::decode_html(&capture[1]))
         .map_err(|_| music::error("Apple Music 页面数据无效"))?;
     let page = root["data"]
         .as_array()

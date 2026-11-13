@@ -2,7 +2,7 @@
 
 本文档描述当前实现的架构、边界和不能随意改变的行为。只记录当前事实；版本历史见 [CHANGELOG](../CHANGELOG.md)，历史设计与旧验证记录已归档到 `.local-docs/archive/`，不作为当前规格。
 
-版本以 [app/package.json](../app/package.json)、[crates/discoas-core/Cargo.toml](../crates/discoas-core/Cargo.toml) 和 [extensions/browser/manifest.json](../extensions/browser/manifest.json) 为准。本文基线：应用 2.1.3、core 2.0.15、浏览器扩展 0.5.1（2026-11-13）。
+版本以 [app/package.json](../app/package.json)、[crates/discoas-core/Cargo.toml](../crates/discoas-core/Cargo.toml) 和 [extensions/browser/manifest.json](../extensions/browser/manifest.json) 为准。本文基线：应用 2.1.3、core 2.0.16、浏览器扩展 0.5.2（2026-11-13）。
 
 ## 文档分工
 
@@ -121,6 +121,7 @@ user_data/
 | --- | --- |
 | `NeteaseCloudMusic` / `QQMusic` / `KugouMusic` / `KuwoMusic` / `QishuiMusic` / `Spotify` / `AppleMusic` | playlist、album |
 | `YouTube` | playlist、video |
+| `Niconico` | playlist（公开 mylist）、video |
 | `Bilibili` | video、favorites、collection、series |
 | `LocalMusic` | playlist |
 
@@ -130,6 +131,7 @@ user_data/
 - 网易云、QQ 使用批量详情接口；酷狗、酷我、汽水、Spotify、Apple Music 和视频平台使用当前来源快照。缺详情时保留可播放占位，不伪造成功。
 - Spotify 导入使用公开 Embed 页面建立匿名会话，不登录账号、不保存用户令牌。
 - Apple Music 读取公开页 `serialized-server-data`，要求页头曲目数与实际曲目数一致；播放只走浏览器扩展。
+- niconico 读取公开视频页的 `server-response` / `$watchV4` 元数据，以及公开 mylist 的分页目录。支持 `nicovideo.jp/watch/…`、`nico.ms/…`、mylist 链接及 ID；歌曲身份使用元数据中的视频 ID，数字频道链接可对应规范 `so` ID。列表总数、分页标记、条目标识必须完整且一致；重复视频合并，删除、不可见及需付费条目计入不可用数量，失败不替换已有缓存。投稿者作为视频作者展示，不推断歌曲演唱者。
 - 酷我播放前读取官网歌曲页的 `kuwo://` URI；汽水使用 `luna://luna.com/playing`；本地音频交给系统默认播放器。
 - 封面下载只接受真实图片字节；网络失败使用占位，不阻塞整批。
 
@@ -222,6 +224,7 @@ user_data/
 - 可选“切歌前暂停”：先暂停当前 Windows 媒体会话，再回退到受控浏览器或 Spotify 扩展；自动出牌已建立的暂停不重复执行。
 - 普通平台走客户端协议；酷我先解析官网原生 URI；本地音频交给系统默认播放器；Spotify 支持 `extension` / `scheme` / `pause_then_scheme`；浏览器支持 `extension` / `direct`，Apple Music 仅扩展。
 - 浏览器扩展只控制一个绑定页：新选择暂停旧页并导航到新目标，不搜索或暂停用户自己打开的其它页面。
+- niconico 与 YouTube/Bilibili 共用浏览器的 `extension` / `direct` 模式；扩展 0.5.2 在 Chrome/Edge 和 Firefox 注入官方 watch 页，读取主视频的播放、暂停、进度和结束状态。频道数字 URL 仅与页面元数据中的 `so` ID 互认，旧页面元数据不用于后续站内导航。当前以页面声明时长与媒体时长区分加载/前置广告；这条识别规则尚待真实网页播放验收。
 - Spotify 扩展通过 Spicetify 的 `playUri` / `pause`；原生确认只能证明标题/歌手匹配时报告 `confirmed=false`，不能冒充精确身份。
 - 客户端隔离：`off` / `temporary` / `persistent`，可配合“独立桌面”。准备失败时阻止 URI 派发并保留手牌，不退回会抢焦点的普通 opener。临时模式结束后最小化或恢复原隐藏状态；长期模式保持后台窗口。
 - 独立桌面帮助提示提供实验性规避步骤：若切歌跳到 DiscoAS 桌面，先切回日常桌面、重启客户端，再切歌使其由现有流程移回独立桌面。该路径来自网易云实测，其他客户端需分别验证。

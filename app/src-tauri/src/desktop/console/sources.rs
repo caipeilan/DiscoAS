@@ -22,6 +22,7 @@ pub const PLATFORMS: &[&str] = &[
     names::APPLE_MUSIC,
     names::YOUTUBE,
     names::BILIBILI,
+    names::NICONICO,
     names::LOCAL,
 ];
 pub fn platforms() -> Value {
@@ -79,6 +80,13 @@ fn link(input: &str) -> &str {
 }
 pub fn identify(input: &str) -> Result<Value> {
     let input = link(input);
+    if ["sm", "nm", "so"]
+        .iter()
+        .any(|prefix| input.starts_with(*prefix))
+        && platforms::niconico::valid_video_id(input)
+    {
+        return Ok(json!({"platform":names::NICONICO,"sourceKind":"video"}));
+    }
     let (bvid, part) = input
         .split_once("_p")
         .map_or((input, None), |(id, part)| (id, Some(part)));
@@ -102,6 +110,19 @@ pub fn identify(input: &str) -> Result<Value> {
     })?;
     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
     let path = url.path();
+    if matches!(
+        host.as_str(),
+        "www.nicovideo.jp" | "nicovideo.jp" | "sp.nicovideo.jp" | "nico.ms"
+    ) {
+        for kind in [SourceKind::Video, SourceKind::Playlist] {
+            if platforms::niconico::normalize(kind, input).is_ok() {
+                return Ok(json!({"platform":names::NICONICO,"sourceKind":kind.as_str()}));
+            }
+        }
+        return Err(ConsoleError::argument(
+            "请输入 niconico 视频或公开 mylist 链接。",
+        ));
+    }
     let platform = if host == "music.163.com" {
         names::NETEASE
     } else if matches!(host.as_str(), "y.qq.com" | "i.y.qq.com") {
@@ -535,6 +556,32 @@ mod tests {
         assert!(identify("https://music.apple.com/us/artist/test/123").is_err());
         assert!(identify("BV1234567890garbage").is_err());
         assert_eq!(identify("BV1234567890_p2").unwrap()["sourceKind"], "video");
+        for (input, kind) in [
+            ("sm9", "video"),
+            ("https://nico.ms/sm9", "video"),
+            ("https://www.nicovideo.jp/mylist/123", "playlist"),
+            ("https://www.nicovideo.jp/user/7/mylist/123", "playlist"),
+        ] {
+            let identified = identify(input).unwrap();
+            assert_eq!(identified["platform"], names::NICONICO);
+            assert_eq!(identified["sourceKind"], kind);
+        }
+        for input in [
+            "https://www.nicovideo.jp.evil/watch/sm9",
+            "https://www.nicovideo.jp/series/123",
+            "https://user@www.nicovideo.jp/watch/sm9",
+        ] {
+            assert!(identify(input).is_err());
+        }
+        assert_eq!(
+            platforms()
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["platform"] == names::NICONICO)
+                .unwrap()["sourceKinds"],
+            json!(["playlist", "video"])
+        );
         assert_eq!(
             identify("https://music.163.com/#/album?id=1").unwrap()["sourceKind"],
             "album"

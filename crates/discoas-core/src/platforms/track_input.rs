@@ -22,6 +22,7 @@ fn domain(platform: &str, host: &str) -> bool {
         names::APPLE_MUSIC => &["music.apple.com"],
         names::YOUTUBE => &["youtube.com", "youtu.be"],
         names::BILIBILI => &["bilibili.com", "b23.tv"],
+        names::NICONICO => &["nicovideo.jp", "nico.ms"],
         _ => &[],
     };
     suffixes
@@ -37,6 +38,13 @@ fn input_url(input: &str) -> Option<Url> {
 }
 pub fn parse_track_id(platform: &str, input: &str) -> AppResult<String> {
     let input = input.trim();
+    if platform == names::NICONICO {
+        let url = input_url(input);
+        return super::niconico::normalize(
+            SourceKind::Video,
+            url.as_ref().map_or(input, |url| url.as_str()),
+        );
+    }
     let candidate = if let Some(id) = input.strip_prefix("spotify:track:") {
         if platform != names::SPOTIFY {
             return Err(invalid("链接平台与当前启用歌单不一致"));
@@ -213,6 +221,7 @@ mod tests {
                 "https://www.bilibili.com/video/BV1234abc567?p=2",
                 "BV1234abc567_p2",
             ),
+            (names::NICONICO, "分享 https://nico.ms/sm9。", "sm9"),
         ] {
             assert_eq!(parse_track_id(platform, link).unwrap(), id);
             assert_eq!(parse_track_id(platform, id).unwrap(), id);
@@ -402,7 +411,18 @@ pub async fn resolve_track(
             }
         }
     }
-    let id = id?;
+    let mut id = id?;
+    if platform == names::NICONICO
+        && raw["playlist_album_type"] == "video"
+        && raw["playlist_album_id"] == id
+    {
+        if let Some(canonical) = raw["song_ids"][0]
+            .as_str()
+            .filter(|id| super::niconico::valid_video_id(id))
+        {
+            id = canonical.into();
+        }
+    }
     let loader = detail_loader_for(platform)?;
     let mut fetched_filename = None;
     let detail = match loader.load_song_detail(raw, &id, false, "").await {
@@ -439,10 +459,16 @@ pub async fn resolve_track(
             loader.load_song_detail(&single, &id, false, "").await?
         }
         Err(_) if platform == names::KUWO => super::kuwo::fetch_track_detail(&id).await?,
-        Err(_) if matches!(platform, names::YOUTUBE | names::BILIBILI) => {
+        Err(_) if matches!(platform, names::YOUTUBE | names::BILIBILI | names::NICONICO) => {
             let single = super::fetcher_for(platform)?
                 .fetch(&id, SourceKind::Video)
                 .await?;
+            if platform == names::NICONICO {
+                id = single["song_ids"][0]
+                    .as_str()
+                    .ok_or_else(|| invalid("niconico 视频身份缺失"))?
+                    .into();
+            }
             loader.load_song_detail(&single, &id, false, "").await?
         }
         Err(_) if matches!(platform, names::SPOTIFY | names::APPLE_MUSIC) => {

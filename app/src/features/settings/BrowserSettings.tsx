@@ -91,7 +91,7 @@ export function BrowserSettings({ settings, setSettings }: {
   };
 
   return <section ref={section} className="settings-section">
-    <h2>{t("Apple Music / YouTube / Bilibili")}</h2>
+    <h2>{t("Apple Music / YouTube / Bilibili / niconico")}</h2>
     <SettingRow title={t("播放方式")} description={t("连接后会重复使用同一个播放标签页。请保持浏览器和 DiscoAS 运行。") }>
       <Select label={t("浏览器播放方式")} value={settings.browserPlaybackMode}
         onChange={(value) => setSettings((current) => ({ ...current, browserPlaybackMode: value as DesktopPreferences["browserPlaybackMode"] }))}

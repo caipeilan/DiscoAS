@@ -917,6 +917,7 @@ mod tests {
             names::QISHUI,
             names::YOUTUBE,
             names::BILIBILI,
+            names::NICONICO,
             names::LOCAL,
         ] {
             settings.sources[0].platform = platform.into();

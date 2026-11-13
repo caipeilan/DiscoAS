@@ -1008,7 +1008,7 @@ mod tests {
             mystery_song_count: 1,
             ..Default::default()
         };
-        for platform in ["KuwoMusic", "QishuiMusic", "YouTube", "Bilibili"] {
+        for platform in ["KuwoMusic", "QishuiMusic", "YouTube", "Bilibili", "Niconico"] {
             let songs = load_one_batch(&raw, &source(platform), &settings)
                 .await
                 .unwrap();

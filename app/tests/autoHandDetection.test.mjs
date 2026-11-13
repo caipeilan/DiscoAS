@@ -9,7 +9,7 @@ const { supportsAutoPlay, supportsDetection, detectionForPlatform } = await impo
 
 test("automatic playback is available for every supported source", () => {
   assert.equal(supportsAutoPlay("Spotify"), true);
-  for (const platform of [undefined, "NeteaseCloudMusic", "QQMusic", "KugouMusic", "KuwoMusic", "QishuiMusic", "YouTube", "Bilibili", "AppleMusic", "LocalMusic"]) {
+  for (const platform of [undefined, "NeteaseCloudMusic", "QQMusic", "KugouMusic", "KuwoMusic", "QishuiMusic", "YouTube", "Bilibili", "Niconico", "AppleMusic", "LocalMusic"]) {
     assert.equal(supportsAutoPlay(platform), true);
   }
 });
@@ -23,7 +23,7 @@ test("each supported platform disables inapplicable detection choices and repair
   for (const mode of ["system", "window", "mixed"]) {
     assert.equal(supportsDetection("KuwoMusic", mode), mode === "window");
     assert.equal(detectionForPlatform("KuwoMusic", mode), "window");
-    for (const platform of ["QishuiMusic", "YouTube", "Bilibili", "LocalMusic"]) {
+    for (const platform of ["QishuiMusic", "YouTube", "Bilibili", "Niconico", "LocalMusic"]) {
       assert.equal(supportsDetection(platform, mode), mode === "system");
       assert.equal(detectionForPlatform(platform, mode), "system");
     }

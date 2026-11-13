@@ -1,6 +1,9 @@
 /* Shared identity and controlled-tab state machine. No site credentials or media URLs. */
 (() => {
+  const niconicoVideoId = (id) => typeof id === "string" && /^(?:(?:sm|nm|so))?[1-9]\d{0,19}$/.test(id);
   function target(platform, songId) {
+    if (platform === "Niconico" && niconicoVideoId(songId))
+      return { platform, songId, url: `https://www.nicovideo.jp/watch/${songId}` };
     if (platform === "AppleMusic" && /^\d{1,20}$/.test(songId))
       return { platform, songId, url: "https://music.apple.com/" };
     if (platform === "YouTube" && /^[A-Za-z0-9_-]{11}$/.test(songId))
@@ -10,10 +13,19 @@
       return { platform, songId, url: `https://www.bilibili.com/video/${bili[1]}/?p=${bili[2]}` };
     throw new Error("错误：视频编号无效");
   }
-  function identity(url) {
+  function identity(url, niconicoCanonicalId) {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:") return null;
+      if (parsed.hostname === "www.nicovideo.jp" && !parsed.username && !parsed.password && !parsed.port) {
+        const video = /^\/watch\/([^/]+)\/?$/.exec(parsed.pathname)?.[1];
+        if (!niconicoVideoId(video)) return null;
+        // A channel's numeric watch URL and so ID identify the same page.
+        const alias = niconicoVideoId(niconicoCanonicalId) &&
+          ((/^so/.test(video) && /^\d+$/.test(niconicoCanonicalId)) ||
+           (/^\d+$/.test(video) && /^so/.test(niconicoCanonicalId)));
+        return { platform: "Niconico", songId: alias ? niconicoCanonicalId : video };
+      }
       if (parsed.hostname === "music.apple.com") return { platform: "AppleMusic" };
       if (parsed.hostname === "www.youtube.com" && parsed.pathname === "/watch") {
         const id = parsed.searchParams.get("v");
@@ -131,7 +143,7 @@
       await ready;
       const epoch = sessionEpoch;
       if (!binding || sender.frameId !== 0 || sender.tab?.id !== binding.tabId) return null;
-      const actual = identity(sender.url || sender.tab?.url || "");
+      const actual = identity(sender.url || sender.tab?.url || "", message.songId);
       if (!actual) return null;
       if (binding.platform === "AppleMusic") {
         if (actual.platform !== "AppleMusic") return null;

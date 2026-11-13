@@ -122,6 +122,14 @@ test("Tauri dependencies stay behind the desktop service boundary", () => {
     }
   }
 });
+test("niconico platform errors remain readable in every language", () => {
+  setLanguage("en_US");
+  assert.equal(errorText("平台错误: 错误：请使用公开的 niconico mylist"), "Error: Use a public niconico mylist");
+  setLanguage("zh_TW");
+  assert.equal(errorText("平台错误: 错误：niconico 视频标题缺失"), "錯誤：niconico 影片標題缺失");
+  setLanguage("zh_CN");
+});
+
 test("language changes translate text and interpolate metadata without translating it", () => {
   setLanguage("en_US");
   assert.equal(t("播放 {p0}", { p0: "歌名 {unknown}" }), "Play 歌名 {unknown}");

@@ -731,6 +731,7 @@ mod tests {
             names::SPOTIFY,
             names::YOUTUBE,
             names::BILIBILI,
+            names::NICONICO,
             names::LOCAL,
         ] {
             for mode in [Mode::System, Mode::Window, Mode::Mixed] {
@@ -748,7 +749,7 @@ mod tests {
                 settings.normalize_preferences();
                 let expected = match platform {
                     names::KUWO => Mode::Window,
-                    names::QISHUI | names::YOUTUBE | names::BILIBILI | names::LOCAL => Mode::System,
+                    names::QISHUI | names::YOUTUBE | names::BILIBILI | names::NICONICO | names::LOCAL => Mode::System,
                     _ => mode,
                 };
                 assert_eq!(settings.hand.auto_play_detection, expected, "{platform}");

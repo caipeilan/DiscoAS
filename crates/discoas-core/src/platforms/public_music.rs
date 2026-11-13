@@ -27,6 +27,17 @@ pub(super) fn string(value: &Value) -> Option<String> {
         _ => None,
     }
 }
+pub(super) fn decode_html(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&#34;", "\"")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
 pub(super) fn artwork(raw: &str) -> String {
     let raw = raw.trim();
     let Some(url) = reqwest::Url::parse(raw).ok() else {

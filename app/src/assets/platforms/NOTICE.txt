@@ -16,3 +16,6 @@ with a cropped viewport; the export's background is omitted.
 The Apple Music glyph is a generic beamed-note mark drawn for this project.
 "Apple Music" is a trademark of Apple Inc.; the mark is used only to identify
 the supported service.
+
+The niconico glyph is a generic television drawn for this project.
+"niconico" is a trademark of its owner; the glyph identifies the supported service.
