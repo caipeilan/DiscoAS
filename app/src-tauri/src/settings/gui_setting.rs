@@ -35,6 +35,8 @@ pub struct ColorGroup {
 pub enum Skin {
     #[serde(rename = "curry-udon")]
     CurryUdon,
+    #[serde(rename = "indigestion")]
+    Indigestion,
     #[default]
     #[serde(other, rename = "classic")]
     Classic,
@@ -311,6 +313,7 @@ mod tests {
         for (name, expected) in [
             ("classic", Skin::Classic),
             ("curry-udon", Skin::CurryUdon),
+            ("indigestion", Skin::Indigestion),
             ("unknown-skin", Skin::Classic),
         ] {
             value["skin"] = name.into();

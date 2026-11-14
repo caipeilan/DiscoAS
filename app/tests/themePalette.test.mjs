@@ -14,15 +14,26 @@ const { effectiveNightMode } = await import(`data:text/javascript;base64,${Buffe
 const skinOutput = ts.transpileModule(fs.readFileSync(new URL("../src/skins.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
 }).outputText;
-const { skins, effectiveSkin, skinFrameImage } = await import("data:text/javascript;base64," + Buffer.from(skinOutput).toString("base64"));
+const { skins, effectiveSkin, skinFrameImage, pencilFrameImage } = await import("data:text/javascript;base64," + Buffer.from(skinOutput).toString("base64"));
 
 test("skin identifiers stay independent of labels and unknown or legacy values select classic", () => {
-  assert.deepEqual(skins.map(skin => skin.id), ["classic", "curry-udon"]);
+  assert.deepEqual(skins.map(skin => skin.id), ["classic", "curry-udon", "indigestion"]);
   for (const value of [undefined, null, "", "unknown", "咖喱乌冬面"]) assert.equal(effectiveSkin(value), "classic");
   assert.equal(effectiveSkin("curry-udon"), "curry-udon");
+  assert.equal(effectiveSkin("indigestion"), "indigestion");
   const image = skinFrameImage("rgb(55, 59, 54)");
   assert.ok(image.startsWith('url("data:image/svg+xml,'));
   assert.ok(decodeURIComponent(image).includes('stroke="rgb(55, 59, 54)"'));
+  assert.ok(decodeURIComponent(skinFrameImage("#fff", "#fff")).includes('fill="#fff"'));
+});
+
+test("graphite recoloring uses pigment alpha and retains two-pass density", () => {
+  const pigment = "data:image/png;base64," + fs.readFileSync(new URL("../src/assets/skins/indigestion-pencil.png", import.meta.url)).toString("base64");
+  const image = decodeURIComponent(pencilFrameImage("#a83850", pigment));
+  assert.ok(image.includes('style="mask-type:alpha"'));
+  assert.ok(image.includes('fill="#a83850"'));
+  assert.equal(image.split(pigment).length, 2, "the original bitmap is embedded once");
+  assert.ok(image.includes('<use href="#pigment"/>'));
 });
 
 test("system appearance follows changes while explicit and legacy choices stay fixed", () => {
@@ -76,9 +87,10 @@ test("unchanged appearance snapshots skip root writes while real appearance and 
   globalThis.window={matchMedia:()=>({matches:systemDark})};
   globalThis.CSS={supports:()=>true};
   globalThis.getComputedStyle=()=>{frameReads++;return {getPropertyValue:()=>systemDark ? "#a1a38b" : "#575b50"};};
-  globalThis.__appearanceTest={discoveryThemePalette,effectiveNightMode,effectiveSkin,skinFrameImage};
+  globalThis.__appearanceTest={discoveryThemePalette,effectiveNightMode,effectiveSkin,skinFrameImage,pencilFrameImage};
   try {
-    const output=ts.transpileModule(fs.readFileSync(new URL("../src/appearance.ts",import.meta.url),"utf8"),{
+    const output=ts.transpileModule(fs.readFileSync(new URL("../src/appearance.ts",import.meta.url),"utf8")
+      .replace(/import pencilPigment from "[^"]+";/, 'const pencilPigment="data:image/png;base64,AA==";'),{
       compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext},
     }).outputText.replace(/import\s+\{([^}]+)\}\s+from\s+"[^"]+";/g,(_,names)=>`const {${names}}=globalThis.__appearanceTest;`);
     const {applyAppearance}=await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
@@ -98,14 +110,28 @@ test("unchanged appearance snapshots skip root writes while real appearance and 
     assert.equal(values.has("--card-background"),false);
     const border=values.get("--skin-frame"),reads=frameReads;
     assert.ok(border.includes("data:image/svg+xml"));
+    assert.ok(values.has("--skin-shape"));
     applyAppearance({...curry,fontSize:18});
     assert.equal(frameReads,reads,"font changes do not rebuild the border images");
     systemDark=true;applyAppearance(curry);
     assert.notEqual(values.get("--skin-frame"),border);
+    const indigestion={...curry,skin:"indigestion"};
+    applyAppearance(indigestion);
+    assert.equal(root.dataset.skin,"indigestion");
+    assert.ok(decodeURIComponent(values.get("--skin-frame")).includes('mask-type:alpha'));
+    assert.equal(values.has("--skin-shape"),false,"the graphite silhouette comes from its stylesheet");
+    const graphite=values.get("--skin-frame"),graphiteReads=frameReads;
+    applyAppearance({...indigestion,fontSize:17});
+    assert.equal(frameReads,graphiteReads);
+    assert.equal(values.get("--skin-frame"),graphite);
+    systemDark=false;applyAppearance(indigestion);
+    assert.notEqual(values.get("--skin-frame"),graphite);
     applyAppearance(classic);
     assert.equal(root.dataset.skin,"classic");
     assert.equal(values.get("--card-background"),"#123456");
     assert.equal(values.has("--skin-frame"),false);
+    assert.equal(values.has("--skin-frame-muted"),false);
+    assert.equal(values.has("--skin-shape"),false);
     assert.equal(colors.background,"#123456");
   } finally {Object.assign(globalThis,saved);delete globalThis.__appearanceTest;}
 });

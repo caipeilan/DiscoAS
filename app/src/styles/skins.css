@@ -10,6 +10,8 @@
 .skin-thumbnail[data-skin-preview="curry-udon"] { --preview-canvas: #fffdf7; --preview-rail: #f7efcf; --preview-line: #575b50; --preview-selected: #dfebd0; --preview-accent: #d14400; --preview-ink: #6b6653; border-radius: 6px 5px 7px 5px; }
 :root[data-theme="dark"] .skin-thumbnail { --preview-canvas: #202124; --preview-rail: #27282c; --preview-line: #4e5159; --preview-selected: #363d42; --preview-ink: #b8bbc2; }
 :root[data-theme="dark"] .skin-thumbnail[data-skin-preview="curry-udon"] { --preview-canvas: #252820; --preview-rail: #303327; --preview-line: #a1a38b; --preview-selected: #414c34; --preview-accent: #f9a36e; --preview-ink: #c3bea7; }
+.skin-thumbnail[data-skin-preview="indigestion"] { --preview-canvas: #fffdf8; --preview-rail: #f0e8e9; --preview-line: #403638; --preview-selected: #f2dfe4; --preview-accent: #a83850; --preview-ink: #716164; }
+:root[data-theme="dark"] .skin-thumbnail[data-skin-preview="indigestion"] { --preview-canvas: #2e2b2e; --preview-rail: #2b272b; --preview-line: #eadbd5; --preview-selected: #4a343f; --preview-accent: #f2b2c3; --preview-ink: #cfbcbf; }
 .skin-thumbnail-sidebar { padding: 18px 5px 8px; border-right: 1px solid var(--preview-line); background: var(--preview-rail); }
 .skin-thumbnail-sidebar > span { display: block; height: 6px; margin-bottom: 6px; background: var(--preview-selected); border-radius: 2px; }
 .skin-thumbnail-main { padding: 12px 9px; }
@@ -17,8 +19,26 @@
 .skin-thumbnail-main > span:first-child { width: 46%; height: 3px; margin-bottom: 9px; background: var(--preview-ink); }
 .skin-thumbnail-main > span:nth-child(2) { height: 18px; border: 1px solid var(--preview-line); margin-bottom: 7px; }
 .skin-thumbnail-main > span:last-child { width: 32%; height: 9px; margin-left: auto; background: var(--preview-accent); }
+.skin-thumbnail[data-skin-preview="indigestion"] {
+  position: relative; border: 0;
+  -webkit-mask-box-image: url("../assets/skins/indigestion-shape.png") 96 fill / 11px / 4px round;
+}
+.skin-thumbnail[data-skin-preview="indigestion"]::after {
+  content: ""; position: absolute; inset: -4px; pointer-events: none;
+  background: var(--preview-line);
+  -webkit-mask-box-image: url("../assets/skins/indigestion-pencil.png") 96 / 11px round;
+}
+.skin-thumbnail[data-skin-preview="indigestion"] :is(.skin-thumbnail-sidebar > span, .skin-thumbnail-main > span) {
+  mask: url("../assets/skins/indigestion-grain.svg") 0 0 / 8px 21.333px repeat;
+}
 
 :root[data-skin="curry-udon"][data-theme] {
+  --skin-slice: 14;
+  --skin-control-width: 10px;
+  --skin-control-outset: 0px;
+  --skin-card-width: 10px;
+  --skin-card-outset: 0px;
+  --skin-window-surround: #eae8db;
   --canvas: #fffdf7;
   --sidebar-surface: #f7efcf;
   --surface: #fffefa;
@@ -63,6 +83,7 @@
   --hand-next-label-ink: var(--on-accent);
 }
 :root[data-skin="curry-udon"][data-theme="dark"] {
+  --skin-window-surround: #1b1e18;
   --canvas: #252820;
   --sidebar-surface: #303327;
   --surface: #2c3026;
@@ -91,89 +112,317 @@
   --shadow-floating: 0 3px 14px #00000030;
 }
 
-:root[data-skin="curry-udon"][data-theme] :is(
+:root[data-skin="indigestion"][data-theme] {
+  --skin-slice: 96;
+  --skin-control-width: 14px;
+  --skin-control-outset: 6px;
+  --skin-card-width: 15px;
+  --skin-card-outset: 7px;
+  --skin-shape: url("../assets/skins/indigestion-shape.png");
+  --skin-window-surround: #eae4e3;
+  --canvas: #fffaf5;
+  --sidebar-surface: #f0e8e9;
+  --surface: #fffdf8;
+  --surface-subtle: #f5eeed;
+  --surface-hover: #f2dfe4;
+  --surface-selected: #f2dfe4;
+  --text: #393334;
+  --text-secondary: #716164;
+  --text-tertiary: #716164;
+  --border: #bfb4b5;
+  --control-border: #403638;
+  --accent: #a83850;
+  --accent-hover: #942f44;
+  --accent-text: #a83850;
+  --accent-soft: #f2dfe4;
+  --accent-focus: #a83850;
+  --accent-border: #a83850;
+  --accent-selected: var(--surface-selected);
+  --accent-muted: var(--text-secondary);
+  --accent-surface: var(--surface-subtle);
+  --accent-selected-surface: var(--surface);
+  --accent-shadow: transparent;
+  --danger: #9d3029;
+  --danger-soft: #f2dfe4;
+  --danger-border: #9d3029;
+  --on-accent: #fffbf7;
+  --overlay-shade: #39333440;
+  --shadow-small: none;
+  --shadow-popover: none;
+  --shadow-floating: none;
+  --card-background: var(--surface);
+  --card-background-hover: var(--surface-selected);
+  --card-border: var(--accent-focus);
+  --card-font-color: var(--text);
+  --cancel-background: var(--accent-soft);
+  --cancel-background-hover: var(--surface-hover);
+  --cancel-border: var(--accent-text);
+  --cancel-font-color: var(--accent-text);
+  --hand-next: var(--accent-focus);
+  --hand-next-glow: transparent;
+  --hand-next-label: var(--accent);
+  --hand-next-label-ink: var(--on-accent);
+}
+:root[data-skin="indigestion"][data-theme="dark"] {
+  --skin-window-surround: #211f22;
+  --canvas: #252326;
+  --sidebar-surface: #2b272b;
+  --surface: #2e2b2e;
+  --surface-subtle: #373036;
+  --surface-hover: #4a343f;
+  --surface-selected: #4a343f;
+  --text: #f2e8e3;
+  --text-secondary: #cfbcbf;
+  --text-tertiary: #cfbcbf;
+  --border: #66565e;
+  --control-border: #eadbd5;
+  --accent: #f2b2c3;
+  --accent-hover: #ffc6d5;
+  --accent-text: #f2b2c3;
+  --accent-soft: #4a343f;
+  --accent-focus: #f2b2c3;
+  --accent-border: #f2b2c3;
+  --danger: #ff9f91;
+  --danger-soft: #4a343f;
+  --danger-border: #ff9f91;
+  --on-accent: #35232b;
+  --overlay-shade: #11101480;
+}
+
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme]:not(.floating-window) {
+  background: var(--skin-window-surround);
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme]:not(.floating-window) #root {
+  --skin-window-width: var(--skin-control-width);
+  --skin-window-outset: var(--skin-control-outset);
+}
+:root[data-skin="indigestion"][data-theme]:not(.floating-window) #root {
+  --skin-window-width: 18px;
+  --skin-window-outset: 8px;
+}
+/* The titlebar and sidebar paint above the window background; the frame must paint above them. */
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme]:not(.floating-window) #root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  border: 1px solid transparent;
+  border-image: var(--skin-frame) var(--skin-slice) / var(--skin-window-width) / var(--skin-window-outset) round;
+}
+
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :where(
   .main-window, .button, .select-trigger, .control-popover, .number-field, .shortcut-input,
   .song-card, .song-replace-button, .discovery-status-bar, .discovery-heading > .icon-button,
   .hand-card-face, .hand-discard, .hand-release-label, .hand-dock, .hand-playback, .hand-error,
   .tray-menu-panel, .modal, .dialog, .toast, .inline-feedback, .settings-validation,
-  .onboarding-card, .onboarding-panel, .skin-option, .search-field > input, .input, .select-search
+  .onboarding-card, .onboarding-panel, .skin-option, .search-field > input, .input, .select-search,
+  .segmented, .segmented > button.selected, .settings-subitem.selected, .hand-auto-next-label,
+  .hand-dock .hand-show-client, .discover-launch, .settings-section, .migration-banner,
+  .import-platforms button, .import-platform-note, .form-error, .discovery-empty, .overlay-message,
+  .installation-guide, .local-audio-paths, .console-terminal, .console-format, .history-records,
+  .cover-setting > input, .field-label > input, .onboarding-target
 ) {
-  border-image-source: var(--skin-frame);
-  border-image-slice: 14;
-  border-image-width: 10px;
-  border-image-repeat: round;
+  --skin-frame-width: var(--skin-control-width);
+  --skin-frame-outset: var(--skin-control-outset);
 }
-:root[data-skin="curry-udon"][data-theme] :is(
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  .main-window, .button, .select-trigger, .control-popover, .number-field, .shortcut-input,
+  .song-card, .song-replace-button, .discovery-status-bar, .discovery-heading > .icon-button,
+  .hand-card-face, .hand-discard, .hand-release-label, .hand-dock, .hand-playback, .hand-error,
+  .tray-menu-panel, .modal, .dialog, .toast, .inline-feedback, .settings-validation,
+  .onboarding-card, .onboarding-panel, .skin-option, .search-field > input, .input, .select-search,
+  .segmented, .segmented > button.selected, .settings-subitem.selected, .hand-auto-next-label,
+  .hand-dock .hand-show-client, .discover-launch, .settings-section, .migration-banner,
+  .import-platforms button, .import-platform-note, .form-error, .discovery-empty, .overlay-message,
+  .installation-guide, .local-audio-paths, .console-terminal, .console-format, .history-records,
+  .cover-setting > input, .field-label > input, .onboarding-target
+) {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  border-image-source: var(--skin-frame);
+  border-image-slice: var(--skin-slice);
+  border-image-width: var(--skin-frame-width);
+  border-image-outset: var(--skin-frame-outset);
+  border-image-repeat: round;
+  /* Paint and text share the pigment silhouette; state shadows must not add a second frame. */
+  -webkit-mask-box-image-source: var(--skin-shape);
+  -webkit-mask-box-image-slice: var(--skin-slice) fill;
+  -webkit-mask-box-image-width: var(--skin-frame-width);
+  -webkit-mask-box-image-outset: var(--skin-frame-outset);
+  -webkit-mask-box-image-repeat: round;
+  box-shadow: none !important;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
   .button.primary, .skin-option:has(input:checked), .hand-card.hand-active .hand-card-face,
-  .hand-card.hand-playable .hand-card-face, .song-card.keyboard-selected
+  .hand-card.hand-playable .hand-card-face, .song-card.keyboard-selected, .hand-auto-next-label
 ) { border-image-source: var(--skin-frame-accent); }
-:root[data-skin="curry-udon"][data-theme] :is(
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
   .button.danger, .inline-feedback, .settings-validation, .hand-error
 ) { border-image-source: var(--skin-frame-danger); }
-:root[data-skin="curry-udon"][data-theme] .nav-item {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .nav-item {
   border: 1px solid transparent;
   padding: 7px 9px;
-  border-image: var(--skin-frame) 14 round;
-  border-image-width: 10px;
+  border-image: var(--skin-frame) var(--skin-slice) / var(--skin-control-width) / var(--skin-control-outset) round;
+  -webkit-mask-box-image: var(--skin-shape) var(--skin-slice) fill / var(--skin-control-width) / var(--skin-control-outset) round;
 }
-:root[data-skin="curry-udon"][data-theme] :is(.nav-item.selected, .settings-subitem.selected) {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(.nav-item.selected, .settings-subitem.selected) {
   background: var(--surface-selected);
   color: var(--text);
   box-shadow: none;
 }
-:root[data-skin="curry-udon"][data-theme] .active-source {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .active-source {
   background: var(--accent-soft);
   border: 1px solid var(--control-border);
-  border-image: var(--skin-frame) 14 round;
-  border-image-width: 10px;
-  border-radius: 10px;
+  border-image: var(--skin-frame) var(--skin-slice) / var(--skin-control-width) / var(--skin-control-outset) round;
+  -webkit-mask-box-image: var(--skin-shape) var(--skin-slice) fill / var(--skin-control-width) / var(--skin-control-outset) round;
+  border-radius: 5px;
   padding: 20px;
 }
-:root[data-skin="curry-udon"][data-theme] .playlist-row.enabled-row { background: var(--surface-selected); }
-:root[data-skin="curry-udon"][data-theme] .song-replace-button {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .playlist-row.enabled-row { background: var(--surface-selected); }
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .song-replace-button {
   background: var(--surface-selected);
   color: var(--text);
 }
-:root[data-skin="curry-udon"][data-theme] .hand-discovery {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-discovery {
   --hand-glass-text: var(--text);
   --hand-glass-outline-color: var(--surface);
 }
-:root[data-skin="curry-udon"][data-theme] .hand-auto-lock {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-auto-lock {
   background: color-mix(in srgb, var(--surface-subtle) 78%, transparent);
   color: var(--text-secondary);
 }
-:root[data-skin="curry-udon"][data-theme] .hand-card::after {
-  border-image: var(--skin-frame-accent) 14 round;
-  border-image-width: 10px;
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-card::after {
+  border-image: var(--skin-frame-accent) var(--skin-slice) / calc(var(--skin-card-width) * var(--hand-base-scale, 1)) / calc(var(--skin-card-outset) * var(--hand-base-scale, 1)) round;
+  box-shadow: none !important;
 }
-:root[data-skin="curry-udon"][data-theme] .hand-card[data-auto-next] .hand-card-face {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-card[data-auto-next] .hand-card-face {
   border-image-source: var(--skin-frame-accent);
 }
-:root[data-skin="curry-udon"][data-theme] :is(
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
   .hand-card[data-auto-locked], .hand-card.hand-surface-waiting
 ) .hand-card-face { border-image-source: var(--skin-frame); }
-:root[data-skin="curry-udon"][data-theme] .hand-auto-next-label {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-auto-next-label {
   background: var(--hand-next-label);
   color: var(--hand-next-label-ink);
 }
-:root[data-skin="curry-udon"][data-theme] :is(
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
   .hand-dock .hand-auto-toggle, .hand-dock .hand-refresh, .hand-dock .hand-clear
 ) {
+  --skin-frame-width: var(--skin-control-width);
+  --skin-frame-outset: var(--skin-control-outset);
   border: 1px solid transparent;
-  border-image: var(--skin-frame) 14 round;
-  border-image-width: 8px;
+  border-radius: 5px;
+  border-image: var(--skin-frame) var(--skin-slice) / var(--skin-frame-width) / var(--skin-frame-outset) round;
+  -webkit-mask-box-image: var(--skin-shape) var(--skin-slice) fill / var(--skin-frame-width) / var(--skin-frame-outset) round;
 }
-:root[data-skin="curry-udon"][data-theme] .hand-dock .hand-auto-toggle[aria-pressed="true"] {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-dock .hand-auto-toggle[aria-pressed="true"] {
   border-image-source: var(--skin-frame-accent);
 }
-:root[data-skin="curry-udon"][data-theme] .hand-playback button:hover:not(:disabled) {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-playback button:hover:not(:disabled) {
   background: var(--surface-selected);
   color: var(--accent-text);
 }
-:root[data-skin="curry-udon"][data-theme] :is(.hand-discard, .hand-release-label) {
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(.hand-discard, .hand-release-label) {
   background: var(--surface);
 }
-:root[data-skin="curry-udon"][data-theme] ::selection { color: var(--text); background: var(--surface-selected); }
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] ::selection { color: var(--text); background: var(--surface-selected); }
+
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  .button, .select-trigger, .shortcut-input, .search-field > input, .input, .select-search, .field-label > input,
+  .hand-discard, .hand-dock button, .discovery-heading > .icon-button, .song-replace-button
+):focus-visible { outline-offset: -4px; }
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .skin-option:has(input:focus-visible) {
+  border-image-source: var(--skin-frame-accent);
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .discovery-heading > .icon-button {
+  border-image-source: var(--skin-frame-accent);
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .hand-auto-lock {
+  -webkit-mask-box-image: var(--skin-shape) var(--skin-slice) fill / calc(var(--skin-card-width) * var(--hand-base-scale, 1)) / calc(var(--skin-card-outset) * var(--hand-base-scale, 1)) round;
+}
+
+/* Each separator paints only its existing edge, with the same line material as its skin. */
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  .window-titlebar, .playlist-row, .page-header, .history-records li:not(:last-child)
+) {
+  border-bottom: 1px solid transparent;
+  border-image: var(--skin-frame-muted) var(--skin-slice) / 0 0 var(--skin-control-width) 0 / 0 0 var(--skin-control-outset) 0 round;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  .window-titlebar, .playlist-row, .page-header, .history-records li:not(:last-child)
+) {
+  -webkit-mask-box-image: var(--skin-shape) var(--skin-slice) fill / 0 0 var(--skin-control-width) 0 / 0 0 var(--skin-control-outset) 0 round;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  .setting-row, .dialog-actions, .hand-shortcut-settings > summary, .weighting-parameters > summary,
+  .history-confirmation, .history-selection, .history-empty, .about-link-row + .about-link-row, .tray-menu-group
+) {
+  border-top: 1px solid transparent;
+  border-image: var(--skin-frame-muted) var(--skin-slice) / var(--skin-control-width) 0 0 0 / var(--skin-control-outset) 0 0 0 round;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .sidebar {
+  border-right: 1px solid transparent;
+  border-image: var(--skin-frame-muted) var(--skin-slice) / 0 var(--skin-control-width) 0 0 / 0 var(--skin-control-outset) 0 0 round;
+  -webkit-mask-box-image: var(--skin-shape) var(--skin-slice) fill / 0 var(--skin-control-width) 0 0 / 0 var(--skin-control-outset) 0 0 round;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  .settings-subnavigation, .console-tool-separator, .hand-discovery-controls + .hand-dock-count
+) {
+  border-left: 1px solid transparent;
+  border-image: var(--skin-frame-muted) var(--skin-slice) / 0 0 0 var(--skin-control-width) / 0 0 0 var(--skin-control-outset) round;
+}
+
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] #root > .main-window {
+  --skin-frame-width: var(--skin-window-width);
+  --skin-frame-outset: var(--skin-window-outset);
+  border-image-source: none;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] #root :is(.settings-section, .history-records) {
+  border-width: 3px;
+  background-clip: padding-box;
+}
+:root[data-skin="indigestion"][data-theme] #root :is(.settings-section, .history-records) {
+  border-width: 6px;
+}
+:root[data-skin="indigestion"][data-theme] :is(.song-card, .hand-card-face) {
+  --skin-frame-width: var(--skin-card-width);
+  --skin-frame-outset: var(--skin-card-outset);
+}
+:root[data-skin="indigestion"][data-theme] :is(.hand-dock, .hand-playback, .modal, .dialog, .control-popover) {
+  --skin-frame-width: 15px;
+  --skin-frame-outset: 7px;
+}
+:root[data-skin="indigestion"][data-theme] :is(
+  .button, .select-trigger, .song-replace-button, .hand-discard,
+  .hand-dock .hand-auto-toggle, .hand-dock .hand-refresh, .hand-dock .hand-clear, .hand-dock .hand-show-client
+) {
+  --skin-frame-width: 12px;
+  --skin-frame-outset: 5px;
+}
+:root[data-skin="indigestion"][data-theme] .hand-auto-next-label {
+  --skin-frame-width: 10px;
+  --skin-frame-outset: 5px;
+}
+:root[data-skin="indigestion"][data-theme] .nav-item:not(.selected) { border-image-source: none; }
+:root[data-skin="indigestion"][data-theme] .active-source { background: var(--surface); }
+:root[data-skin="indigestion"][data-theme] .playlist-row.enabled-row { background: transparent; }
+:root[data-skin="indigestion"][data-theme] .song-replace-button { background: var(--surface); }
+:root[data-skin="indigestion"][data-theme] :is(.app-icon, input[type="radio"], input[type="checkbox"]) {
+  mask: url("../assets/skins/indigestion-grain.svg") 0 0 / 8px 21.333px repeat;
+}
+:root[data-skin="indigestion"][data-theme] .app-icon { stroke-width: 1.9; }
+:root[data-skin="indigestion"][data-theme] :is(input[type="radio"], input[type="checkbox"]):focus-visible { outline-offset: -2px; }
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] :is(
+  input.input, .search-field > input, input.select-search, .cover-setting > input, .field-label > input
+) { appearance: none; }
+/* Native text fields clip outer decorations, so keep their graphite inside the field. */
+:root[data-skin="indigestion"][data-theme] :is(
+  input.input, .search-field > input, input.select-search, .cover-setting > input, .field-label > input
+) {
+  --skin-frame-width: 7px;
+  --skin-frame-outset: 0px;
+}
 
 @media (max-width: 650px) {
   .skin-option { gap: 12px; }

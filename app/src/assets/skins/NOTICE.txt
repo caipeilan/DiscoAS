@@ -1,0 +1,3 @@
+The original graphite frame was generated for DiscoAS using OpenAI image generation on 2026-11-14.
+indigestion-shape.png fills the paper inside that frame and retains its pigment alpha on all four edges.
+indigestion-grain.svg samples its graphite alpha for small interface icons.

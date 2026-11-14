@@ -51,7 +51,7 @@ export function Icon({
       strokeWidth="1.7"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={className}
+      className={className ? "app-icon " + className : "app-icon"}
       aria-hidden="true"
     >
       <path d={paths[name] || paths.music} />

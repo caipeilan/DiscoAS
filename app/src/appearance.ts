@@ -1,7 +1,8 @@
 import type { GuiSettings } from "./types";
 import { discoveryThemePalette } from "./features/discovery/themePalette";
 import { effectiveNightMode } from "./theme";
-import { effectiveSkin, skinFrameImage } from "./skins";
+import { effectiveSkin, skinFrameImage, pencilFrameImage } from "./skins";
+import pencilPigment from "./assets/skins/indigestion-pencil.png?inline";
 
 let applied = "";
 export function applyAppearance(gui: GuiSettings) {
@@ -37,13 +38,18 @@ export function applyAppearance(gui: GuiSettings) {
     }
   }
   if (framesChanged) {
-    const colors = skin === "curry-udon" ? getComputedStyle(root) : null;
+    const colors = skin !== "classic" ? getComputedStyle(root) : null;
     for (const [suffix, token] of [
-      ["", "--control-border"], ["-accent", "--accent-focus"], ["-danger", "--danger"],
+      ["", "--control-border"], ["-accent", "--accent-focus"], ["-danger", "--danger"], ["-muted", "--border"],
     ] as const) {
-      if (colors) root.style.setProperty("--skin-frame" + suffix, skinFrameImage(colors.getPropertyValue(token).trim()));
+      if (colors) {
+        const color = colors.getPropertyValue(token).trim();
+        root.style.setProperty("--skin-frame" + suffix, skin === "indigestion" ? pencilFrameImage(color, pencilPigment) : skinFrameImage(color));
+      }
       else root.style.removeProperty("--skin-frame" + suffix);
     }
+    if (skin === "curry-udon") root.style.setProperty("--skin-shape", skinFrameImage("#fff", "#fff"));
+    else root.style.removeProperty("--skin-shape");
   }
   applied = signature;
 }

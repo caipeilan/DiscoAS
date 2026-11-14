@@ -17,14 +17,16 @@ test("floating cover scale and independent media controls retain their wire iden
 });
 
 test("skin IDs survive settings, dock and drag snapshots without changing legacy palettes", () => {
-  const gui = { skin: "curry-udon", night_mode: true, font_size: 18,
-    card: { background: "#123456", background_hover: "#234567", border: "#345678", font_color: "#ffffff" } };
-  for (const wire of [{ guiSettings: gui }, { gui }]) {
-    const decoded = decodeDesktopValue(wire);
-    const settings = decoded.guiSettings ?? decoded.gui;
-    assert.equal(settings.skin, "curry-udon");
-    assert.equal(settings.card.backgroundHover, "#234567");
-    assert.deepEqual(encodeDesktopArgs("snapshot", decoded), wire);
+  for (const skin of ["classic", "curry-udon", "indigestion"]) {
+    const gui = { skin, night_mode: true, font_size: 18,
+      card: { background: "#123456", background_hover: "#234567", border: "#345678", font_color: "#ffffff" } };
+    for (const wire of [{ guiSettings: gui }, { gui }]) {
+      const decoded = decodeDesktopValue(wire);
+      const settings = decoded.guiSettings ?? decoded.gui;
+      assert.equal(settings.skin, skin);
+      assert.equal(settings.card.backgroundHover, "#234567");
+      assert.deepEqual(encodeDesktopArgs("snapshot", decoded), wire);
+    }
   }
   assert.deepEqual(encodeDesktopArgs("save_gui_preferences", { settings: { skin: "classic" } }), { settings: { skin: "classic" } });
 });

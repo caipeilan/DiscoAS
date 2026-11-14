@@ -392,7 +392,7 @@
   {
     "path": "gui.skin",
     "description": "界面皮肤",
-    "range": "classic | curry-udon",
+    "range": "classic | curry-udon | indigestion",
     "readOnly": false
   },
   {

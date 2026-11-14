@@ -391,7 +391,7 @@ sources 由来源命令维护；兼容字段及旧颜色只读。请用 weightin
 | `music.handDiscovery.overlapPercent` | 0–90 | 重叠比例 | 读写 |
 | `music.handDiscovery.tiltDegrees` | 0–45 | 卡片倾角 | 读写 |
 | `gui.language` | zh_CN / zh_TW / en_US | 界面语言 | 读写 |
-| `gui.skin` | classic \| curry-udon | 界面皮肤 | 读写 |
+| `gui.skin` | classic \| curry-udon \| indigestion | 界面皮肤 | 读写 |
 | `gui.fontFamily` | 最多 128 字符，无控制字符 | 字体，空字符串使用系统字体 | 读写 |
 | `gui.fontSize` | 10–24 | 字号，像素 | 读写 |
 | `gui.followSystemTheme` | bool | 跟随系统主题 | 读写 |

@@ -4,6 +4,7 @@ export const translations: Record<string, [string, string]> = {
   "皮肤列表": ["外觀主題列表", "Skins"],
   "经典": ["經典", "Classic"],
   "咖喱乌冬面": ["咖哩烏龍麵", "Curry Udon"],
+  "消化不良": ["消化不良", "Indigestion"],
   "Apple Music / YouTube / Bilibili / niconico": ["Apple Music / YouTube / Bilibili / niconico", "Apple Music / YouTube / Bilibili / niconico"],
   "此平台通过网页播放器播放，请在设置中连接浏览器。": ["此平台透過網頁播放器播放，請在設定中連接瀏覽器。", "This platform uses the web player. Connect your browser in Settings."],
   "niconico 公开视频或 mylist 分享链接、ID": ["niconico 公開影片或 mylist 分享連結、ID", "Public niconico video or mylist link / ID"],

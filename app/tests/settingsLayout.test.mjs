@@ -88,11 +88,14 @@ test("skin selection changes the GUI draft and keeps fonts, sizes and legacy col
   let gui = { ...defaultGuiSettings, fontFamily: "Custom font", fontSize: 19, discoveryCardScale: 1.7 };
   const original = structuredClone(gui);
   const render = () => AppearanceSettings({ gui, setGui: update => { gui = update(gui); } });
-  const radio = walk(render()).find(node => node.type === "input" && node.props.value === "curry-udon");
-  assert.ok(radio);
-  radio.props.onChange();
-  assert.equal(gui.skin, "curry-udon");
-  assert.deepEqual({ ...gui, skin: original.skin }, original);
-  assert.equal(walk(render()).find(node => node.type === "input" && node.props.value === "curry-udon").props.checked, true);
+  assert.equal(walk(render()).filter(node => node.type === "input" && node.props.name === "skin").length, 3);
+  for (const skin of ["curry-udon", "indigestion", "classic"]) {
+    const radio = walk(render()).find(node => node.type === "input" && node.props.value === skin);
+    assert.ok(radio);
+    radio.props.onChange();
+    assert.equal(gui.skin, skin);
+    assert.deepEqual({ ...gui, skin: original.skin }, original);
+    assert.equal(walk(render()).find(node => node.type === "input" && node.props.value === skin).props.checked, true);
+  }
   assert.ok(walk(render()).some(node => node.props.role === "region" && node.props["aria-label"] === "皮肤列表"));
 });
