@@ -67,6 +67,7 @@ cargo fmt   --manifest-path src-tauri/Cargo.toml -- --check
 | --- | --- |
 | 共享类型、旧消息兼容 | `npm run test:transport`；Rust 模型/设置/缓存序列化测试 |
 | 设置、控件、数值、主题、布局 | `npm run test:preferences`、`test:settings-layout`、`test:controls`、`test:numeric`、`test:theme` |
+| 皮肤及跨窗口外观 | `test:theme`、`test:settings-layout`、`test:preferences`、`test:transport`、`test:hand`、`test:media`、`test:tray`；桌面 `settings::gui_setting`；原生主窗口、发现和手牌日夜切换 |
 | 发现、本地选歌、动画 | `npm run test:discovery`、`test:keyboard`、`test:motion` |
 | 封面、来源、歌单、历史 | `npm run test:covers`、`test:source`、`test:library`、`test:history` |
 | 缓存设置、磁盘复用与清理 | `npm run test:cache`、`test:preferences`、`test:transport`；核心 `image_cache`、`history`、`core::cache`；桌面 `services::desktop_preferences`、`services::library` |
@@ -115,6 +116,13 @@ $env:DISCOAS_TEST_ROOT = "D:\some\existing\absolute\dir"
 - `--qa-auto-off`：启动后临时关闭 AUTO。
 
 原生验收重点：托盘真实点击/失焦/多屏 DPI、透明窗口穿透、快捷键注册、自启、客户端唤起/最小化/独立桌面、播放确认和手牌锁定。浏览器预览不能替代这些检查。
+
+2.1.3 皮肤：
+
+- `gui.skin` 支持 `classic`（经典）和 `curry-udon`（咖喱乌冬面）；旧文件缺失或未知标识回退经典。皮肤选择沿用外观草稿，保存后同步其他窗口，放弃更改恢复已保存皮肤；字体、字号、缩放、位置、倾斜和 Liquid 参数保持独立。皮肤列表为固定高度滚动区域，仅展示缩略图和名称。
+- 经典继续读取旧卡牌配色；咖喱乌冬面通过样式变量覆盖日夜配色，切换和保存均保留磁盘中的旧颜色字段。这些兼容字段在控制台只读，设置页没有颜色编辑器。手绘框使用静态 SVG 九宫格边框，不增加布局观察器、卡牌节点或点击区域。
+- 2026-11-14：相关前端测试（设置、主题、布局、控件、消息、手牌、媒体、托盘、控制台、发现、键盘、动画、引导、安装器）、桌面设置测试 7 项、核心测试 268 项通过，原有 15 项核心测试忽略；类型检查、前端构建和控制台文档一致性检查通过。
+- Windows 优化 QA 实例使用独立应用标识、数据目录和 WebView 缓存，在 175% DPI 核验经典/咖喱乌冬面的日夜外观、草稿与放弃、保存后手牌/浮窗同步、普通发现替换及两张本地手牌展示；旧颜色字段逐项比较一致。记录在本地 `.local-qa/skins-20261114/`。普通发现的原生取消与按键输入、托盘菜单、拖动和多屏 DPI 仍需专项验收。
 
 2.1.3 游戏窗口适配：
 

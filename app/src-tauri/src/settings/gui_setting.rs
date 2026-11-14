@@ -30,9 +30,21 @@ pub struct ColorGroup {
     pub font_color: String,
 }
 
-/// GUI 设置。对照旧版 `GuiSetting`。
+/// 内置皮肤；未知标识按经典读取。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+pub enum Skin {
+    #[serde(rename = "curry-udon")]
+    CurryUdon,
+    #[default]
+    #[serde(other, rename = "classic")]
+    Classic,
+}
+
+/// GUI 设置，保留旧版字段名。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GuiSetting {
+    #[serde(default)]
+    pub skin: Skin,
     /// 空字符串表示使用系统字体；旧文件缺失此字段时保持系统字体。
     #[serde(default)]
     pub font_family: String,
@@ -97,6 +109,7 @@ impl Default for GuiSetting {
     /// Apple 系统色系：蓝色主操作，红色取消/危险操作。
     fn default() -> Self {
         Self {
+            skin: Skin::Classic,
             font_family: String::new(),
             font_size: default_font_size(),
             user_configured: false,
@@ -260,6 +273,7 @@ mod tests {
         }"##;
         let s: GuiSetting = serde_json::from_str(json).unwrap();
         assert_eq!(s.discovery_card_scale, 1.75);
+        assert_eq!(s.skin, Skin::Classic);
         assert_eq!(s.cancel_button_scale, 1.3);
         assert_eq!(s.replacement_button_scale, 1.0);
         assert_eq!(s.discovery_bar_scale, 1.0);
@@ -289,6 +303,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn skins_roundtrip_without_replacing_other_preferences_and_unknown_names_use_classic() {
+        let mut value = serde_json::to_value(GuiSetting::default()).unwrap();
+        value["card"]["background"] = "#abcdef".into();
+        value["font_size"] = 18.5.into();
+        for (name, expected) in [
+            ("classic", Skin::Classic),
+            ("curry-udon", Skin::CurryUdon),
+            ("unknown-skin", Skin::Classic),
+        ] {
+            value["skin"] = name.into();
+            let gui: GuiSetting = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(gui.skin, expected);
+            assert_eq!(gui.card.background, "#abcdef");
+            assert_eq!(gui.font_size, 18.5);
+            assert_eq!(
+                serde_json::from_value::<GuiSetting>(serde_json::to_value(&gui).unwrap()).unwrap(),
+                gui
+            );
+        }
+        value.as_object_mut().unwrap().remove("skin");
+        assert_eq!(
+            serde_json::from_value::<GuiSetting>(value).unwrap().skin,
+            Skin::Classic
+        );
+    }
+
     /// 往返：save → load 数据一致。
     #[test]
     fn roundtrip_save_load() {
@@ -299,6 +340,7 @@ mod tests {
         let mut original = GuiSetting::default();
         original.discovery_card_scale = 2.5;
         original.night_mode = true;
+        original.skin = Skin::CurryUdon;
         original.card.background = "#abcdef".into();
         original.font_family = "Microsoft YaHei UI".into();
         original.font_size = 18.125;

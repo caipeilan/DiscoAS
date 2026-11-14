@@ -40,8 +40,8 @@
 .hand-stage:has(.hand-active):not(:has(.hand-dragging)) .hand-card:not(.hand-active) { --hand-hover-duration: 180ms; --hand-hover-ease: cubic-bezier(.2,.8,.3,1); }
 /* The highlight ring stays a separate layer, so the card face never repaints for it. */
 .hand-card::after { content: ""; position: absolute; inset: 0; z-index: 5; border: calc(1px * var(--hand-base-scale, 1)) solid var(--accent-focus); border-radius: calc(13px * var(--hand-base-scale, 1)); opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-out); }
-.hand-card:not(.hand-discovery)::after { border-width: calc(2px * var(--hand-base-scale, 1)); border-color: #c55300; }
-:root[data-theme="dark"] .hand-card:not(.hand-discovery)::after { border-color: #ff9230; }
+.hand-card:not(.hand-discovery)::after { border-width: calc(2px * var(--hand-base-scale, 1)); border-color: var(--hand-next); }
+:root[data-theme="dark"] .hand-card:not(.hand-discovery)::after { border-color: var(--hand-next); }
 .hand-card[data-auto-next]::after { opacity: 1; }
 .hand-card.hand-discovery.hand-active::after, .hand-card.hand-discovery.hand-playable::after { opacity: 1; }
 .hand-card[data-hand-instant] { transition: none !important; }
@@ -59,8 +59,8 @@
   max-width: calc(100% - 12px);
   padding: 3px 6px;
   border-radius: 999px;
-  background: #c55300;
-  color: #fff;
+  background: var(--hand-next-label);
+  color: var(--hand-next-label-ink);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: calc(10px * var(--font-scale));
   font-weight: 600;
@@ -74,7 +74,7 @@
   opacity: 0;
   transition: opacity 200ms var(--ease-out);
 }
-:root[data-theme="dark"] .hand-auto-next-label { background: #ff9230; color: #22170d; }
+:root[data-theme="dark"] .hand-auto-next-label { background: var(--hand-next); color: #22170d; }
 .hand-card[data-auto-next] .hand-auto-next-label { opacity: 1; }
 .hand-card[data-auto-locked] .hand-auto-next-label,
 .hand-card.hand-surface-waiting .hand-auto-next-label { opacity: 0 !important; }
@@ -107,17 +107,17 @@
 .hand-card[data-auto-next]:not(.hand-discovery) .hand-card-face,
 .hand-card[data-auto-next]:not(.hand-discovery).hand-active .hand-card-face,
 .hand-card[data-auto-next]:not(.hand-discovery):hover .hand-card-face {
-  border-color: #c55300;
-  box-shadow: var(--shadow-floating), 0 0 0 1px #c55300, 0 0 18px #c5530033;
+  border-color: var(--hand-next);
+  box-shadow: var(--shadow-floating), 0 0 0 1px var(--hand-next), 0 0 18px var(--hand-next-glow);
 }
 :root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery) .hand-card-face,
 :root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery).hand-active .hand-card-face,
 :root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery):hover .hand-card-face {
-  border-color: #ff9230;
-  box-shadow: var(--shadow-floating), 0 0 0 1px #ff9230, 0 0 18px #ff923033;
+  border-color: var(--hand-next);
+  box-shadow: var(--shadow-floating), 0 0 0 1px var(--hand-next), 0 0 18px var(--hand-next-glow);
 }
-.hand-card[data-auto-next]:not(.hand-discovery)::after { box-shadow: 0 0 0 1px #c55300, 0 0 18px #c5530033; }
-:root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery)::after { box-shadow: 0 0 0 1px #ff9230, 0 0 18px #ff923033; }
+.hand-card[data-auto-next]:not(.hand-discovery)::after { box-shadow: 0 0 0 1px var(--hand-next), 0 0 18px var(--hand-next-glow); }
+:root[data-theme="dark"] .hand-card[data-auto-next]:not(.hand-discovery)::after { box-shadow: 0 0 0 1px var(--hand-next), 0 0 18px var(--hand-next-glow); }
 /* Lock and arrival waiting always win over the orange/blue face selectors,
    including data-auto-next + hand-active/hover. */
 .hand-card[data-auto-locked] .hand-card-face { border-color: var(--border) !important; box-shadow: var(--shadow-popover) !important; }

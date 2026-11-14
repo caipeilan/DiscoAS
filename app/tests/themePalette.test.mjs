@@ -11,6 +11,20 @@ const themeOutput = ts.transpileModule(fs.readFileSync(new URL("../src/theme.ts"
 }).outputText;
 const { effectiveNightMode } = await import(`data:text/javascript;base64,${Buffer.from(themeOutput).toString("base64")}`);
 
+const skinOutput = ts.transpileModule(fs.readFileSync(new URL("../src/skins.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
+}).outputText;
+const { skins, effectiveSkin, skinFrameImage } = await import("data:text/javascript;base64," + Buffer.from(skinOutput).toString("base64"));
+
+test("skin identifiers stay independent of labels and unknown or legacy values select classic", () => {
+  assert.deepEqual(skins.map(skin => skin.id), ["classic", "curry-udon"]);
+  for (const value of [undefined, null, "", "unknown", "咖喱乌冬面"]) assert.equal(effectiveSkin(value), "classic");
+  assert.equal(effectiveSkin("curry-udon"), "curry-udon");
+  const image = skinFrameImage("rgb(55, 59, 54)");
+  assert.ok(image.startsWith('url("data:image/svg+xml,'));
+  assert.ok(decodeURIComponent(image).includes('stroke="rgb(55, 59, 54)"'));
+});
+
 test("system appearance follows changes while explicit and legacy choices stay fixed", () => {
   const system = { nightMode: false, followSystemTheme: true };
   assert.equal(effectiveNightMode(system, false), false);
@@ -52,15 +66,17 @@ test("old day and night close controls adopt distinct opaque theme colors", () =
 });
 
 test("unchanged appearance snapshots skip root writes while real appearance and system-theme changes apply", async () => {
-  const saved = {document:globalThis.document,window:globalThis.window,CSS:globalThis.CSS};
+  const saved = {document:globalThis.document,window:globalThis.window,CSS:globalThis.CSS,getComputedStyle:globalThis.getComputedStyle};
   let writes=0, systemDark=false;
+  let frameReads=0;
   const values=new Map();
   const root={dataset:new Proxy({}, {set(target,key,value){writes++;target[key]=value;return true;}}),
     style:{setProperty(key,value){writes++;values.set(key,value);},removeProperty(key){writes++;values.delete(key);},set fontFamily(value){writes++;}}};
   globalThis.document={documentElement:root};
   globalThis.window={matchMedia:()=>({matches:systemDark})};
   globalThis.CSS={supports:()=>true};
-  globalThis.__appearanceTest={discoveryThemePalette,effectiveNightMode};
+  globalThis.getComputedStyle=()=>{frameReads++;return {getPropertyValue:()=>systemDark ? "#a1a38b" : "#575b50"};};
+  globalThis.__appearanceTest={discoveryThemePalette,effectiveNightMode,effectiveSkin,skinFrameImage};
   try {
     const output=ts.transpileModule(fs.readFileSync(new URL("../src/appearance.ts",import.meta.url),"utf8"),{
       compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext},
@@ -72,5 +88,24 @@ test("unchanged appearance snapshots skip root writes while real appearance and 
     applyAppearance(structuredClone(gui));assert.equal(writes,firstWrites);
     applyAppearance({...gui,fontSize:16});assert.equal(values.get("--font-scale"),String(16/14));
     systemDark=true;applyAppearance(gui);assert.equal(root.dataset.theme,"dark");
+    systemDark=false;
+    const colors=Object.freeze({background:"#123456",backgroundHover:"#234567",border:"#345678",fontColor:"#ffffff"});
+    const classic={...gui,skin:"classic",card:colors,cardNightMode:colors};
+    applyAppearance(classic);assert.equal(values.get("--card-background"),"#123456");
+    const curry={...classic,skin:"curry-udon"};
+    applyAppearance(curry);
+    assert.equal(root.dataset.skin,"curry-udon");
+    assert.equal(values.has("--card-background"),false);
+    const border=values.get("--skin-frame"),reads=frameReads;
+    assert.ok(border.includes("data:image/svg+xml"));
+    applyAppearance({...curry,fontSize:18});
+    assert.equal(frameReads,reads,"font changes do not rebuild the border images");
+    systemDark=true;applyAppearance(curry);
+    assert.notEqual(values.get("--skin-frame"),border);
+    applyAppearance(classic);
+    assert.equal(root.dataset.skin,"classic");
+    assert.equal(values.get("--card-background"),"#123456");
+    assert.equal(values.has("--skin-frame"),false);
+    assert.equal(colors.background,"#123456");
   } finally {Object.assign(globalThis,saved);delete globalThis.__appearanceTest;}
 });

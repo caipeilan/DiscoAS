@@ -390,6 +390,12 @@
     "readOnly": false
   },
   {
+    "path": "gui.skin",
+    "description": "界面皮肤",
+    "range": "classic | curry-udon",
+    "readOnly": false
+  },
+  {
     "path": "gui.fontFamily",
     "description": "字体，空字符串使用系统字体",
     "range": "最多 128 字符，无控制字符",

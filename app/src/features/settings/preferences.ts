@@ -8,6 +8,7 @@ export function samePreferences(a: Preferences, b: Preferences) {
 export function sameGuiPreferences(a: GuiSettings, b: GuiSettings) {
   if (Boolean(a.followSystemTheme) !== Boolean(b.followSystemTheme)) return false;
   const keys: Array<keyof GuiSettings> = [
+    "skin",
     "nightMode",
     "discoveryCardScale",
     "cancelButtonScale",

@@ -16,6 +16,19 @@ test("floating cover scale and independent media controls retain their wire iden
   assert.deepEqual(encodeDesktopArgs("begin_hand_dock_drag", { generation: 2, cursor: { x: -500.25, y: 20 } }), { generation: 2, cursor: { x: -500.25, y: 20 } });
 });
 
+test("skin IDs survive settings, dock and drag snapshots without changing legacy palettes", () => {
+  const gui = { skin: "curry-udon", night_mode: true, font_size: 18,
+    card: { background: "#123456", background_hover: "#234567", border: "#345678", font_color: "#ffffff" } };
+  for (const wire of [{ guiSettings: gui }, { gui }]) {
+    const decoded = decodeDesktopValue(wire);
+    const settings = decoded.guiSettings ?? decoded.gui;
+    assert.equal(settings.skin, "curry-udon");
+    assert.equal(settings.card.backgroundHover, "#234567");
+    assert.deepEqual(encodeDesktopArgs("snapshot", decoded), wire);
+  }
+  assert.deepEqual(encodeDesktopArgs("save_gui_preferences", { settings: { skin: "classic" } }), { settings: { skin: "classic" } });
+});
+
 test("old settings and source identities roundtrip without changing persisted/wire keys", () => {
   const wire = {
     number_of_discovered_songs: 3, have_mystery_song: true, num_of_mystery_song: 1,

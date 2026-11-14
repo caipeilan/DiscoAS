@@ -31,6 +31,10 @@
   --shadow-small: 0 1px 3px #1e253010;
   --shadow-popover: 0 8px 28px #1e25301c, 0 1px 4px #1e25300a;
   --shadow-floating: 0 8px 26px #1e253026, 0 1px 3px #1e253012;
+  --hand-next: #c55300;
+  --hand-next-glow: #c5530033;
+  --hand-next-label: #c55300;
+  --hand-next-label-ink: #fff;
   --ease-out: cubic-bezier(.2, .8, .2, 1);
 }
 
@@ -61,4 +65,6 @@
   --shadow-small: 0 1px 3px #00000026;
   --shadow-popover: 0 8px 28px #00000040, 0 1px 4px #00000026;
   --shadow-floating: 0 8px 26px #00000050, 0 1px 3px #00000026;
+  --hand-next: #ff9230;
+  --hand-next-glow: #ff923033;
 }

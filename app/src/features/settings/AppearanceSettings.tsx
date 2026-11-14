@@ -4,6 +4,7 @@ import { SettingRow, NumberField, ScaleField } from "../../components/SettingsCo
 import { FontPicker } from "../../components/FontPicker";
 import { Select } from "../../components/Select";
 import { t } from "../../i18n";
+import { effectiveSkin, skins } from "../../skins";
 
 export function AppearanceSettings({
   gui,
@@ -17,6 +18,22 @@ export function AppearanceSettings({
   return (
     <section className="settings-section appearance-settings">
       <h2>{t("外观与大小")}</h2>
+      <fieldset className="skin-picker">
+        <legend>{t("皮肤")}</legend>
+        <div className="skin-list" role="region" aria-label={t("皮肤列表")}>
+          {skins.map(skin => <label className="skin-option" key={skin.id}>
+            <span className="skin-thumbnail" data-skin-preview={skin.id} aria-hidden="true">
+              <span className="skin-thumbnail-sidebar"><span /><span /><span /></span>
+              <span className="skin-thumbnail-main"><span /><span /><span /></span>
+            </span>
+            <span className="skin-option-name">
+              <input type="radio" name="skin" value={skin.id} checked={effectiveSkin(gui.skin) === skin.id}
+                onChange={() => set("skin", skin.id)} />
+              {t(skin.label)}
+            </span>
+          </label>)}
+        </div>
+      </fieldset>
       <SettingRow
         title={t("语言")}
       >
@@ -97,6 +114,7 @@ export function AppearanceSettings({
             setGui(previous => ({
               ...previous,
               followSystemTheme: defaultGuiSettings.followSystemTheme,
+              skin: defaultGuiSettings.skin,
               nightMode: defaultGuiSettings.nightMode,
               fontFamily: defaultGuiSettings.fontFamily,
               fontSize: defaultGuiSettings.fontSize,

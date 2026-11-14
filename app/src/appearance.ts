@@ -1,6 +1,7 @@
 import type { GuiSettings } from "./types";
 import { discoveryThemePalette } from "./features/discovery/themePalette";
 import { effectiveNightMode } from "./theme";
+import { effectiveSkin, skinFrameImage } from "./skins";
 
 let applied = "";
 export function applyAppearance(gui: GuiSettings) {
@@ -8,6 +9,9 @@ export function applyAppearance(gui: GuiSettings) {
   const night = effectiveNightMode(gui, window.matchMedia("(prefers-color-scheme: dark)").matches);
   const signature = JSON.stringify([gui, night]);
   if (signature === applied) return;
+  const skin = effectiveSkin(gui.skin);
+  const framesChanged = root.dataset.skin !== skin || root.dataset.theme !== (night ? "dark" : "light");
+  root.dataset.skin = skin;
   root.dataset.theme = night ? "dark" : "light";
   const family = gui.fontFamily.replace(/["\\]/g, "").trim();
   root.style.fontFamily = `${family ? `"${family}", ` : ""}"Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif`;
@@ -27,9 +31,18 @@ export function applyAppearance(gui: GuiSettings) {
   ] as const) {
     for (const [field, color] of Object.entries(group)) {
       const property = `--${prefix}-${field.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
-      if (color && CSS.supports("color", color))
+      if (skin === "classic" && color && CSS.supports("color", color))
         root.style.setProperty(property, color);
       else root.style.removeProperty(property);
+    }
+  }
+  if (framesChanged) {
+    const colors = skin === "curry-udon" ? getComputedStyle(root) : null;
+    for (const [suffix, token] of [
+      ["", "--control-border"], ["-accent", "--accent-focus"], ["-danger", "--danger"],
+    ] as const) {
+      if (colors) root.style.setProperty("--skin-frame" + suffix, skinFrameImage(colors.getPropertyValue(token).trim()));
+      else root.style.removeProperty("--skin-frame" + suffix);
     }
   }
   applied = signature;

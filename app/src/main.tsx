@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { StartupScreen } from "./StartupScreen";
 import appLogo from "../../assets/DiscoAS.svg";
+import "./styles/skins.css";
 
 const App = React.lazy(() => import("./App"));
 const DiscoverWindow = React.lazy(() => import("./features/discovery/DiscoverWindow"));

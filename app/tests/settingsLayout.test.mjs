@@ -8,10 +8,12 @@ const compile = path => ts.transpileModule(fs.readFileSync(new URL(path, import.
 }).outputText;
 const { defaultGuiSettings, defaultHandSettings } = await import(`data:text/javascript;base64,${Buffer.from(compile("../src/types.ts")).toString("base64")}`);
 let sequence = 0;
+const skinModule = await import("data:text/javascript;base64," + Buffer.from(compile("../src/skins.ts")).toString("base64"));
 async function component(name) {
   const stubs = {
     "../../types": { defaultGuiSettings, defaultHandSettings },
     "../../i18n": { t: value => value },
+    "../../skins": skinModule,
     "../../components/SettingsControls": { SettingRow: "row", ScaleField: "scale", NumberField: "number", HelpHint: "help" },
     "../../components/Motion": { AnimatedDetails: "details" },
     "../../components/FontPicker": { FontPicker: "font" },
@@ -56,11 +58,12 @@ test("hand shortcuts remain editable with both modes off and retain unrelated bi
 test("appearance and discovery resets preserve the other category and custom settings", async () => {
   const AppearanceSettings = await component("AppearanceSettings");
   const DiscoveryAppearanceSettings = await component("DiscoveryAppearanceSettings");
-  let gui = { ...defaultGuiSettings, language: "en_US", userConfigured: true, fontFamily: "Custom font", fontSize: 22, mainWindowScale: 1.25,
+  let gui = { ...defaultGuiSettings, skin: "curry-udon", language: "en_US", userConfigured: true, fontFamily: "Custom font", fontSize: 22, mainWindowScale: 1.25,
     discoveryCardScale: 1.6, cancelButtonScale: 1.7, replacementButtonScale: 1.8, discoveryBarScale: 1.9 };
   const setGui = update => { gui = update(gui); };
   find(AppearanceSettings({ gui, setGui }), "button", "还原外观").onClick();
   assert.equal(gui.fontFamily, defaultGuiSettings.fontFamily);
+  assert.equal(gui.skin, "classic");
   assert.equal(gui.discoveryCardScale, 1.6);
   assert.equal(gui.cancelButtonScale, 1.7);
   assert.equal(gui.replacementButtonScale, 1.8);
@@ -78,4 +81,18 @@ test("appearance and discovery resets preserve the other category and custom set
   assert.equal(monitor, "DISPLAY-2");
   walk(discovery()).find(node => node.type === "monitor").props.onChange("current");
   assert.equal(monitor, "current");
+});
+
+test("skin selection changes the GUI draft and keeps fonts, sizes and legacy colors", async () => {
+  const AppearanceSettings = await component("AppearanceSettings");
+  let gui = { ...defaultGuiSettings, fontFamily: "Custom font", fontSize: 19, discoveryCardScale: 1.7 };
+  const original = structuredClone(gui);
+  const render = () => AppearanceSettings({ gui, setGui: update => { gui = update(gui); } });
+  const radio = walk(render()).find(node => node.type === "input" && node.props.value === "curry-udon");
+  assert.ok(radio);
+  radio.props.onChange();
+  assert.equal(gui.skin, "curry-udon");
+  assert.deepEqual({ ...gui, skin: original.skin }, original);
+  assert.equal(walk(render()).find(node => node.type === "input" && node.props.value === "curry-udon").props.checked, true);
+  assert.ok(walk(render()).some(node => node.props.role === "region" && node.props["aria-label"] === "皮肤列表"));
 });

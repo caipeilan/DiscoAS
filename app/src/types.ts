@@ -236,6 +236,7 @@ export interface SystemFont {
   aliases: string[];
 }
 export interface GuiSettings {
+  skin: import("./skins").SkinId;
   nightMode: boolean;
   followSystemTheme: boolean;
   discoveryCardScale: number;
@@ -256,6 +257,7 @@ export interface GuiSettings {
   settingNightMode: ColorGroup;
 }
 export const defaultGuiSettings: GuiSettings = {
+  skin: "classic",
   nightMode: false,
   followSystemTheme: true,
   discoveryCardScale: 1,
