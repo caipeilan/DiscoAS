@@ -48,8 +48,6 @@ export function applyAppearance(gui: GuiSettings) {
       }
       else root.style.removeProperty("--skin-frame" + suffix);
     }
-    if (skin === "curry-udon") root.style.setProperty("--skin-shape", skinFrameImage("#fff", "#fff"));
-    else root.style.removeProperty("--skin-shape");
   }
   applied = signature;
 }

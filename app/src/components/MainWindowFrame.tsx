@@ -1,11 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "../Icon";
 import { t } from "../i18n";
-import { mainWindowAction, watchMainWindowState } from "../services/desktop";
+import { mainWindowAction, setMainWindowSkin, watchMainWindowState } from "../services/desktop";
+import type { SkinId } from "../skins";
 import "./mainWindow.css";
 
-export function MainWindowFrame({ children, onError }: { children: ReactNode; onError: (error: unknown) => void }) {
+export function MainWindowFrame({ children, skin, onError }: { children: ReactNode; skin: SkinId; onError: (error: unknown) => void }) {
   const [windowState, setWindowState] = useState({ maximized: false, focused: true });
+  useEffect(() => { void setMainWindowSkin(skin).catch(onError); }, [skin]);
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;

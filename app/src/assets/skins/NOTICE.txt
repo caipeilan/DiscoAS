@@ -1,3 +1,6 @@
 The original graphite frame was generated for DiscoAS using OpenAI image generation on 2026-11-14.
+The graphite frame and paper matte share a crop that removes only their outer transparent margins.
 indigestion-shape.png fills the paper inside that frame and retains its pigment alpha on all four edges.
 indigestion-grain.svg samples its graphite alpha for small interface icons.
+indigestion-ink.png stores the original graphite alpha at the same two-pass density for shared CSS masks.
+curry-ink.png and curry-shape.png are raster masks of the original curve in skins.ts, preserving its 112 x 112 coordinate space.

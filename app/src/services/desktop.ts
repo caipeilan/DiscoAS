@@ -240,6 +240,10 @@ export async function mainWindowAction(action: "minimize" | "maximize" | "close"
   else await window.startDragging();
 }
 
+export async function setMainWindowSkin(skin: import("../skins").SkinId): Promise<void> {
+  if (desktop) await getCurrentWindow().setShadow(skin === "classic");
+}
+
 export async function watchMainWindowState(
   changed: (state: { maximized: boolean; focused: boolean }) => void,
   failed: (error: unknown) => void,

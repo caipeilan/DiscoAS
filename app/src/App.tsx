@@ -234,5 +234,5 @@ export default function App() {
       {!library.importing && guideView}
     </div>
   );
-  return <MainWindowFrame onError={(error) => notice(errorText(error), true)}>{body}</MainWindowFrame>;
+  return <MainWindowFrame skin={guiDraft.skin} onError={(error) => notice(errorText(error), true)}>{body}</MainWindowFrame>;
 }

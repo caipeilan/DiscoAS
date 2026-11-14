@@ -36,6 +36,19 @@ test("graphite recoloring uses pigment alpha and retains two-pass density", () =
   assert.ok(image.includes('<use href="#pigment"/>'));
 });
 
+test("paper, ink and colored frames share one cropped coordinate space", () => {
+  for (const name of ["curry-shape.png", "curry-ink.png"]) {
+    const png = fs.readFileSync(new URL("../src/assets/skins/" + name, import.meta.url));
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [112, 112], name);
+  }
+  for (const name of ["indigestion-pencil.png", "indigestion-shape.png", "indigestion-ink.png"]) {
+    const png = fs.readFileSync(new URL("../src/assets/skins/" + name, import.meta.url));
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1190, 1180], name);
+  }
+  const frame = decodeURIComponent(pencilFrameImage("#403638", "data:image/png;base64,AA=="));
+  assert.ok(frame.includes('viewBox="0 0 1190 1180"'));
+});
+
 test("system appearance follows changes while explicit and legacy choices stay fixed", () => {
   const system = { nightMode: false, followSystemTheme: true };
   assert.equal(effectiveNightMode(system, false), false);
@@ -110,7 +123,8 @@ test("unchanged appearance snapshots skip root writes while real appearance and 
     assert.equal(values.has("--card-background"),false);
     const border=values.get("--skin-frame"),reads=frameReads;
     assert.ok(border.includes("data:image/svg+xml"));
-    assert.ok(values.has("--skin-shape"));
+    assert.equal(values.has("--skin-shape"),false,"the paper mask comes from its stylesheet");
+    assert.equal(values.has("--skin-ink-mask"),false,"the ink mask comes from its stylesheet");
     applyAppearance({...curry,fontSize:18});
     assert.equal(frameReads,reads,"font changes do not rebuild the border images");
     systemDark=true;applyAppearance(curry);
@@ -120,6 +134,7 @@ test("unchanged appearance snapshots skip root writes while real appearance and 
     assert.equal(root.dataset.skin,"indigestion");
     assert.ok(decodeURIComponent(values.get("--skin-frame")).includes('mask-type:alpha'));
     assert.equal(values.has("--skin-shape"),false,"the graphite silhouette comes from its stylesheet");
+    assert.equal(values.has("--skin-ink-mask"),false,"the static graphite mask comes from its stylesheet");
     const graphite=values.get("--skin-frame"),graphiteReads=frameReads;
     applyAppearance({...indigestion,fontSize:17});
     assert.equal(frameReads,graphiteReads);
@@ -131,6 +146,7 @@ test("unchanged appearance snapshots skip root writes while real appearance and 
     assert.equal(values.get("--card-background"),"#123456");
     assert.equal(values.has("--skin-frame"),false);
     assert.equal(values.has("--skin-frame-muted"),false);
+    assert.equal(values.has("--skin-ink-mask"),false);
     assert.equal(values.has("--skin-shape"),false);
     assert.equal(colors.background,"#123456");
   } finally {Object.assign(globalThis,saved);delete globalThis.__appearanceTest;}

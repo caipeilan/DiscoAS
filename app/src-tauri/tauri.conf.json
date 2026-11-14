@@ -21,10 +21,11 @@
         "minWidth": 740,
         "minHeight": 560,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
+        "backgroundColor": [0, 0, 0, 0],
         "alwaysOnTop": false,
         "resizable": true,
-        "shadow": true,
+        "shadow": false,
         "center": true,
         "focus": false,
         "visible": false

@@ -20,9 +20,9 @@ export function skinFrameImage(color: string, fill = "none") {
 
 /** Recolor the original graphite alpha; two passes retain the approved pigment density. */
 export function pencilFrameImage(color: string, pigment: string) {
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">'
-    + '<defs><mask id="ink" maskUnits="userSpaceOnUse" x="0" y="0" width="1254" height="1254" style="mask-type:alpha">'
-    + '<image id="pigment" width="1254" height="1254" href="' + pigment + '"/><use href="#pigment"/></mask></defs>'
-    + '<rect width="1254" height="1254" fill="' + color + '" mask="url(#ink)"/></svg>';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1190" height="1180" viewBox="0 0 1190 1180">'
+    + '<defs><mask id="ink" maskUnits="userSpaceOnUse" x="0" y="0" width="1190" height="1180" style="mask-type:alpha">'
+    + '<image id="pigment" width="1190" height="1180" href="' + pigment + '"/><use href="#pigment"/></mask></defs>'
+    + '<rect width="1190" height="1180" fill="' + color + '" mask="url(#ink)"/></svg>';
   return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
 }
