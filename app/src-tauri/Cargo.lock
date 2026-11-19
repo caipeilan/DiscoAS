@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "discoas"
-version = "2.1.3"
+version = "2.1.4"
 dependencies = [
  "discoas-core",
  "md5",

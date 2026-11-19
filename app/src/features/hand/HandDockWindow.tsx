@@ -18,7 +18,9 @@ import { RegionFrameBudget } from "./regionUpdates";
 export function HandDockWindow() {
   const [snapshot, setSnapshot] = useState<HandDockSnapshot | null>(null);
   useAppearance(snapshot?.gui ?? defaultGuiSettings);
+  const skin = snapshot?.gui.skin;
   const [surface, setSurface] = useState<HandSurface | null>(null);
+  const positionedSkin = useRef<typeof skin>(undefined);
   const [hidden, setHidden] = useState(true);
   const auto = useAutoHandControl();
   const media = useMediaSession(!hidden && auto.ready, auto.state);
@@ -87,16 +89,25 @@ export function HandDockWindow() {
     if (!snapshot || hidden || movingRef.current) return;
     let cancelled = false;
     void call<HandSurface>("position_hand_dock", { generation: snapshot.generation, point: snapshot.dockPoint, width: expandedWidth }).then((value) => {
-      if (!cancelled) { currentSurface.current = value; setSurface(value); }
+      if (!cancelled) {
+        positionedSkin.current = skin;
+        currentSurface.current = value;
+        setSurface(value);
+      }
     }).catch((e) => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; };
-  }, [snapshot?.generation, snapshot?.gui.fontSize, snapshot?.gui.playbackCoverScale, snapshot?.dockPoint?.x, snapshot?.dockPoint?.y, hidden, moving, expandedWidth]);
+  }, [snapshot?.generation, snapshot?.gui.fontSize, snapshot?.gui.playbackCoverScale, snapshot?.dockPoint?.x, snapshot?.dockPoint?.y, skin, hidden, moving, expandedWidth]);
 
   useLayoutEffect(() => {
     if (moving) previousRegions.current = "";
-    if (!snapshot || !surface || hidden || moving) return;
+    if (!snapshot || !surface || positionedSkin.current !== skin || hidden || moving) return;
     let cancelled = false, frame = 0, measuring = false, dirty = false;
     const budget = new RegionFrameBudget();
+    const player = stage.current!.querySelector(".hand-playback");
+    const frameOutset = player && skin !== "classic"
+      ? Number.parseFloat(getComputedStyle(player).getPropertyValue("--skin-frame-outset")) || 0
+      : 0;
+    const playbackPadding = frameOutset * surface.scale;
     const tick = (now: number) => {
       frame = 0;
       if (cancelled) return;
@@ -120,7 +131,9 @@ export function HandDockWindow() {
         const bounds = { left: left / dpi, top: top / dpi, width: (Math.ceil(rect.right * dpi) - left) / dpi, height: (Math.ceil(rect.bottom * dpi) - top) / dpi };
         if (node.matches("[data-hand-hit]:not([data-folding])")) regions.push(bounds);
         if (node.matches(".hand-dock, .hand-playback")) {
-          drawingRects.push(bounds);
+          const padding = node === player ? playbackPadding : 0;
+          drawingRects.push({ left: bounds.left - padding, top: bounds.top - padding,
+            width: bounds.width + 2 * padding, height: bounds.height + 2 * padding });
           animating ||= node.getAnimations().some(changesDockBounds);
         }
       }
@@ -140,7 +153,7 @@ export function HandDockWindow() {
     mutations.observe(stage.current!, { subtree: true, attributes: true, attributeFilter: ["data-open", "data-folding", "data-side", "data-dock-expanded"] });
     schedule();
     return () => { cancelled = true; cancelAnimationFrame(frame); observer.disconnect(); mutations.disconnect(); };
-  }, [snapshot?.generation, surface, hidden, moving]);
+  }, [snapshot?.generation, surface, skin, hidden, moving]);
 
   if (!snapshot || !snapshot.dockPoint) return null;
   const point = moving ? current.current?.dockPoint ?? snapshot.dockPoint : snapshot.dockPoint;

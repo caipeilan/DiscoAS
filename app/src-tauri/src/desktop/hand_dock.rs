@@ -1,6 +1,6 @@
 //! A small, independent window for the hand's Logo and controls.
 use super::geometry::{Canvas, Point, Rect, Surface};
-use crate::settings::gui_setting::GuiSetting;
+use crate::settings::gui_setting::{GuiSetting, Skin};
 use discoas_core::hand::{HandDiscoverySettings, HandSettings};
 use serde::Serialize;
 use std::sync::{
@@ -317,20 +317,19 @@ pub async fn position_hand_dock(
     // Keep enough horizontal room for either extension. Morphing never resizes
     // the native window or moves its Logo; only its drawing region changes.
     let diameter = 44.0 * font_size / 14.0;
-    let width = width.unwrap_or(diameter * 4.5);
+    let width = width.unwrap_or_else(|| {
+        if gui.skin == Skin::Classic {
+            diameter * 4.5
+        } else {
+            // The console path has no measured width from the webview.
+            diameter * 8.0
+        }
+    });
     if !width.is_finite() || width < diameter {
         return Err("错误：浮窗宽度无效".into());
     }
-    let extent = width - diameter / 2.0 + 14.0;
     let center = canvas.physical(point);
-    let x = (center.x - extent * canvas.scale).floor() as i32;
-    let vertical_padding =
-        diameter.max(diameter * (gui.playback_cover_scale + 0.5)) + diameter * 2.0 / 11.0 + 14.0;
-    let y = (center.y - (diameter / 2.0 + vertical_padding) * canvas.scale).floor() as i32;
-    let size = PhysicalSize::new(
-        (extent * 2.0 * canvas.scale).ceil() as u32,
-        ((diameter + vertical_padding * 2.0) * canvas.scale).ceil() as u32,
-    );
+    let (origin, size) = dock_surface_geometry(center, canvas.scale, width, diameter, &gui);
     let native_scale = window
         .scale_factor()
         .map_err(|_| "错误：无法读取显示器信息")?;
@@ -349,13 +348,13 @@ pub async fn position_hand_dock(
     *state.layout.lock().unwrap() = Some(Layout {
         canvas: canvas.clone(),
         logo_offset: Point {
-            x: center.x - x as f64,
-            y: center.y - y as f64,
+            x: center.x - origin.x as f64,
+            y: center.y - origin.y as f64,
         },
         native_scale,
     });
-    super::floating_window::place_confirmed(&window, PhysicalPosition::new(x, y), size).await?;
-    *state.bounds.lock().unwrap() = Some((PhysicalPosition::new(x, y), size));
+    super::floating_window::place_confirmed(&window, origin, size).await?;
+    *state.bounds.lock().unwrap() = Some((origin, size));
     let surface = canvas.surface(&window)?;
     if let Some(layout) = state.layout.lock().unwrap().as_mut() {
         layout.native_scale = canvas.scale / surface.scale;
@@ -368,6 +367,49 @@ pub async fn position_hand_dock(
     }
     Ok(surface)
 }
+
+fn dock_surface_geometry(
+    center: Point,
+    scale: f64,
+    width: f64,
+    diameter: f64,
+    gui: &GuiSetting,
+) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+    let classic_half_width = width - diameter / 2.0 + 14.0;
+    let vertical_padding =
+        diameter.max(diameter * (gui.playback_cover_scale + 0.5)) + diameter * 2.0 / 11.0 + 14.0;
+    let half_height = (diameter / 2.0 + vertical_padding) * scale;
+    if gui.skin == Skin::Classic {
+        let half_width = classic_half_width * scale;
+        return (
+            PhysicalPosition::new(
+                (center.x - half_width).floor() as i32,
+                (center.y - half_height).floor() as i32,
+            ),
+            PhysicalSize::new(
+                (classic_half_width * 2.0 * scale).ceil() as u32,
+                ((diameter + vertical_padding * 2.0) * scale).ceil() as u32,
+            ),
+        );
+    }
+
+    // At a work-area edge the playback bar can reach a whole bar width from
+    // the Logo center. Cover the 6px paper edge with room for pixel rounding.
+    const SKIN_FRAME_PADDING: f64 = 8.0;
+    let half_width = classic_half_width.max(width + SKIN_FRAME_PADDING) * scale;
+    super::geometry::drawing_surface_geometry(
+        Point {
+            x: center.x - half_width,
+            y: center.y - half_height,
+        },
+        Point {
+            x: center.x + half_width,
+            y: center.y + half_height,
+        },
+        None,
+    )
+}
+
 #[tauri::command]
 pub async fn set_hand_dock_hit_regions(
     app: tauri::AppHandle,
@@ -563,6 +605,62 @@ pub async fn save_hand_dock(
 #[cfg(test)]
 mod display_tests {
     use super::*;
+
+    #[test]
+    fn skinned_playback_keeps_its_paper_edge_when_clamped_to_either_side() {
+        let center = Point {
+            x: -100.25,
+            y: 200.375,
+        };
+        for diameter in [44.0, 66.0] {
+            let width = diameter * 8.0;
+            for playback_cover_scale in [0.5, 1.0, 2.0] {
+                let classic = GuiSetting {
+                    playback_cover_scale,
+                    ..GuiSetting::default()
+                };
+                for scale in [1.0, 1.25, 1.75, 2.0] {
+                    let (origin, size) =
+                        dock_surface_geometry(center, scale, width, diameter, &classic);
+                    let classic_half_width = width - diameter / 2.0 + 14.0;
+                    assert_eq!(
+                        origin.x,
+                        (center.x - classic_half_width * scale).floor() as i32
+                    );
+                    assert_eq!(size.width, (classic_half_width * 2.0 * scale).ceil() as u32);
+                    // A snapped Logo is eight pixels inside the work area.
+                    let snapped_paper_end = center.x + (width - 8.0 + 4.0) * scale;
+                    assert!((f64::from(origin.x) + f64::from(size.width)) < snapped_paper_end);
+
+                    let playback_height = diameter.max(diameter * (playback_cover_scale + 0.5));
+                    for (skin, frame_outset) in [(Skin::CurryUdon, 4.0), (Skin::Indigestion, 6.0)] {
+                        let gui = GuiSetting {
+                            skin,
+                            ..classic.clone()
+                        };
+                        let (origin, size) =
+                            dock_surface_geometry(center, scale, width, diameter, &gui);
+                        let paper_x = (width + frame_outset) * scale;
+                        let paper_y =
+                            (diameter / 2.0 + diameter * 2.0 / 11.0 + playback_height + frame_outset)
+                                * scale;
+                        assert!(f64::from(origin.x) <= center.x - paper_x);
+                        assert!(f64::from(origin.x) + f64::from(size.width) >= center.x + paper_x);
+                        assert!(f64::from(origin.y) <= center.y - paper_y);
+                        assert!(f64::from(origin.y) + f64::from(size.height) >= center.y + paper_y);
+                        // Fractional centers need each physical edge rounded outward.
+                        let draw_x = (width + 8.0) * scale;
+                        assert_eq!(f64::from(origin.x), (center.x - draw_x).floor());
+                        assert_eq!(
+                            f64::from(origin.x) + f64::from(size.width),
+                            (center.x + draw_x).ceil()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn reduced_resolution_keeps_the_whole_logo_visible_without_losing_its_desktop_anchor() {
         let desktop = Canvas { origin: PhysicalPosition::new(0,0), size: PhysicalSize::new(3620,2036), scale: 1.75,

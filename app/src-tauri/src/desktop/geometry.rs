@@ -112,7 +112,7 @@ pub(super) async fn fit_card_surface(
     )
 }
 
-fn drawing_surface_geometry(
+pub(super) fn drawing_surface_geometry(
     from: Point,
     to: Point,
     anchor: Option<PhysicalPosition<i32>>,
