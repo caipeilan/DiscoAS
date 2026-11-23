@@ -32,12 +32,23 @@ export default function ConsoleView({ controller }: { controller: ConsoleControl
   const historyIndex = useRef<number | null>(null);
   const scratch = useRef("");
   const field = useRef<HTMLInputElement>(null);
+  const terminal = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const suggestions = useMemo(() => complete(input, catalog), [input, catalog]);
   const closeSuggestions = useCallback(() => setSuggesting(false), []);
   useEffect(() => { field.current?.focus(); }, []);
   useEffect(() => { if (pinned.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight; }, [entries]);
+  useEffect(() => {
+    if (!suggesting) return;
+    const option = document.getElementById(`console-completion-${choice}`);
+    const list = option?.parentElement;
+    if (!option || !list) return;
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  }, [suggesting, choice, suggestions]);
   const run = (line = input) => { if (!line.trim()) return; setInput(""); setSuggesting(false); historyIndex.current = null; pinned.current = true; void execute(line); field.current?.focus(); };
   const accept = (value: string) => { setInput(value + " "); setSuggesting(false); field.current?.focus(); };
   const apiTitle = catalog?.api.error ?? `${catalog?.api.enabled ? t("关闭本机接口") : t("开启本机接口")}${catalog?.api.address ? ` · ${catalog.api.address}` : ""}`;
@@ -53,7 +64,7 @@ export default function ConsoleView({ controller }: { controller: ConsoleControl
         <button type="button" className="console-tool" title={t("清屏")} aria-label={t("清屏")} onClick={() => { clear(); field.current?.focus(); }}><Icon name="remove" size={17} /></button>
       </div>
     </header>
-    <div className="console-terminal">
+    <div className="console-terminal" ref={terminal}>
       <div ref={viewport} className="console-scroll" onScroll={() => { const node = viewport.current; if (node) pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40; }}
         onClick={event => { if (event.target === event.currentTarget && !window.getSelection()?.toString()) field.current?.focus(); }}>
         <div className="console-transcript" role="log" aria-label={t("命令输出")} aria-live="polite">{entries.map(entry => <Entry key={entry.id} entry={entry} json={format === "json"} />)}</div>
@@ -77,6 +88,6 @@ export default function ConsoleView({ controller }: { controller: ConsoleControl
         </form>
       </div>
     </div>
-    {suggesting && suggestions.length > 0 && field.current && <Popover anchor={field.current} onClose={closeSuggestions} className="console-completions" id="console-completions" role="listbox">{suggestions.map((value, index) => <button type="button" tabIndex={-1} role="option" aria-selected={choice === index} id={`console-completion-${index}`} key={value} onMouseDown={event => event.preventDefault()} onClick={() => accept(value)}><code>{value}</code></button>)}</Popover>}
+    {suggesting && suggestions.length > 0 && field.current && <Popover anchor={field.current} topBoundary={terminal.current ?? undefined} onClose={closeSuggestions} className="console-completions" id="console-completions" role="listbox">{suggestions.map((value, index) => <button type="button" tabIndex={-1} role="option" aria-selected={choice === index} id={`console-completion-${index}`} key={value} onMouseDown={event => event.preventDefault()} onClick={() => accept(value)}><code>{value}</code></button>)}</Popover>}
   </section>;
 }

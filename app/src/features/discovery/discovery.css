@@ -4,6 +4,11 @@
 :root .discovery-body .song-grid { grid-template-columns: repeat(var(--discovery-columns, 5), minmax(0, 1fr)); }
 :root .floating-content .discovery-body .song-grid { grid-template-columns: repeat(var(--discovery-columns, 5), calc(200px * var(--card-scale, 1))); }
 :root .floating-content:has(> .discovery-body) { overflow: visible; }
+.floating-content .discovery-body { justify-content: center; }
+.floating-content .discovery-body > .song-grid {
+  flex: 0 1 auto;
+  padding-block-end: min(30px, calc(22px * var(--card-scale, 1)));
+}
 :root .discovery-body .song-card {
   user-select: none;
   color: var(--card-font-color, var(--text));
@@ -56,18 +61,26 @@
 :root .floating-content .discovery-body[data-input-mode="pointer"] .song-card-slot:hover .song-replace-button,
 :root .floating-content .discovery-body[data-input-mode="keyboard"] .song-card-slot:has(.keyboard-selected) .song-replace-button { transform: translateY(calc(-6px * var(--card-scale, 1))); }
 
-/* The opaque status bar follows the theme and stays outside the centered card group's layout. */
+/* Reserve the information bar's space before the card grid starts scrolling. */
 :root .discovery-body .discovery-status-bar {
-  display: flex; flex-direction: column; align-self: center;
+  display: flex; flex: 0 0 auto; flex-direction: column; align-self: center;
   gap: calc(3px * var(--discovery-bar-scale, 1));
   padding: calc(8px * var(--discovery-bar-scale, 1)) calc(16px * var(--discovery-bar-scale, 1));
   border: 1px solid var(--border); border-radius: calc(8px * var(--discovery-bar-scale, 1));
   background: var(--surface); color: var(--text-secondary); box-shadow: var(--shadow-floating);
-  text-align: center; white-space: nowrap;
+  max-width: 100%; text-align: center; overflow-wrap: anywhere;
   font-size: calc(12px * var(--font-scale, 1) * var(--discovery-bar-scale, 1));
   line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none;
 }
-:root .floating-content .discovery-body .discovery-status-bar { position: absolute; left: 50%; transform: translateX(-50%); z-index: 3; margin: 0; }
+:root .floating-content .discovery-body .discovery-status-bar {
+  margin-top: max(0px, calc(16px - 22px * var(--card-scale, 1)));
+}
+:root .discovery-body .discovery-status-bar[data-wide] {
+  flex-flow: row wrap;
+  justify-content: center;
+  gap: 0 calc(8px * var(--discovery-bar-scale, 1));
+  padding: 12px 14px;
+}
 :root .discovery-body .song-card[data-replaced="true"] { animation: discovery-card-replacement 200ms var(--ease-out); }
 :root .discovery-body[data-preview="true"] .song-card { opacity: .25; transition: opacity 180ms, transform 180ms var(--ease-out), box-shadow 180ms; }
 :root .discovery-body[data-preview="true"][data-input-mode="pointer"] .song-card-slot:hover:not([data-preview-hover="true"]) .song-card:not(:disabled) {

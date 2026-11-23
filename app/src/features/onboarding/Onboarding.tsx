@@ -32,7 +32,7 @@ export function Onboarding({ state, surface, handMode = false, failure = false, 
     if (!visible || step === 7) { setPlacement(null); return; }
     const targets: Record<number, string> = {
       2: ".discover-launch", 3: ".song-card", 4: ".song-replace-button:not(:disabled)", 5: ".discovery-heading .icon-button",
-      6: '[data-onboarding="import"]', 7: ".import-dialog input:not(:disabled)",
+      6: '[data-onboarding="import"]',
       8: `[data-onboarding-source="${CSS.escape(JSON.stringify([state.targetPlatform, state.targetKind, state.targetId]))}"] [data-onboarding="enable"]`,
       9: '[aria-controls="settings-subnavigation"]', 10: ".settings-topbar",
     };
@@ -75,9 +75,10 @@ export function Onboarding({ state, surface, handMode = false, failure = false, 
   const text = failure ? t("没加载成功的说……要不先添加你的歌单？") : step === 8 && alreadyEnabled ? t("这份歌单已经启用。之后的发现会从这里抽取歌曲。") : body;
   const parts = text.split("**");
   return <div ref={layer} className="onboarding-layer" data-step={step} data-surface={surface} data-inline={step === 7 || undefined}>
-    {placement?.target && !failure && <div className="onboarding-target" style={placement.target} />}
+    {step !== 7 && placement?.target && !failure && <div className="onboarding-target" style={placement.target} />}
     <div key={step} ref={card} className={`onboarding-card ${step === 1 ? "onboarding-welcome" : ""}`}
-      style={placement?.card} data-anchored={!!placement || undefined} role="region" aria-label={t("使用引导")}>
+      style={step === 7 ? undefined : placement?.card} data-anchored={step !== 7 && !!placement || undefined} role="region" aria-label={t("使用引导")}>
+      <div className="onboarding-card-scroll">
       <div className="onboarding-meta"><span>{t("使用引导")} · {step}/10</span>
         <button type="button" className="icon-button" aria-label={t("退出引导")} disabled={busy} onClick={() => advance(0)}><Icon name="close" size={16} /></button></div>
       <h2>{title}</h2><p>{parts.map((part, index) => index % 2 ? <strong key={index}>{part}</strong> : part)}</p>
@@ -90,6 +91,7 @@ export function Onboarding({ state, surface, handMode = false, failure = false, 
         {step === 4 && <button type="button" className="text-button" onClick={() => advance(5)}>{t("跳过这步")}</button>}
         {step === 8 && alreadyEnabled && <button type="button" className="button primary" onClick={() => advance(9)}>{t("继续")}</button>}
         {step === 10 && <button type="button" className="button primary" onClick={() => advance(0)}>{t("完成引导")}</button>}
+      </div>
       </div>
     </div>
   </div>;

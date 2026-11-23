@@ -103,6 +103,7 @@ a {
 }
 .brand {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   padding: 0 8px;
@@ -114,10 +115,12 @@ a {
   font-weight: 650;
   font-size: calc(18px * var(--font-scale, 1));
 }
+.brand > div { min-width: 0; flex: 1 0 min-content; }
 .brand small {
   display: block;
   margin-top: 2px;
   letter-spacing: 1px;
+  overflow-wrap: anywhere;
 }
 .brand-mark {
   display: block;
@@ -377,12 +380,11 @@ a {
 .discover-launch > svg { display: block; width: 24px; height: 24px; }
 .import-platform-field { padding: 0; margin: 16px 0; border: 0; min-width: 0; }
 .import-platform-field legend { padding: 0; margin-bottom: 8px; }
-.import-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.import-platforms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5em), 1fr)); gap: 7px; }
 .import-platforms button { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); }
 .import-platforms button:hover:not(:disabled) { background: var(--surface-subtle); border-color: var(--control-border); }
 .import-platforms button.selected { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-soft); }
-.import-platforms button > span:not(.platform-logo) { flex: 1; min-width: 0; padding-right: 14px; text-align: left; white-space: nowrap; }
-.import-platforms button > .platform-check { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); }
+.import-platforms button > span:not(.platform-logo) { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
 .import-platform-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 9px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-subtle); color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.5; }
 .import-platform-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--accent-text); }
 .import-recognition { display: flex; align-items: center; gap: 6px; min-height: 20px; margin: -2px 0 4px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
@@ -835,6 +837,19 @@ a {
   box-shadow: var(--shadow-popover);
   padding: 22px;
 }
+.dialog.import-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+  padding: 0;
+}
+.import-dialog-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 22px;
+}
 .dialog.small-dialog {
   width: 390px;
 }
@@ -1246,8 +1261,9 @@ html.floating-window #root {
 .floating-content .discovery-empty {
   align-self: center;
   margin: auto;
-  flex: 0;
+  flex: 0 0 auto;
   min-height: 0;
+  max-height: 100%;
   padding: 27px 34px;
   border-radius: 13px;
   background: var(--surface);
@@ -1315,6 +1331,13 @@ html.floating-window #root {
   height: 100%;
   background: var(--canvas);
 }
+.app-workspace {
+  container: app-shell / inline-size;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
 .settings-fields {
   border: 0;
   margin: 0;
@@ -1354,8 +1377,8 @@ html.floating-window #root {
 }
 .floating-content .song-card {
   width: calc(200px * var(--card-scale, 1));
-  height: calc(280px * var(--card-scale, 1));
-  min-height: 0;
+  height: auto;
+  min-height: calc(280px * var(--card-scale, 1));
   max-width: none;
   padding: calc(10px * var(--card-scale, 1));
   gap: calc(8px * var(--card-scale, 1));
@@ -1377,11 +1400,14 @@ html.floating-window #root {
 .floating-content .song-card strong {
   font-size: calc(13px * var(--font-scale, 1) * var(--card-scale, 1));
   min-height: 0;
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
 }
 .floating-content .song-artist {
   font-size: calc(11px * var(--font-scale, 1) * var(--card-scale, 1));
   color: inherit;
   opacity: 0.72;
+  flex-shrink: 0;
 }
 .overlay-closed {
   opacity: 0;
@@ -1441,6 +1467,8 @@ html.floating-window #root {
 .shortcut-recorder .button {
   white-space: normal;
 }
+.shortcut-recorder .shortcut-input { max-width: 100%; }
+.setting-row:has(.shortcut-recorder) > .setting-label { flex-basis: max-content; }
 
 .library-toolbar { flex-wrap: wrap; }
 .library-selection {
@@ -1474,7 +1502,6 @@ html.floating-window #root {
 /* Compact controls share the app palette, including their body-portaled menus. */
 .brand small {
   letter-spacing: 0;
-  white-space: nowrap;
   color: var(--text-secondary);
   font-size: calc(9px * var(--font-scale, 1));
 }
@@ -1498,6 +1525,37 @@ html.floating-window #root {
 }
 .settings-topbar > div { min-width: 0; }
 .settings-topbar .button { margin-left: auto; flex-shrink: 0; }
+@container app-shell (max-width: 480px) {
+  .sidebar { width: 62px; padding: 14px 8px; }
+  .brand { margin-bottom: 16px; padding: 0; justify-content: center; }
+  .brand > div, .sidebar .nav-count, .sidebar-bottom { display: none; }
+  .sidebar .nav-item { justify-content: center; font-size: 0; gap: 0; padding-inline: 5px; }
+  .sidebar .nav-disclosure { display: none; }
+  .sidebar .settings-subnavigation { margin-inline: 0; padding-left: 3px; }
+  .settings-subnavigation .settings-subitem { padding-inline: 3px; overflow-wrap: anywhere; }
+  .main-content { --content-padding-x: 10px; padding-inline: var(--content-padding-x); overflow-x: hidden; }
+  .main-content :is(h1, h2, strong) { overflow-wrap: anywhere; }
+  .page-body > .page-header { padding-block: 8px; gap: 8px; }
+  .page-header h1 { font-size: calc(19px * var(--font-scale, 1)); }
+  .main-content .button {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .page-body > :is(.settings-topbar, .history-topbar) { position: static; }
+  .settings-topbar > div:first-child { display: contents; }
+  .settings-topbar h1 { flex-basis: 100%; }
+  .settings-save-actions { order: 1; flex-wrap: wrap; }
+  .settings-topbar .settings-save-status { order: 2; }
+  .active-source, .playlist-row, .playlist-details h3 { flex-wrap: wrap; }
+  .active-details { flex-basis: calc(100% - 75px); }
+  .active-details .row-meta > span { min-width: 0; overflow-wrap: anywhere; }
+  .library-list { grid-template-columns: minmax(0, 1fr); }
+  .playlist-row .playlist-details { flex-basis: 100%; min-width: 0; }
+  .playlist-row .row-actions, .library-batch-actions { max-width: 100%; margin-left: 0; flex-wrap: wrap; }
+  .playlist-row .row-actions { width: 100%; justify-content: flex-start; }
+  .platform-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+}
 /* A row owns its leading separator, including when Reveal adds a wrapper. */
 .setting-row { flex-wrap: wrap; min-height: var(--setting-row-height, 60px); padding: 12px 18px; gap: 14px; border-top: 1px solid var(--border); }
 .setting-label { display: inline-flex; align-items: center; gap: 7px; }

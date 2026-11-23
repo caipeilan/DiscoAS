@@ -27,6 +27,13 @@ test("large-scale menus clamp width and height without fixed off-screen coordina
   assert.equal(placed.left, 8);
   assert.ok(placed.maxHeight <= 332);
 });
+test("console completions opening upwards stay below the terminal's top edge", () => {
+  const rect = { left: 200, right: 680, width: 480, top: 450, bottom: 478 };
+  const viewport = { width: 740, height: 560, top: 175 };
+  const placed = placePopover(rect, viewport, rect.width, 1.2);
+  assert.equal(placed.bottom, 115);
+  assert.equal(viewport.height - placed.bottom - placed.maxHeight, viewport.top + 8);
+});
 test("keyboard option traversal skips disabled values and handles empty menus", () => {
   const options = [{ value: "a", label: "A" }, { value: "b", label: "B", disabled: true }, { value: "c", label: "C" }];
   assert.equal(moveOption(options, 0, 1), 2);

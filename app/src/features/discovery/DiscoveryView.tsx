@@ -40,17 +40,16 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
   const grid = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
-  const [barTop, setBarTop] = useState<number | null>(null);
   const [columns, setColumns] = useState(Math.min(5, Math.max(1, songs.length)));
   const gui = previewGui || state.guiSettings;
   const preview = status.preview;
+  const showBar = status.exclusionEnabled || status.replacementEnabled;
   const active = !loading && !cancelling && !playing && !songError && !busy && overlayPhase === "open";
   const { selectedIndex, pointedIndex, inputMode, pointerMove, pointerDown, pointerLeave, focusIndex } = useKeyboardSelection({
     songs, grid, active, batchRevision, play, replace, preview, externalPointer: previewPointer, previewKey, preserveSlots: true,
-    layoutKey: `${gui.discoveryCardScale}:${gui.fontSize ?? 0}`,
+    layoutKey: JSON.stringify([gui.discoveryCardScale, gui.discoveryBarScale, gui.fontSize, gui.fontFamily, columns, showBar]),
     keybindings: state.settings.discoveryKeybindings || defaultDiscoveryKeybindings,
   });
-  const showBar = status.exclusionEnabled || status.replacementEnabled;
   const guide = useOnboarding();
   const guideStep = guide.state.step;
   const guideOpened = useRef(false);
@@ -76,10 +75,6 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
         const gap = 45 * gui.discoveryCardScale;
         setColumns(Math.min(5, Math.max(1, songs.length), Math.max(1, Math.floor((width + gap) / (cardWidth + gap)))));
       }
-      if (!body.current || !grid.current) { setBarTop(null); return; }
-      const bodyRect = body.current.getBoundingClientRect();
-      const slots = Array.from(grid.current.querySelectorAll<HTMLDivElement>(".song-card-slot"));
-      if (slots.length) setBarTop(Math.max(...slots.map((slot) => slot.getBoundingClientRect().bottom)) - bodyRect.top + 16);
       if (preview && closeButton.current) {
         const rect = closeButton.current.getBoundingClientRect();
         void setPreviewCloseRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }).catch(() => {});
@@ -88,22 +83,18 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; update(); }); };
     update();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
-    if (body.current) observer?.observe(body.current);
     if (grid.current) observer?.observe(grid.current);
-    if (closeButton.current) observer?.observe(closeButton.current);
-    grid.current?.querySelectorAll(".song-card-slot").forEach((slot) => observer?.observe(slot));
+    if (preview && closeButton.current) observer?.observe(closeButton.current);
     window.addEventListener("resize", schedule);
-    const element = grid.current;
     // Entering transforms move the exit control without resizing it.
-    const shell = body.current?.closest(".floating-shell");
+    const shell = preview ? body.current?.closest(".floating-shell") : null;
     const settled = (event: Event) => { if (event.target === shell) schedule(); };
     shell?.addEventListener("transitionend", settled);
-    element?.addEventListener("scroll", schedule);
     return () => {
       observer?.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule);
-      element?.removeEventListener("scroll", schedule); shell?.removeEventListener("transitionend", settled);
+      shell?.removeEventListener("transitionend", settled);
     };
-  }, [gui, loading, overlayPhase, preview, songs, showBar]);
+  }, [gui.discoveryCardScale, loading, overlayPhase, preview, songs, songError]);
   return (
     <div className="discovery-body" ref={body} data-input-mode={inputMode} data-preview={preview || undefined} data-onboarding-step={preview ? undefined : guideStep || undefined}
       data-hand-mode={state.settings.hand?.enabled || undefined} data-collecting={collecting || undefined}
@@ -214,8 +205,7 @@ export function DiscoveryView({ state, status, loading, songError, songs, playin
         </div>
       )}
       {showBar && !loading && !songError && songs.length > 0 && (
-        <div className="discovery-status-bar" role="status" aria-live="polite"
-          style={barTop !== null ? { top: barTop } : undefined}>
+        <div className="discovery-status-bar" data-wide={gui.discoveryBarScale > 1.5 || undefined} role="status" aria-live="polite">
           {status.exclusionEnabled && <span>{t("当前卡池剩{p0}首", { p0: status.remainingSongs })}</span>}
           {status.replacementEnabled && <span>{t("还可替换{p0}次", { p0: status.replacementsRemaining })}</span>}
         </div>

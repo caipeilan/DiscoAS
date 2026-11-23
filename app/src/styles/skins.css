@@ -399,6 +399,29 @@
   --skin-frame-width: 7px;
   --skin-frame-outset: 0px;
 }
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .import-link-field > input:focus {
+  border-image-source: var(--skin-frame-accent);
+  outline: none;
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .import-dialog-scroll {
+  margin: var(--skin-frame-width);
+  padding: calc(22px - var(--skin-frame-width));
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .import-platforms {
+  gap: calc(2 * var(--skin-control-outset) + 2px);
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .import-platform-note {
+  margin-bottom: calc(var(--skin-control-outset) + 5px);
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .import-kinds-frame {
+  padding: calc(var(--skin-control-outset) + 1px);
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .import-kinds {
+  margin-bottom: calc(16px - var(--skin-control-outset));
+}
+:root:is([data-skin="curry-udon"], [data-skin="indigestion"])[data-theme] .connection-flow .installation-guide-content {
+  padding: calc(var(--skin-control-outset) + 2px);
+}
 
 @media (max-width: 650px) {
   .skin-option { gap: 12px; }
@@ -416,7 +439,7 @@
   .import-platforms button, .import-platform-note, .form-error, .discovery-empty,
   .overlay-message, .installation-guide, .local-audio-paths, .history-records,
   .onboarding-target, .nav-item, .active-source
-)) {
+) {
   --skin-frame-width: var(--skin-control-width);
   --skin-frame-outset: var(--skin-control-outset);
   --skin-ink: var(--control-border);

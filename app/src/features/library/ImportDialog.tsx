@@ -73,6 +73,7 @@ export function ImportDialog({
           }
         }}
       >
+        <div className="import-dialog-scroll">
         <div className="dialog-heading">
           <div>
             <h2 id="import-title">{t("添加歌单")}</h2>
@@ -115,7 +116,7 @@ export function ImportDialog({
           </div>
         )}
         <fieldset className="motion-fields" disabled={busy || platform === "LocalMusic"}>
-        <Reveal open={platform !== "LocalMusic"}><div className="segmented import-kinds" role="group" aria-label={t("内容类型")}>
+        <Reveal open={platform !== "LocalMusic"}><div className="import-kinds-frame"><div className="segmented import-kinds" role="group" aria-label={t("内容类型")}>
           {sourceKinds(platform).map((kind) => <button key={kind}
             type="button"
             disabled={busy}
@@ -125,7 +126,7 @@ export function ImportDialog({
           >
             {sourceKindLabel(kind)}
           </button>)}
-        </div>
+        </div></div>
         </Reveal></fieldset>
         <fieldset className="motion-fields" disabled={busy || platform !== "LocalMusic"}>
         <Reveal open={platform === "LocalMusic"}><div className="local-audio-input">
@@ -182,6 +183,7 @@ export function ImportDialog({
             />
             {busy ? t("添加中") : t("添加歌单")}
           </button>
+        </div>
         </div>
       </form>
     </div>

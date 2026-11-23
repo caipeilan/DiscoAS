@@ -3,8 +3,9 @@ import { createPortal } from "react-dom";
 import { placePopover } from "./popoverPlacement";
 
 /** Body portal avoids clipped controls at large interface scales and scroll edges. */
-export function Popover({ anchor, children, onClose, matchWidth = true, className = "", id, role, open = true, interactive = true }: {
+export function Popover({ anchor, topBoundary, children, onClose, matchWidth = true, className = "", id, role, open = true, interactive = true }: {
   anchor: HTMLElement;
+  topBoundary?: HTMLElement;
   children: React.ReactNode;
   onClose: () => void;
   matchWidth?: boolean;
@@ -30,7 +31,8 @@ export function Popover({ anchor, children, onClose, matchWidth = true, classNam
         if (Number.isFinite(value) && value > 0) scale *= value;
       }
       const colors = Object.fromEntries(["--accent", "--accent-hover", "--accent-text", "--accent-soft", "--accent-selected", "--accent-border", "--accent-focus", "--accent-muted", "--accent-surface", "--accent-selected-surface", "--accent-shadow"].map((key) => [key, computed.getPropertyValue(key)]));
-      const placed = placePopover(rect, { width: window.innerWidth, height: window.innerHeight }, matchWidth ? Math.max(rect.width, 130 * scale) : 270 * scale, scale);
+      const top = Math.max(0, topBoundary?.getBoundingClientRect().top ?? 0);
+      const placed = placePopover(rect, { width: window.innerWidth, height: window.innerHeight, top }, matchWidth ? Math.max(rect.width, 130 * scale) : 270 * scale, scale);
       setStyle({ ...colors, ...placed, "--popover-offset": "bottom" in placed ? "4px" : "-4px", fontSize: `${parseFloat(computed.fontSize) * scale}px`, fontFamily: computed.fontFamily } as React.CSSProperties & { "--popover-offset": string });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); };
@@ -46,6 +48,7 @@ export function Popover({ anchor, children, onClose, matchWidth = true, classNam
     position();
     const observer = new ResizeObserver(schedule);
     observer.observe(anchor);
+    if (topBoundary) observer.observe(topBoundary);
     const fieldset = anchor.closest("fieldset");
     const changes = new MutationObserver(schedule);
     if (fieldset) changes.observe(fieldset, { attributes: true, attributeFilter: ["disabled"] });
@@ -63,6 +66,6 @@ export function Popover({ anchor, children, onClose, matchWidth = true, classNam
       document.removeEventListener("focusin", outside, true);
       window.removeEventListener("keydown", escape, true);
     };
-  }, [anchor, matchWidth, onClose, interactive]);
+  }, [anchor, topBoundary, matchWidth, onClose, interactive]);
   return createPortal(<div ref={panel} className={`control-popover ${className}`} data-dialog-owner={anchor.closest('[role="dialog"]')?.getAttribute('aria-labelledby') ?? undefined} data-open={open} inert={!interactive} aria-hidden={!interactive || undefined} style={style} id={id} role={role}>{children}</div>, document.body);
 }

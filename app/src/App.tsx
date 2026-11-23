@@ -179,6 +179,7 @@ export default function App() {
     advance={advanceGuide} back={() => { void backGuide().catch(reportGuideError); }} />;
   const body = (
     <div className="app-shell">
+      <div className="app-workspace">
       <Sidebar page={page} playlistCount={state.sources.length} navigate={navigate} version={state.version}
         settingsCategory={settingsCategory} selectSettingsCategory={setSettingsCategory} />
       <main
@@ -221,6 +222,7 @@ export default function App() {
         {page === "about" && <About version={state.version} />}
         </div>
       </main>
+      </div>
       <Presence show={!!toast}>{toast && <Toast toast={toast} dismiss={dismiss} />}</Presence>
       <Presence show={library.importing} modal>
         <ImportDialog busy={busy === "import"} initialPaths={library.droppedPaths} close={library.closeImport} submit={library.importPlaylist}
@@ -231,7 +233,7 @@ export default function App() {
         <RemoveDialog remove={library.remove} busy={busy} close={library.closeRemove} confirm={library.removePlaylist} />
       )}</Presence>
       <Presence show={!!library.editing} modal>{library.editing && <RemarkDialog key={`${library.editing.platform}-${library.editing.sourceKind}-${library.editing.sourceId}`} entry={library.editing} busy={busy === "remark"} close={library.closeRemark} save={library.saveRemark} />}</Presence>
-      {!library.importing && guideView}
+      {!library.importing && guideStep !== 7 && guideView}
     </div>
   );
   return <MainWindowFrame skin={guiDraft.skin} onError={(error) => notice(errorText(error), true)}>{body}</MainWindowFrame>;
